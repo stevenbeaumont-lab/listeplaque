@@ -314,6 +314,9 @@ function exportVehiclesToExcel(vehicles) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-export-${stamp}.xlsx`);
 }
+function normalizeOrderNum(s) {
+  return String(s || "").trim().replace(/^0+(?=\d)/, "");
+}
 function groupCount(arr, keyFn) {
   const map = {};
   arr.forEach((x) => {
@@ -1542,7 +1545,7 @@ function AccidentManualList({ dark, accidents, vehicles, vendorName, onAdd, onRe
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
             {accidents.map((a) => {
-              const match = vehicles.find((v) => v.orderNumber === a.orderNumber);
+              const match = vehicles.find((v) => normalizeOrderNum(v.orderNumber) === normalizeOrderNum(a.orderNumber));
               return (
                 <li key={a.id} className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-rose-50/40"}`}>
                   {match ? <VehicleTypeIcon vu={match.vu} dark={dark} /> : <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${dark ? "bg-zinc-800 text-zinc-500" : "bg-stone-100 text-stone-400"}`}><AlertTriangle size={14} /></span>}
@@ -1831,20 +1834,24 @@ export default function App() {
     const stockByOrder = new Map(stockData.map((s) => [s.orderNumber, s]));
     const dossierByOrder = new Map();
     dossiersData.forEach((d) => {
-      if (d.numeroUsine && !dossierByOrder.has(d.numeroUsine)) dossierByOrder.set(d.numeroUsine, d);
+      const key = normalizeOrderNum(d.numeroUsine);
+      if (key && !dossierByOrder.has(key)) dossierByOrder.set(key, d);
     });
-    const accidentedOrders = new Set(accidents.map((a) => a.orderNumber));
+    const accidentedOrders = new Set(accidents.map((a) => normalizeOrderNum(a.orderNumber)));
     return ordersData
-      .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null, dossierByOrder.get(o.orderNumber) || null, accidentedOrders.has(o.orderNumber)))
+      .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null, dossierByOrder.get(normalizeOrderNum(o.orderNumber)) || null, accidentedOrders.has(normalizeOrderNum(o.orderNumber))))
       .filter((v) => v.baseStatus !== "livre_client");
   }, [ordersData, stockData, overlays, dossiersData, accidents]);
 
   const dossiers = useMemo(() => {
-    const vehicleByOrder = new Map(vehicles.map((v) => [v.orderNumber, v]));
+    const vehicleByOrder = new Map(vehicles.map((v) => [normalizeOrderNum(v.orderNumber), v]));
     const allVehicleByOrder = new Map(
-      ordersData.map((o) => [o.orderNumber, buildVehicle(o, new Map(stockData.map((s) => [s.orderNumber, s])).get(o.orderNumber) || null, overlays[o.orderNumber] || null)])
+      ordersData.map((o) => [normalizeOrderNum(o.orderNumber), buildVehicle(o, new Map(stockData.map((s) => [s.orderNumber, s])).get(o.orderNumber) || null, overlays[o.orderNumber] || null)])
     );
-    return dossiersData.map((d) => ({ ...d, vehicle: vehicleByOrder.get(d.numeroUsine) || allVehicleByOrder.get(d.numeroUsine) || null }));
+    return dossiersData.map((d) => {
+      const key = normalizeOrderNum(d.numeroUsine);
+      return { ...d, vehicle: vehicleByOrder.get(key) || allVehicleByOrder.get(key) || null };
+    });
   }, [dossiersData, vehicles, ordersData, stockData, overlays]);
 
   const expandedOrder = selected?.orderNumber ?? null;
