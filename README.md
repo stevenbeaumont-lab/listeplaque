@@ -58,3 +58,4 @@ Ouvrez l'adresse ci-dessus, entrez le code **Legrand27**, importez vos deux fich
 - La règle Supabase créée ci-dessus autorise **n'importe qui possédant la clé publique** à lire/écrire dans la table `parclive_data`. C'est cohérent avec le niveau de protection actuel (le code d'accès), mais si vous voulez une vraie sécurité plus tard, il faudra une authentification réelle côté Supabase (email/mot de passe par vendeur) — je peux vous accompagner sur cette évolution si besoin.
 # rebuild trigger 1783007722
 <!-- retry 1783020136 -->
+<!-- retry2 1783020289 -->
