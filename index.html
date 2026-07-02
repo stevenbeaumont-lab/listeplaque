@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ParcLive</title>
+<link rel="icon" href="data:,">
+
+<!-- Tailwind (no build step — generates styles on the fly from class names) -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Import map: lets the browser resolve bare specifiers like "react" to real ES modules -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    "recharts": "https://esm.sh/recharts@2.12.7?deps=react@18.3.1,react-dom@18.3.1",
+    "lucide-react": "https://esm.sh/lucide-react@0.383.0?deps=react@18.3.1",
+    "xlsx": "https://esm.sh/xlsx@0.18.5",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"
+  }
+}
+</script>
+
+<!-- Babel standalone: transforms the JSX in app.jsx directly in the browser -->
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+
+<style>
+  html, body { height: 100%; margin: 0; background: #fafaf9; }
+  #root { min-height: 100%; }
+  #boot-fallback { display: flex; align-items: center; justify-content: center; height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; color: #78716c; font-size: 14px; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div id="boot-fallback">Chargement de ParcLive…</div>
+  </div>
+
+  <script type="text/babel" data-type="module" data-presets="react" src="./app.jsx"></script>
+</body>
+</html>
