@@ -775,19 +775,27 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
             </div>
             <div className={`truncate text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={meta}>{meta}</div>
           </div>
-          <div className="shrink-0 text-right">
+          <div className="flex shrink-0 flex-col items-end gap-1">
             <StatusBadge vehicle={v} dark={dark} />
             {v.baseStatus === "vendu" && (
-              <div className={`mt-1 flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={venduLabel(v)}>
+              <div className={`flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={venduLabel(v)}>
                 <span className="max-w-[130px] truncate">{venduLabel(v)}</span>
                 <User size={10} className="shrink-0" />
               </div>
             )}
             {v.baseStatus === "reserve" && v.reservation?.vendeur && (
-              <div className={`mt-1 flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
+              <div className={`flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
                 <span className="max-w-[100px] truncate">{v.reservation.vendeur}</span>
                 <User size={10} className="shrink-0" />
               </div>
+            )}
+            {v.baseStatus === "disponible" && onQuickReserve && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-amber-500 px-2 py-1 text-[11px] font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+              >
+                <Bookmark size={10} /> Réserver
+              </button>
             )}
           </div>
         </div>
@@ -796,18 +804,8 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
       <td className={`truncate px-2 py-2 font-medium tabular-nums ${dark ? "text-zinc-200" : "text-stone-700"}`}>
         {v.inStock ? `${v.joursStock} j` : (fmtRange(v.estRange) || "—")}
       </td>
-      <td className="px-2 py-2 pr-4 text-right">
-        <span className="inline-flex items-center justify-end gap-2">
-          {v.baseStatus === "disponible" && onQuickReserve && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
-              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-amber-500 px-2 py-1 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400"
-            >
-              <Bookmark size={11} /> Réserver
-            </button>
-          )}
-          {hasAlert && <AlertTriangle size={14} className="inline shrink-0 text-rose-500" />}
-        </span>
+      <td className="whitespace-nowrap px-2 py-2 pr-4 text-right">
+        {hasAlert && <AlertTriangle size={14} className="inline text-rose-500" />}
       </td>
     </tr>
   );
@@ -861,11 +859,11 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
       <div className="max-h-[640px] overflow-auto">
         <table className="w-full table-fixed text-sm">
           <colgroup>
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "37%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "20%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "40%" }} />
             <col style={{ width: "17%" }} />
+            <col style={{ width: "24%" }} />
+            <col style={{ width: "9%" }} />
           </colgroup>
           <thead>
             <tr>
