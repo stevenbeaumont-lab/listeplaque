@@ -2342,7 +2342,7 @@ export default function App() {
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-2xl border font-sans ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}
+      className={`mx-auto w-full max-w-[1500px] overflow-hidden rounded-2xl border font-sans ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}
       style={{
         minHeight: 640,
         backgroundImage: dark
