@@ -791,19 +791,21 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
               <User size={10} className="shrink-0" /> <span className="truncate">{v.reservation.vendeur}</span>
             </div>
           )}
-          {v.baseStatus === "disponible" && onQuickReserve && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
-              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-amber-500 px-2 py-1 text-[11px] font-bold text-zinc-950 transition-colors hover:bg-amber-400"
-            >
-              <Bookmark size={10} /> Réserver
-            </button>
-          )}
         </div>
       </td>
       <td className={`truncate px-2 py-2 font-mono text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={v.vin}>{v.vin || "—"}</td>
       <td className={`truncate px-2 py-2 font-medium tabular-nums ${dark ? "text-zinc-200" : "text-stone-700"}`}>
         {v.inStock ? `${v.joursStock} j` : (fmtRange(v.estRange) || "—")}
+      </td>
+      <td className="whitespace-nowrap px-2 py-2 pr-4 text-right">
+        {v.baseStatus === "disponible" && onQuickReserve && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-amber-500 px-2 py-1 text-[11px] font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+          >
+            <Bookmark size={10} /> Réserver
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -858,10 +860,11 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col style={{ width: "9%" }} />
-            <col style={{ width: "34%" }} />
-            <col style={{ width: "19%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "22%" }} />
+            <col style={{ width: "31%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "14%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -870,6 +873,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
               <th className={`${thCls} px-2`}>Statut</th>
               <th className={`${thCls} px-2`}>VIN</th>
               <th className={`${thCls} px-2`}>Stock / Arrivée</th>
+              <th className={`${thCls} px-2`}></th>
             </tr>
           </thead>
           <tbody>
@@ -880,7 +884,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
                   <VehicleRow v={v} dark={dark} onSelect={onSelect} expanded={isOpen} zebra={i % 2 === 1} onQuickReserve={onQuickReserve} />
                   {isOpen && (
                     <tr>
-                      <td colSpan={5} className="p-0">
+                      <td colSpan={6} className="p-0">
                         <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} />
                       </td>
                     </tr>
@@ -890,7 +894,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
             })}
             {vehicles.length === 0 && (
               <tr>
-                <td colSpan={5} className={`px-4 py-10 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                <td colSpan={6} className={`px-4 py-10 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
                   Aucun véhicule ne correspond aux filtres.
                 </td>
               </tr>
