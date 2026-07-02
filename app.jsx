@@ -334,7 +334,7 @@ function fmtRange(range) {
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
-function buildVehicle(order, stock, overlay, dossier) {
+function buildVehicle(order, stock, overlay, dossier, isAccidented) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
   const inStock = !!stock;
@@ -346,6 +346,7 @@ function buildVehicle(order, stock, overlay, dossier) {
 
   let baseStatus;
   if (deliveredToClient) baseStatus = "livre_client";
+  else if (isAccidented) baseStatus = "hs";
   else if (vendu) baseStatus = "vendu";
   else if (!order.vin) baseStatus = "non_serialise";
   else if (!inStock) baseStatus = "commande";
@@ -418,6 +419,7 @@ const STATUS_META = {
   disponible: { label: "Disponible", dot: "bg-emerald-500", text: "text-emerald-800", bg: "bg-emerald-100", textDark: "text-emerald-300", bgDark: "bg-emerald-500/20" },
   reserve: { label: "Réservé", dot: "bg-amber-500", text: "text-amber-800", bg: "bg-amber-100", textDark: "text-amber-300", bgDark: "bg-amber-500/20" },
   vendu: { label: "Vendu", dot: "bg-violet-600", text: "text-violet-800", bg: "bg-violet-100", textDark: "text-violet-300", bgDark: "bg-violet-500/20" },
+  hs: { label: "HS", dot: "bg-rose-600", text: "text-rose-800", bg: "bg-rose-100", textDark: "text-rose-300", bgDark: "bg-rose-500/20" },
   commande: { label: "Commandé", dot: "bg-zinc-400", text: "text-zinc-700", bg: "bg-zinc-200", textDark: "text-zinc-300", bgDark: "bg-zinc-500/20" },
   non_serialise: { label: "Non sérialisé", dot: "bg-indigo-500", text: "text-indigo-800", bg: "bg-indigo-100", textDark: "text-indigo-300", bgDark: "bg-indigo-500/20" },
   livre_client: { label: "Livré client", dot: "bg-zinc-600", text: "text-zinc-700", bg: "bg-zinc-200", textDark: "text-zinc-200", bgDark: "bg-zinc-600/20" },
@@ -597,7 +599,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
             <div>
               <div className={labelCls}>Statut</div>
               <div className="flex flex-wrap gap-1.5">
-                {[["all", "Tous"], ["disponible", "Disponible"], ["reserve", "Réservé"], ["vendu", "Vendu"], ["commande", "Commandé"], ["non_serialise", "Non sérialisé"]].map(([val, lbl]) => (
+                {[["all", "Tous"], ["disponible", "Disponible"], ["reserve", "Réservé"], ["vendu", "Vendu"], ["commande", "Commandé"], ["non_serialise", "Non sérialisé"], ["hs", "HS"]].map(([val, lbl]) => (
                   <button key={val} onClick={() => setFilters((f) => ({ ...f, statut: val }))} className={chipCls(filters.statut === val)}>{lbl}</button>
                 ))}
               </div>
@@ -1831,10 +1833,11 @@ export default function App() {
     dossiersData.forEach((d) => {
       if (d.numeroUsine && !dossierByOrder.has(d.numeroUsine)) dossierByOrder.set(d.numeroUsine, d);
     });
+    const accidentedOrders = new Set(accidents.map((a) => a.orderNumber));
     return ordersData
-      .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null, dossierByOrder.get(o.orderNumber) || null))
+      .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null, dossierByOrder.get(o.orderNumber) || null, accidentedOrders.has(o.orderNumber)))
       .filter((v) => v.baseStatus !== "livre_client");
-  }, [ordersData, stockData, overlays, dossiersData]);
+  }, [ordersData, stockData, overlays, dossiersData, accidents]);
 
   const dossiers = useMemo(() => {
     const vehicleByOrder = new Map(vehicles.map((v) => [v.orderNumber, v]));
@@ -1864,7 +1867,7 @@ export default function App() {
       else if (v.joursStock <= 30) buckets[2].count++;
       else buckets[3].count++;
     });
-    const STATUS_LABELS = { disponible: "Disponible", reserve: "Réservé", vendu: "Vendu", commande: "Commandé", non_serialise: "Non sérialisé" };
+    const STATUS_LABELS = { disponible: "Disponible", reserve: "Réservé", vendu: "Vendu", commande: "Commandé", non_serialise: "Non sérialisé", hs: "HS" };
     return {
       total: vehicles.length,
       vp: vehicles.filter((v) => !v.vu).length,
@@ -1872,6 +1875,7 @@ export default function App() {
       disponibles: vehicles.filter((v) => v.baseStatus === "disponible").length,
       reserves: vehicles.filter((v) => v.baseStatus === "reserve").length,
       vendus: vehicles.filter((v) => v.baseStatus === "vendu").length,
+      hsCount: vehicles.filter((v) => v.baseStatus === "hs").length,
       arrivees: vehicles.filter((v) => v.inStock && v.joursStock <= 3).length,
       nonSerialises: vehicles.filter((v) => v.baseStatus === "non_serialise").length,
       electriques: vehicles.filter((v) => v.energy === "Électrique").length,
@@ -2015,6 +2019,7 @@ export default function App() {
                 <KPICard dark={dark} label="Disponibles" value={stats.disponibles} />
                 <KPICard dark={dark} label="Réservés" value={stats.reserves} />
                 <KPICard dark={dark} label="Vendus" value={stats.vendus} />
+                <KPICard dark={dark} label="HS" value={stats.hsCount} />
                 <KPICard dark={dark} label="Arrivés (≤3j)" value={stats.arrivees} />
                 <KPICard dark={dark} label="Non sérialisés" value={stats.nonSerialises} />
                 <KPICard dark={dark} label="Alertes actives" value={stats.activeAlerts} />
