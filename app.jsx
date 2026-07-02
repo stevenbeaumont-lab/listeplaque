@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
 
 // ---------------------------------------------------------------------------
@@ -831,6 +832,147 @@ function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vend
   );
 }
 
+const DONUT_COLORS_LIGHT = ["#D97706", "#0284C7", "#059669", "#DB2777", "#7C3AED", "#64748B"];
+const DONUT_COLORS_DARK = ["#FBBF24", "#38BDF8", "#34D399", "#F472B6", "#A78BFA", "#94A3B8"];
+
+function DonutCard({ dark, title, data }) {
+  const colors = dark ? DONUT_COLORS_DARK : DONUT_COLORS_LIGHT;
+  const gridColor = dark ? "#27272A" : "#E7E5E4";
+  const total = data.reduce((n, d) => n + d.count, 0);
+  return (
+    <div className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <div className={`mb-3 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>{title}</div>
+      {total === 0 ? (
+        <div className={`flex h-[160px] items-center justify-center text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune donnée</div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <ResponsiveContainer width="46%" height={150}>
+            <PieChart>
+              <Pie data={data} dataKey="count" nameKey="name" innerRadius={38} outerRadius={68} paddingAngle={2} strokeWidth={0}>
+                {data.map((_, i) => (
+                  <Cell key={i} fill={colors[i % colors.length]} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={{ background: dark ? "#18181B" : "#fff", border: `1px solid ${gridColor}`, borderRadius: 10, fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <ul className="min-w-0 flex-1 space-y-1.5">
+            {data.map((d, i) => (
+              <li key={d.name} className="flex items-center gap-2 text-xs">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colors[i % colors.length] }} />
+                <span className={`min-w-0 flex-1 truncate ${dark ? "text-zinc-300" : "text-stone-600"}`}>{d.name}</span>
+                <span className={`shrink-0 font-semibold tabular-nums ${dark ? "text-zinc-100" : "text-stone-800"}`}>{d.count}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BarListCard({ dark, title, data, color, layout }) {
+  const gridColor = dark ? "#27272A" : "#E7E5E4";
+  const tickColor = dark ? "#71717A" : "#A8A29E";
+  const tooltipStyle = { background: dark ? "#18181B" : "#fff", border: `1px solid ${gridColor}`, borderRadius: 10, fontSize: 12 };
+  return (
+    <div className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <div className={`mb-3 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>{title}</div>
+      {data.every((d) => d.count === 0) ? (
+        <div className={`flex h-[180px] items-center justify-center text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune donnée</div>
+      ) : layout === "vertical" ? (
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={data} layout="vertical" margin={{ left: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
+            <XAxis type="number" tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <YAxis type="category" dataKey="name" tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} width={100} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }} />
+            <Bar dataKey="count" fill={color} radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+            <XAxis dataKey="name" tick={{ fill: tickColor, fontSize: 11 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+            <YAxis tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }} />
+            <Bar dataKey="count" fill={color} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+function AlertsSummaryCard({ dark, vehicles }) {
+  const counts = {};
+  vehicles.forEach((v) => v.alerts.forEach((a) => { counts[a.label] = (counts[a.label] || 0) + 1; }));
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return (
+    <div className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <div className={`mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+        <AlertTriangle size={13} /> Alertes actives
+      </div>
+      {entries.length === 0 ? (
+        <div className={`flex h-[100px] items-center justify-center text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune alerte active</div>
+      ) : (
+        <ul className="space-y-2">
+          {entries.map(([label, count]) => (
+            <li key={label} className="flex items-center justify-between gap-2 text-sm">
+              <span className={dark ? "text-zinc-300" : "text-stone-600"}>{label}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${dark ? "bg-rose-500/20 text-rose-300" : "bg-rose-100 text-rose-800"}`}>{count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function TrendChart({ dark }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const since = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+        const { data: rows, error } = await supabase.from("parclive_snapshots").select("date, stats").gte("date", since).order("date", { ascending: true });
+        if (error || !rows) { setData([]); return; }
+        setData(rows.map((r) => ({ date: r.date.slice(5), total: r.stats.total ?? 0, disponibles: r.stats.disponibles ?? 0, avgJoursStock: r.stats.avgJoursStock ?? 0 })));
+      } catch (e) {
+        setData([]);
+      }
+    })();
+  }, []);
+  const gridColor = dark ? "#27272A" : "#E7E5E4";
+  const tickColor = dark ? "#71717A" : "#A8A29E";
+  return (
+    <div className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <div className={`mb-3 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Évolution du parc (30 derniers jours)</div>
+      {data === null ? (
+        <div className="flex h-[220px] items-center justify-center">
+          <RefreshCw size={18} className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} />
+        </div>
+      ) : data.length < 2 ? (
+        <div className={`flex h-[220px] items-center justify-center px-6 text-center text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>
+          Pas encore assez d'historique pour tracer une courbe — un point est enregistré chaque jour, repassez dans quelques jours.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+            <XAxis dataKey="date" tick={{ fill: tickColor, fontSize: 11 }} axisLine={{ stroke: gridColor }} tickLine={false} />
+            <YAxis tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip contentStyle={{ background: dark ? "#18181B" : "#fff", border: `1px solid ${gridColor}`, borderRadius: 10, fontSize: 12 }} />
+            <Line type="monotone" dataKey="total" stroke={dark ? "#FBBF24" : "#D97706"} strokeWidth={2} dot={false} name="Total véhicules" />
+            <Line type="monotone" dataKey="disponibles" stroke={dark ? "#34D399" : "#059669"} strokeWidth={2} dot={false} name="Disponibles" />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 function ChartsRow({ dark, stats }) {
   const gridColor = dark ? "#27272A" : "#E7E5E4";
   const tickColor = dark ? "#71717A" : "#A8A29E";
@@ -1478,20 +1620,47 @@ export default function App() {
     setSelected((prev) => (prev && prev.orderNumber === v.orderNumber ? null : v));
   }
 
-  const stats = useMemo(
-    () => ({
+  const stats = useMemo(() => {
+    const inStockList = vehicles.filter((v) => v.inStock);
+    const avgJoursStock = inStockList.length ? Math.round(inStockList.reduce((n, v) => n + v.joursStock, 0) / inStockList.length) : 0;
+    const buckets = [
+      { name: "0-7j", count: 0 },
+      { name: "7-15j", count: 0 },
+      { name: "15-30j", count: 0 },
+      { name: "30j+", count: 0 },
+    ];
+    inStockList.forEach((v) => {
+      if (v.joursStock <= 7) buckets[0].count++;
+      else if (v.joursStock <= 15) buckets[1].count++;
+      else if (v.joursStock <= 30) buckets[2].count++;
+      else buckets[3].count++;
+    });
+    const STATUS_LABELS = { disponible: "Disponible", reserve: "Réservé", commande: "Commandé", non_serialise: "Non sérialisé" };
+    return {
       total: vehicles.length,
       vp: vehicles.filter((v) => !v.vu).length,
       vu: vehicles.filter((v) => v.vu).length,
       disponibles: vehicles.filter((v) => v.baseStatus === "disponible").length,
       reserves: vehicles.filter((v) => v.baseStatus === "reserve").length,
       arrivees: vehicles.filter((v) => v.inStock && v.joursStock <= 3).length,
+      nonSerialises: vehicles.filter((v) => v.baseStatus === "non_serialise").length,
+      electriques: vehicles.filter((v) => v.energy === "Électrique").length,
+      hybridesRecharge: vehicles.filter((v) => v.energy === "Hybride rechargeable").length,
+      activeAlerts: vehicles.reduce((n, v) => n + v.alerts.length, 0),
+      avgJoursStock,
       dataWarnings: vehicles.filter((v) => v.dataWarning).length,
       byTypeVente: groupCount(vehicles, (v) => v.typeVente),
       byVendeur: groupCount(vehicles.filter((v) => v.reservation?.vendeur), (v) => v.reservation.vendeur),
-    }),
-    [vehicles]
-  );
+      byStatus: groupCount(vehicles, (v) => STATUS_LABELS[v.baseStatus] || v.baseStatus).map((d) => ({ ...d, name: d.name === "—" ? "Autre" : d.name })),
+      byConcession: groupCount(vehicles, (v) => v.concession),
+      byType: [
+        { name: "VP", count: vehicles.filter((v) => !v.vu).length },
+        { name: "VU", count: vehicles.filter((v) => v.vu).length },
+      ],
+      stockBuckets: buckets,
+      topModels: groupCount(vehicles, (v) => v.model).slice(0, 5),
+    };
+  }, [vehicles]);
 
   const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
   const typeVentes = useMemo(() => [...new Set(vehicles.map((v) => v.typeVente))].filter(Boolean).sort(), [vehicles]);
@@ -1531,6 +1700,35 @@ export default function App() {
   }, [vehicles, filters, sortBy]);
 
   const totalAlerts = useMemo(() => vehicles.reduce((n, v) => n + v.alerts.length, 0), [vehicles]);
+
+  useEffect(() => {
+    if (!unlocked || vehicles.length === 0) return;
+    const todayKey = new Date().toISOString().slice(0, 10);
+    let lastSnap = null;
+    try { lastSnap = localStorage.getItem("dsr:last-snapshot-date"); } catch (e) {}
+    if (lastSnap === todayKey) return;
+    (async () => {
+      try {
+        const { error } = await supabase.from("parclive_snapshots").upsert({
+          date: todayKey,
+          stats: {
+            total: stats.total,
+            vp: stats.vp,
+            vu: stats.vu,
+            disponibles: stats.disponibles,
+            reserves: stats.reserves,
+            nonSerialises: stats.nonSerialises,
+            avgJoursStock: stats.avgJoursStock,
+            electriques: stats.electriques,
+            hybridesRecharge: stats.hybridesRecharge,
+          },
+        });
+        if (!error) { try { localStorage.setItem("dsr:last-snapshot-date", todayKey); } catch (e) {} }
+      } catch (e) {
+        console.error("snapshot save failed", e);
+      }
+    })();
+  }, [unlocked, vehicles.length, stats.total, stats.avgJoursStock]);
 
   return (
     <div
@@ -1587,7 +1785,31 @@ export default function App() {
                 <KPICard dark={dark} label="Disponibles" value={stats.disponibles} />
                 <KPICard dark={dark} label="Réservés" value={stats.reserves} />
                 <KPICard dark={dark} label="Arrivés (≤3j)" value={stats.arrivees} />
+                <KPICard dark={dark} label="Non sérialisés" value={stats.nonSerialises} />
+                <KPICard dark={dark} label="Alertes actives" value={stats.activeAlerts} />
+                <KPICard dark={dark} label="Jours de stock moy." value={stats.avgJoursStock} />
+                <KPICard dark={dark} label="Électriques" value={stats.electriques} />
+                <KPICard dark={dark} label="Hybrides rechargeables" value={stats.hybridesRecharge} />
               </div>
+
+              <div className="grid gap-4 lg:grid-cols-3">
+                <DonutCard dark={dark} title="Par statut" data={stats.byStatus} />
+                <DonutCard dark={dark} title="VP / VU" data={stats.byType} />
+                <DonutCard dark={dark} title="Par concession" data={stats.byConcession} />
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <BarListCard dark={dark} title="Ancienneté du stock" data={stats.stockBuckets} color={dark ? "#FBBF24" : "#D97706"} />
+                <BarListCard dark={dark} title="Top 5 modèles" data={stats.topModels} color={dark ? "#38BDF8" : "#0284C7"} layout="vertical" />
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-3">
+                <AlertsSummaryCard dark={dark} vehicles={vehicles} />
+                <div className="lg:col-span-2">
+                  <TrendChart dark={dark} />
+                </div>
+              </div>
+
               <ChartsRow dark={dark} stats={stats} />
             </>
           ) : tab === "accidentes" ? (
