@@ -57,3 +57,4 @@ Ouvrez l'adresse ci-dessus, entrez le code **Legrand27**, importez vos deux fich
 - Le code **Legrand27** et la clé Supabase sont visibles dans le code source de la page (n'importe qui peut les lire via les outils de développement du navigateur). Ça filtre les visiteurs occasionnels, pas un accès malveillant déterminé.
 - La règle Supabase créée ci-dessus autorise **n'importe qui possédant la clé publique** à lire/écrire dans la table `parclive_data`. C'est cohérent avec le niveau de protection actuel (le code d'accès), mais si vous voulez une vraie sécurité plus tard, il faudra une authentification réelle côté Supabase (email/mot de passe par vendeur) — je peux vous accompagner sur cette évolution si besoin.
 # rebuild trigger 1783007722
+<!-- retry 1783020136 -->
