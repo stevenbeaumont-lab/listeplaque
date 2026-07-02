@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -449,6 +449,15 @@ const STATUS_META = {
   non_serialise: { label: "Non sérialisé", dot: "bg-indigo-500", text: "text-indigo-800", bg: "bg-indigo-100", textDark: "text-indigo-300", bgDark: "bg-indigo-500/20" },
   livre_client: { label: "Livré client", dot: "bg-zinc-600", text: "text-zinc-700", bg: "bg-zinc-200", textDark: "text-zinc-200", bgDark: "bg-zinc-600/20" },
 };
+const STATUS_ACCENT = {
+  disponible: "#10B981",
+  reserve: "#F59E0B",
+  vendu: "#7C3AED",
+  hs: "#E11D48",
+  commande: "#A1A1AA",
+  non_serialise: "#6366F1",
+  livre_client: "#71717A",
+};
 
 // ---------------------------------------------------------------------------
 // Small presentational components
@@ -745,7 +754,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
       className={`group cursor-pointer border-t transition-colors ${baseBg} ${
         expanded ? (dark ? "border-zinc-800 bg-zinc-900/70" : "border-stone-200 bg-amber-50/60") : dark ? "border-zinc-800 hover:bg-zinc-800/70" : "border-stone-200 hover:bg-amber-50/40"
       }`}
-      style={{ boxShadow: `inset 4px 0 0 ${hasAlert ? "#E11D48" : "transparent"}` }}
+      style={{ boxShadow: `inset 4px 0 0 ${hasAlert ? "#E11D48" : STATUS_ACCENT[v.baseStatus] || "transparent"}` }}
     >
       <td className="px-3 py-2 text-center">
         <VehicleTypeIcon vu={v.vu} dark={dark} size="sm" />
@@ -804,9 +813,9 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
   );
 }
 
-function VehiclesHeader({ dark, count, totalCount }) {
+function VehiclesHeader({ dark, count, totalCount, viewMode, setViewMode }) {
   return (
-    <div className="flex items-baseline justify-between">
+    <div className="flex flex-wrap items-baseline justify-between gap-3">
       <div>
         <h2 className={`font-display text-2xl font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>Véhicules</h2>
         <p className={`mt-0.5 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
@@ -820,6 +829,26 @@ function VehiclesHeader({ dark, count, totalCount }) {
             </>
           )}
         </p>
+      </div>
+      <div className={`hidden items-center gap-1 rounded-lg border p-1 lg:inline-flex ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <button
+          onClick={() => setViewMode("table")}
+          title="Vue tableau"
+          className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+            viewMode === "table" ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+          }`}
+        >
+          <List size={15} />
+        </button>
+        <button
+          onClick={() => setViewMode("grid")}
+          title="Vue galerie"
+          className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+            viewMode === "grid" ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+          }`}
+        >
+          <LayoutGrid size={15} />
+        </button>
       </div>
     </div>
   );
@@ -890,7 +919,7 @@ function VehicleCard({ v, dark, onSelect, expanded, onQuickReserve }) {
       className={`cursor-pointer border p-3.5 shadow-sm transition-colors ${expanded ? "rounded-t-xl" : "rounded-xl"} ${
         expanded ? (dark ? "border-amber-500 bg-zinc-900/60" : "border-amber-400 bg-amber-50/50") : dark ? "border-zinc-800 bg-zinc-900/40 active:bg-zinc-800" : "border-stone-200 bg-white active:bg-stone-50"
       }`}
-      style={{ boxShadow: hasAlert ? "inset 4px 0 0 #E11D48" : undefined }}
+      style={{ boxShadow: `inset 4px 0 0 ${hasAlert ? "#E11D48" : STATUS_ACCENT[v.baseStatus] || "transparent"}` }}
     >
       <div className="flex items-start gap-3">
         <VehicleTypeIcon vu={v.vu} dark={dark} />
@@ -944,6 +973,31 @@ function VehicleCard({ v, dark, onSelect, expanded, onQuickReserve }) {
               <AlertTriangle size={10} /> {a.label}
             </span>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VehicleGrid({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, onQuickReserve }) {
+  if (vehicles.length === 0) {
+    return (
+      <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+        Aucun véhicule ne correspond aux filtres.
+      </div>
+    );
+  }
+  const expandedVehicle = vehicles.find((v) => v.orderNumber === expandedOrder);
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {vehicles.map((v) => (
+          <VehicleCard key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} onQuickReserve={onQuickReserve} />
+        ))}
+      </div>
+      {expandedVehicle && (
+        <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
+          <ExpandedDetail v={expandedVehicle} dark={dark} onClose={() => onSelect(expandedVehicle)} onSave={onSave} vendorName={vendorName} />
         </div>
       )}
     </div>
@@ -1968,6 +2022,8 @@ export default function App() {
     loadLocal("dsr:ui-filters", { concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", query: "" })
   );
   const [sortBy, setSortBy] = useState(() => loadLocal("dsr:ui-sort", "stock_desc"));
+  const [viewMode, setViewMode] = useState(() => loadLocal("dsr:ui-view", "table"));
+  useEffect(() => { saveLocal("dsr:ui-view", viewMode); }, [viewMode]);
 
   useEffect(() => { saveLocal("dsr:ui-tab", tab); }, [tab]);
   useEffect(() => { saveLocal("dsr:ui-filters", filters); }, [filters]);
@@ -2577,7 +2633,7 @@ export default function App() {
             <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} />
           ) : (
             <>
-              <VehiclesHeader dark={dark} count={filtered.length} totalCount={vehicles.length} />
+              <VehiclesHeader dark={dark} count={filtered.length} totalCount={vehicles.length} viewMode={viewMode} setViewMode={setViewMode} />
               <FilterBar
                 dark={dark}
                 filters={filters}
@@ -2590,7 +2646,11 @@ export default function App() {
                 onExport={() => exportVehiclesToExcel(filtered)}
               />
               <div className="hidden lg:block">
-                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
+                {viewMode === "grid" ? (
+                  <VehicleGrid dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
+                ) : (
+                  <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
+                )}
               </div>
               <div className="lg:hidden">
                 <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
