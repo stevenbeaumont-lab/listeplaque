@@ -186,6 +186,8 @@ const POWER_RE = /(\d{2,3})\s*(ch|cv)\b/i;
 function parseDescription(description) {
   const parts = (description || "").split(",").map((p) => p.trim()).filter(Boolean);
   const model = parts[0] || "";
+  const modelYearMatch = (parts[1] || "").match(/(\d{4}\.\d{2})/);
+  const modelYear = modelYearMatch ? modelYearMatch[1] : "";
   const bodyType = parts[2] || "";
   let colorIdx = -1;
   let uphIdx = -1;
@@ -227,10 +229,11 @@ function parseDescription(description) {
   const length = lengthMatch ? lengthMatch[0].toUpperCase() : "";
   const optionsStart = (uphIdx >= 0 ? uphIdx : Math.max(colorIdx, 0)) + 1;
   const options = parts.slice(optionsStart).filter(Boolean);
-  return { model, bodyType, trim, color, power, gearbox, energy, battery, length, options };
+  return { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options };
 }
 function displayModel(v) {
   const bits = [v.model];
+  if (v.modelYear) bits.push(`- ${v.modelYear}`);
   if (v.model === "Transit Custom") {
     const bt = (v.bodyType || "").toUpperCase().trim();
     if (bt.includes("KOMBI FG") || bt.includes("KOMBI-FG")) bits.push("Kombi FG");
@@ -294,7 +297,7 @@ function fmtRange(range) {
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
 function buildVehicle(order, stock, overlay) {
-  const { model, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
+  const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
   const inStock = !!stock;
   const deliveredToClient = /customer|livre client/i.test(order.localisation || "");
@@ -343,6 +346,7 @@ function buildVehicle(order, stock, overlay) {
   return {
     ...order,
     model,
+    modelYear,
     bodyType,
     trim,
     color,
