@@ -1974,6 +1974,7 @@ export default function App() {
     const stockByOrder = new Map(stockData.map((s) => [s.orderNumber, s]));
     const dossierByOrder = new Map();
     dossiersData.forEach((d) => {
+      if ((d.categorie || "").toUpperCase().trim() === "VD") return;
       const key = normalizeOrderNum(d.numeroUsine);
       if (key && !dossierByOrder.has(key)) dossierByOrder.set(key, d);
     });
@@ -1988,10 +1989,12 @@ export default function App() {
     const allVehicleByOrder = new Map(
       ordersData.map((o) => [normalizeOrderNum(o.orderNumber), buildVehicle(o, new Map(stockData.map((s) => [s.orderNumber, s])).get(o.orderNumber) || null, overlays[o.orderNumber] || null)])
     );
-    return dossiersData.map((d) => {
-      const key = normalizeOrderNum(d.numeroUsine);
-      return { ...d, vehicle: vehicleByOrder.get(key) || allVehicleByOrder.get(key) || null };
-    });
+    return dossiersData
+      .filter((d) => (d.categorie || "").toUpperCase().trim() !== "VD")
+      .map((d) => {
+        const key = normalizeOrderNum(d.numeroUsine);
+        return { ...d, vehicle: vehicleByOrder.get(key) || allVehicleByOrder.get(key) || null };
+      });
   }, [dossiersData, vehicles, ordersData, stockData, overlays]);
 
   const expandedOrder = selected?.orderNumber ?? null;
