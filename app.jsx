@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -478,14 +478,30 @@ function VehicleTypeIcon({ vu, dark, size }) {
   );
 }
 
-function KPICard({ label, value, dark }) {
+function KPICard({ label, value, dark, onClick, size }) {
+  const compact = size === "sm";
+  const Tag = onClick ? "button" : "div";
   return (
-    <div
-      className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}
+    <Tag
+      onClick={onClick}
+      className={`w-full rounded-2xl border text-left transition-colors ${compact ? "p-3" : "p-4"} ${
+        dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"
+      } ${onClick ? (dark ? "hover:border-amber-500/50 hover:bg-zinc-900 cursor-pointer" : "hover:border-amber-400 hover:bg-amber-50/30 cursor-pointer") : ""}`}
       style={dark ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" } : { boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
     >
-      <div className={`text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`}>{label}</div>
-      <div className={`font-display mt-1.5 text-3xl font-semibold tabular-nums ${dark ? "text-zinc-50" : "text-stone-900"}`}>{value}</div>
+      <div className={`font-semibold uppercase tracking-widest ${compact ? "text-[10px]" : "text-[11px]"} ${dark ? "text-zinc-500" : "text-stone-400"}`}>{label}</div>
+      <div className={`font-display mt-1 font-semibold tabular-nums ${compact ? "text-xl" : "text-3xl mt-1.5"} ${dark ? "text-zinc-50" : "text-stone-900"}`}>{value}</div>
+    </Tag>
+  );
+}
+function DashboardSection({ dark, icon: Icon, title, children }) {
+  return (
+    <div className="space-y-3">
+      <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+        <Icon size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+        {title}
+      </div>
+      {children}
     </div>
   );
 }
@@ -1098,44 +1114,6 @@ function TrendChart({ dark }) {
           </LineChart>
         </ResponsiveContainer>
       )}
-    </div>
-  );
-}
-
-function ChartsRow({ dark, stats }) {
-  const gridColor = dark ? "#27272A" : "#E7E5E4";
-  const tickColor = dark ? "#71717A" : "#A8A29E";
-  const tooltipStyle = { background: dark ? "#18181B" : "#fff", border: `1px solid ${gridColor}`, borderRadius: 10, fontSize: 12 };
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <div className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
-        <div className={`mb-3 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`}>Par type de vente</div>
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={stats.byTypeVente.slice(0, 8)}>
-            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-            <XAxis dataKey="name" tick={{ fill: tickColor, fontSize: 11 }} axisLine={{ stroke: gridColor }} tickLine={false} />
-            <YAxis tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: dark ? "rgba(251,191,36,0.06)" : "rgba(217,119,6,0.06)" }} />
-            <Bar dataKey="count" fill={dark ? "#FBBF24" : "#D97706"} radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      <div className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
-        <div className={`mb-3 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`}>Réservations par vendeur</div>
-        {stats.byVendeur.length === 0 ? (
-          <div className={`flex h-[180px] items-center justify-center text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune réservation pour l'instant</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={stats.byVendeur.slice(0, 8)} layout="vertical" margin={{ left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
-              <XAxis type="number" tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <YAxis type="category" dataKey="name" tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
-              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: dark ? "rgba(56,189,248,0.06)" : "rgba(2,132,199,0.06)" }} />
-              <Bar dataKey="count" fill={dark ? "#38BDF8" : "#0284C7"} radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
     </div>
   );
 }
@@ -2355,6 +2333,10 @@ export default function App() {
     setTab("vehicules");
     setSelected(v);
   }
+  function goToVehicles(patch) {
+    setTab("vehicules");
+    setFilters((f) => ({ ...f, concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", query: "", ...patch }));
+  }
 
   const stats = useMemo(() => {
     const inStockList = vehicles.filter((v) => v.inStock);
@@ -2524,43 +2506,66 @@ export default function App() {
           {tab === "logistique" ? (
             <LogisticsTab dark={dark} vehicles={vehicles} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
-            <>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-                <KPICard dark={dark} label="Total" value={stats.total} />
-                <KPICard dark={dark} label="VP" value={stats.vp} />
-                <KPICard dark={dark} label="VU" value={stats.vu} />
-                <KPICard dark={dark} label="Disponibles" value={stats.disponibles} />
-                <KPICard dark={dark} label="Réservés" value={stats.reserves} />
-                <KPICard dark={dark} label="Vendus" value={stats.vendus} />
-                <KPICard dark={dark} label="HS" value={stats.hsCount} />
-                <KPICard dark={dark} label="Arrivés (≤3j)" value={stats.arrivees} />
-                <KPICard dark={dark} label="Non sérialisés" value={stats.nonSerialises} />
-                <KPICard dark={dark} label="Alertes actives" value={stats.activeAlerts} />
-                <KPICard dark={dark} label="Jours de stock moy." value={stats.avgJoursStock} />
-                <KPICard dark={dark} label="Électriques" value={stats.electriques} />
-                <KPICard dark={dark} label="Hybrides rechargeables" value={stats.hybridesRecharge} />
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                <DonutCard dark={dark} title="Par statut" data={stats.byStatus} />
-                <DonutCard dark={dark} title="VP / VU" data={stats.byType} />
-                <DonutCard dark={dark} title="Par concession" data={stats.byConcession} />
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <BarListCard dark={dark} title="Ancienneté du stock" data={stats.stockBuckets} color={dark ? "#FBBF24" : "#D97706"} />
-                <BarListCard dark={dark} title="Top 5 modèles" data={stats.topModels} color={dark ? "#38BDF8" : "#0284C7"} layout="vertical" />
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                <AlertsSummaryCard dark={dark} vehicles={vehicles} />
-                <div className="lg:col-span-2">
-                  <TrendChart dark={dark} />
+            <div className="space-y-8">
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <h2 className={`font-display text-2xl font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>Tableau de bord</h2>
+                  <p className={`mt-0.5 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                    <span className={`font-display font-semibold ${dark ? "text-zinc-300" : "text-stone-600"}`}>{stats.total}</span> véhicules au total
+                    {lastSync && ` · synchronisé à ${lastSync.toLocaleTimeString("fr-FR")}`}
+                  </p>
                 </div>
               </div>
 
-              <ChartsRow dark={dark} stats={stats} />
-            </>
+              <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  <KPICard dark={dark} label="Total" value={stats.total} onClick={() => goToVehicles({ statut: "all" })} />
+                  <KPICard dark={dark} label="Disponibles" value={stats.disponibles} onClick={() => goToVehicles({ statut: "disponible" })} />
+                  <KPICard dark={dark} label="Réservés" value={stats.reserves} onClick={() => goToVehicles({ statut: "reserve" })} />
+                  <KPICard dark={dark} label="Vendus" value={stats.vendus} onClick={() => goToVehicles({ statut: "vendu" })} />
+                  <KPICard dark={dark} label="HS" value={stats.hsCount} onClick={() => goToVehicles({ statut: "hs" })} />
+                </div>
+                <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
+                  <KPICard dark={dark} size="sm" label="VP" value={stats.vp} onClick={() => goToVehicles({ vu: "vp" })} />
+                  <KPICard dark={dark} size="sm" label="VU" value={stats.vu} onClick={() => goToVehicles({ vu: "vu" })} />
+                  <KPICard dark={dark} size="sm" label="Commandé" value={stats.total - stats.disponibles - stats.reserves - stats.vendus - stats.hsCount - stats.nonSerialises} />
+                  <KPICard dark={dark} size="sm" label="Non sérialisés" value={stats.nonSerialises} onClick={() => goToVehicles({ statut: "non_serialise" })} />
+                  <KPICard dark={dark} size="sm" label="Arrivés ≤3j" value={stats.arrivees} />
+                  <KPICard dark={dark} size="sm" label="Alertes" value={stats.activeAlerts} />
+                  <KPICard dark={dark} size="sm" label="Stock moy." value={`${stats.avgJoursStock} j`} />
+                </div>
+              </DashboardSection>
+
+              <DashboardSection dark={dark} icon={Layers} title="Répartition">
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <DonutCard dark={dark} title="Par statut" data={stats.byStatus} />
+                  <DonutCard dark={dark} title="VP / VU" data={stats.byType} />
+                  <DonutCard dark={dark} title="Par concession" data={stats.byConcession} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <KPICard dark={dark} size="sm" label="Électriques" value={stats.electriques} />
+                  <KPICard dark={dark} size="sm" label="Hybrides rechargeables" value={stats.hybridesRecharge} />
+                </div>
+              </DashboardSection>
+
+              <DashboardSection dark={dark} icon={Users} title="Activité commerciale">
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <BarListCard dark={dark} title="Par type de vente" data={stats.byTypeVente.slice(0, 8)} color={dark ? "#FBBF24" : "#D97706"} />
+                  <BarListCard dark={dark} title="Réservations par vendeur" data={stats.byVendeur.slice(0, 8)} color={dark ? "#38BDF8" : "#0284C7"} layout="vertical" />
+                  <BarListCard dark={dark} title="Top 5 modèles" data={stats.topModels} color={dark ? "#A78BFA" : "#7C3AED"} layout="vertical" />
+                </div>
+              </DashboardSection>
+
+              <DashboardSection dark={dark} icon={TrendingUp} title="Stock, alertes & tendance">
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <BarListCard dark={dark} title="Ancienneté du stock" data={stats.stockBuckets} color={dark ? "#34D399" : "#059669"} />
+                  <AlertsSummaryCard dark={dark} vehicles={vehicles} />
+                  <div className="lg:col-span-1">
+                    <TrendChart dark={dark} />
+                  </div>
+                </div>
+              </DashboardSection>
+            </div>
           ) : tab === "accidentes" ? (
             <AccidentManualList dark={dark} accidents={accidents} vehicles={vehicles} vendorName={vendorName} onAdd={handleAddAccident} onRemove={handleRemoveAccident} />
           ) : tab === "dossiers" ? (
