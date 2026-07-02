@@ -334,6 +334,12 @@ function fmtRange(range) {
   return `${range.start.toLocaleDateString("fr-FR", short)} → ${range.end.toLocaleDateString("fr-FR", long)}`;
 }
 
+const VENDU_TYPE_CODES = ["AAA", "DAD", "FAB", "FLA", "FLC", "FSA"];
+function venduLabel(v) {
+  if (!v.vendu) return "";
+  return v.venduPar ? `Vendu par ${v.venduPar}` : `Vendu · type ${v.typeVente}`;
+}
+
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
@@ -344,7 +350,8 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented) {
   const deliveredToClient = /customer|livre client/i.test(order.localisation || "");
   const reservation = overlay?.reservation || null;
   const activeReservation = !!(reservation && reservation.statut && reservation.statut !== "Réservation annulée");
-  const vendu = !!dossier;
+  const venduByCode = VENDU_TYPE_CODES.includes((order.typeVente || "").toUpperCase().trim());
+  const vendu = !!dossier || venduByCode;
   const venduPar = dossier?.vendeur || "";
 
   let baseStatus;
@@ -707,9 +714,9 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
           </div>
           <div className="shrink-0 text-right">
             <StatusBadge vehicle={v} dark={dark} />
-            {v.baseStatus === "vendu" && v.venduPar && (
-              <div className={`mt-1 flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={`Vendu par ${v.venduPar}`}>
-                <span className="max-w-[110px] truncate">Vendu par {v.venduPar}</span>
+            {v.baseStatus === "vendu" && (
+              <div className={`mt-1 flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={venduLabel(v)}>
+                <span className="max-w-[130px] truncate">{venduLabel(v)}</span>
                 <User size={10} className="shrink-0" />
               </div>
             )}
@@ -839,9 +846,9 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className={`font-mono text-xs font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{v.orderNumber}</span>
         <StatusBadge vehicle={v} dark={dark} />
-        {v.baseStatus === "vendu" && v.venduPar && (
+        {v.baseStatus === "vendu" && (
           <span className={`flex items-center gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
-            <User size={11} /> Vendu par {v.venduPar}
+            <User size={11} /> {venduLabel(v)}
           </span>
         )}
         {v.baseStatus === "reserve" && v.reservation?.vendeur && (
@@ -1112,9 +1119,9 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             <div className={`text-xs font-medium ${dark ? "text-zinc-400" : "text-stone-500"}`}>Commande {v.orderNumber} · {v.concession}</div>
           </div>
           <StatusBadge vehicle={v} dark={dark} />
-          {v.baseStatus === "vendu" && v.venduPar && (
+          {v.baseStatus === "vendu" && (
             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800"}`}>
-              <User size={11} /> Vendu par {v.venduPar}
+              <User size={11} /> {venduLabel(v)}
             </span>
           )}
           {(v.energy === "Électrique" || v.energy === "Hybride rechargeable") && (
@@ -1303,15 +1310,15 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
                 <div className="flex items-center gap-1.5">
                   <span className={`truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModel(v)}</span>
                   {v.vendu && (
-                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800"}`} title={`Contremarqué — vendu par ${v.venduPar}`}>
+                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800"}`} title={`Contremarqué — ${venduLabel(v)}`}>
                       CM
                     </span>
                   )}
                 </div>
                 <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber}{v.vin ? ` · ${v.vin}` : ""}</div>
-                {v.vendu && v.venduPar && (
+                {v.vendu && (
                   <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
-                    <User size={10} className="shrink-0" /> Vendu par {v.venduPar}
+                    <User size={10} className="shrink-0" /> {venduLabel(v)}
                   </div>
                 )}
               </div>
