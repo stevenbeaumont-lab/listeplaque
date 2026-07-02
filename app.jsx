@@ -233,7 +233,6 @@ function parseDescription(description) {
 }
 function displayModel(v) {
   const bits = [v.model];
-  if (v.modelYear) bits.push(`- ${v.modelYear}`);
   if (v.model === "Transit Custom") {
     const bt = (v.bodyType || "").toUpperCase().trim();
     if (bt.includes("KOMBI FG") || bt.includes("KOMBI-FG")) bits.push("Kombi FG");
@@ -243,6 +242,7 @@ function displayModel(v) {
     else if (bt === "FG" || bt.includes("FOURGON")) bits.push("FG");
   }
   if (v.vu && v.length && !/courier/i.test(v.model)) bits.push(v.length);
+  if (v.modelYear) bits.push(`- ${v.modelYear}`);
   return bits.join(" ");
 }
 function gearboxLabel(v) {
