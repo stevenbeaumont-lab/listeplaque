@@ -36,7 +36,7 @@ const STORE_KEYS = {
   accidents: "dsr:accidents",
   access: "dsr:access-unlocked",
 };
-const ACCESS_CODE = "Legrand27";
+const ACCESS_CODE_KEY = "dsr:access-code-hash";
 
 // ---------------------------------------------------------------------------
 // Supabase (shared/collaborative data) — personal settings use localStorage
@@ -79,6 +79,22 @@ async function sSet(key, value, shared) {
     return !error;
   } catch (e) {
     console.error("supabase set failed", key, e);
+    return false;
+  }
+}
+
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function checkAccessCode(code) {
+  try {
+    const hash = await sha256Hex(code);
+    const { data, error } = await supabase.from(TABLE).select("value").eq("key", ACCESS_CODE_KEY).maybeSingle();
+    if (error || !data) return false;
+    return data.value === hash;
+  } catch (e) {
     return false;
   }
 }
@@ -1215,9 +1231,14 @@ function AccidentManualList({ dark, accidents, vehicles, vendorName, onAdd, onRe
 function AccessGate({ dark, onUnlock }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState(false);
+  const [checking, setChecking] = useState(false);
 
-  function submit() {
-    if (code === ACCESS_CODE) {
+  async function submit() {
+    if (!code.trim() || checking) return;
+    setChecking(true);
+    const ok = await checkAccessCode(code);
+    setChecking(false);
+    if (ok) {
       onUnlock();
     } else {
       setError(true);
@@ -1253,8 +1274,8 @@ function AccessGate({ dark, onUnlock }) {
           }`}
         />
         {error && <div className="mt-2 text-xs font-semibold text-rose-500">Code incorrect, réessayez.</div>}
-        <button onClick={submit} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
-          Continuer
+        <button onClick={submit} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+          {checking ? "Vérification…" : "Continuer"}
         </button>
       </div>
     </div>
