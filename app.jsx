@@ -1337,11 +1337,11 @@ function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
   const enTransit = useMemo(
     () =>
       vehicles
-        .filter((v) => v.baseStatus === "commande" && matches(v))
+        .filter((v) => !v.inStock && !!v.vin && matches(v))
         .sort((a, b) => (a.estRange?.end ? a.estRange.end.getTime() : Infinity) - (b.estRange?.end ? b.estRange.end.getTime() : Infinity)),
     [vehicles, q, contremarqueFilter]
   );
-  const nonSerialises = useMemo(() => vehicles.filter((v) => v.baseStatus === "non_serialise" && matches(v)), [vehicles, q, contremarqueFilter]);
+  const nonSerialises = useMemo(() => vehicles.filter((v) => !v.vin && matches(v)), [vehicles, q, contremarqueFilter]);
 
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
   function chipCls(active) {
@@ -1393,8 +1393,9 @@ function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
           emptyLabel="Aucun véhicule en transit."
           onOpen={onOpenVehicle}
           renderExtra={(v) => (
-            <div className={`shrink-0 text-right text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>
-              {fmtRange(v.estRange) || "Date inconnue"}
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <span className={`text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>{fmtRange(v.estRange) || "Date inconnue"}</span>
+              <StatusBadge vehicle={v} dark={dark} />
             </div>
           )}
         />
@@ -1407,7 +1408,10 @@ function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
           emptyLabel="Aucun véhicule non sérialisé."
           onOpen={onOpenVehicle}
           renderExtra={(v) => (
-            <div className={`shrink-0 text-right text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>{v.typeVente || "—"}</div>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <span className={`text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>{v.typeVente || "—"}</span>
+              <StatusBadge vehicle={v} dark={dark} />
+            </div>
           )}
         />
       </div>
