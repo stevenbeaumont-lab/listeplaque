@@ -1720,20 +1720,33 @@ function ImportGate({ dark, onImport }) {
   );
 }
 
-function VendorPrompt({ dark, onSave, onClose }) {
+function VendorPrompt({ dark, vendeursList, onSave, onClose }) {
   const [name, setName] = useState("");
   return (
     <Modal dark={dark} title="Qui êtes-vous ?" onClose={onClose}>
       <p className={`mb-3 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Ce nom sera associé à vos réservations et à l'historique des modifications.</p>
-      <input
-        autoFocus
-        list="vendeurs-datalist"
-        className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-        placeholder="Nom du vendeur"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && name.trim() && onSave(name.trim())}
-      />
+      {vendeursList.length > 0 ? (
+        <select
+          autoFocus
+          className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        >
+          <option value="">— Choisissez votre nom —</option>
+          {[...vendeursList].sort((a, b) => a.localeCompare(b)).map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          autoFocus
+          className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          placeholder="Nom du vendeur"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && name.trim() && onSave(name.trim())}
+        />
+      )}
       <button onClick={() => name.trim() && onSave(name.trim())} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400">Continuer</button>
     </Modal>
   );
@@ -1906,7 +1919,7 @@ function Toast({ dark, toast, onDismiss }) {
   );
 }
 
-function AccessGate({ dark, vendorName, onUnlock }) {
+function AccessGate({ dark, vendorName, vendeursList, onUnlock }) {
   const [step, setStep] = useState("code");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -1968,17 +1981,32 @@ function AccessGate({ dark, vendorName, onUnlock }) {
         ) : (
           <>
             <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Dernière étape — quel est votre nom ? Il sera associé à vos réservations.</p>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitName()}
-              placeholder="Nom du vendeur"
-              list="vendeurs-datalist"
-              autoFocus
-              className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
-                dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
-              }`}
-            />
+            {vendeursList.length > 0 ? (
+              <select
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+                className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
+                  dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
+                }`}
+              >
+                <option value="">— Choisissez votre nom —</option>
+                {[...vendeursList].sort((a, b) => a.localeCompare(b)).map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitName()}
+                placeholder="Nom du vendeur"
+                autoFocus
+                className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
+                  dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
+                }`}
+              />
+            )}
             <button onClick={submitName} disabled={!name.trim()} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
               Entrer dans l'application
             </button>
@@ -2526,7 +2554,7 @@ export default function App() {
         ))}
       </datalist>
       {!unlocked ? (
-        <AccessGate dark={dark} vendorName={vendorName} onUnlock={handleUnlock} />
+        <AccessGate dark={dark} vendorName={vendorName} vendeursList={vendeursList} onUnlock={handleUnlock} />
       ) : (
         <>
       <TopBar
@@ -2689,7 +2717,7 @@ export default function App() {
           <ImportForm dark={dark} onImport={handleImport} existingMeta={importMeta} />
         </Modal>
       )}
-      {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
+      {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} vendeursList={vendeursList} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
         </>
       )}
       <Toast dark={dark} toast={toast} onDismiss={() => setToast(null)} />
