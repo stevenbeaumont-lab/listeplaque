@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, Fragment } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -49,6 +49,20 @@ const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpkenBtbGt6dWp6dmppZ2Nkd21mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MTAxNTUsImV4cCI6MjA5ODQ4NjE1NX0.v2RZnooxZEWSAv1bXaW2aHUYcJPZlHAjWhi4FkDXwGs";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const TABLE = "parclive_data";
+
+function loadLocal(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw !== null ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+function saveLocal(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {}
+}
 
 async function sGet(key, shared) {
   if (!shared) {
@@ -510,7 +524,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing }) {
+function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen }) {
   const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
   return (
     <div className={`sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-t-2xl border-b px-4 py-3 md:px-6 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -525,6 +539,27 @@ function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, 
       </div>
       <div className={`hidden text-xs sm:block ${dark ? "text-zinc-500" : "text-stone-400"}`}>
         {lastSync ? `Synchronisé à ${lastSync.toLocaleTimeString("fr-FR")}` : ""}
+      </div>
+      <div className="relative">
+        <button onClick={() => setLegendOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Légende des statuts">
+          <Info size={16} />
+        </button>
+        {legendOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setLegendOpen(false)} />
+            <div className={`absolute left-0 z-40 mt-1 w-64 space-y-1.5 rounded-xl border p-3 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+              <div className={`mb-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Statuts</div>
+              {Object.entries(STATUS_META)
+                .filter(([key]) => key !== "livre_client")
+                .map(([key, meta]) => (
+                  <div key={key} className="flex items-center gap-2 text-sm">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${meta.dot}`} />
+                    <span className={dark ? "text-zinc-200" : "text-stone-700"}>{meta.label}</span>
+                  </div>
+                ))}
+            </div>
+          </>
+        )}
       </div>
       <div className="flex-1" />
       <button onClick={onOpenAlerts} className={`relative w-9 ${btnCls}`}>
@@ -654,6 +689,7 @@ function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeur
       <div className={`flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-lg border px-3 transition-shadow focus-within:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 focus-within:ring-amber-500/30" : "bg-stone-50 border-stone-200 focus-within:ring-amber-500/20"}`}>
         <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
         <input
+          id="parclive-search"
           value={filters.query}
           onChange={(e) => setFilters((f) => ({ ...f, query: e.target.value }))}
           placeholder="Commande, VIN, modèle… (séparez par une virgule)"
@@ -678,7 +714,7 @@ function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeur
   );
 }
 
-function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
+function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
   const hasAlert = v.alerts.length > 0;
   const isElectric = v.energy === "Électrique";
   const isPHEV = v.energy === "Hybride rechargeable";
@@ -734,7 +770,17 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
         {v.inStock ? `${v.joursStock} j` : (fmtRange(v.estRange) || "—")}
       </td>
       <td className="whitespace-nowrap px-2 py-2 pr-4 text-right">
-        {hasAlert && <AlertTriangle size={14} className="inline text-rose-500" />}
+        <span className="inline-flex items-center gap-2">
+          {v.baseStatus === "disponible" && onQuickReserve && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
+              className="hidden items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400 group-hover:inline-flex"
+            >
+              <Bookmark size={11} /> Réserver
+            </button>
+          )}
+          {hasAlert && <AlertTriangle size={14} className="inline text-rose-500" />}
+        </span>
       </td>
     </tr>
   );
@@ -761,7 +807,7 @@ function VehiclesHeader({ dark, count, totalCount }) {
   );
 }
 
-function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
+function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, onQuickReserve }) {
   const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
   return (
     <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
@@ -788,7 +834,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
               const isOpen = v.orderNumber === expandedOrder;
               return (
                 <Fragment key={v.orderNumber}>
-                  <VehicleRow v={v} dark={dark} onSelect={onSelect} expanded={isOpen} zebra={i % 2 === 1} />
+                  <VehicleRow v={v} dark={dark} onSelect={onSelect} expanded={isOpen} zebra={i % 2 === 1} onQuickReserve={onQuickReserve} />
                   {isOpen && (
                     <tr>
                       <td colSpan={5} className="p-0">
@@ -813,7 +859,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
   );
 }
 
-function VehicleCard({ v, dark, onSelect, expanded }) {
+function VehicleCard({ v, dark, onSelect, expanded, onQuickReserve }) {
   const hasAlert = v.alerts.length > 0;
   const isElectric = v.energy === "Électrique";
   const isPHEV = v.energy === "Hybride rechargeable";
@@ -856,6 +902,14 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
             <User size={11} /> {v.reservation.vendeur}
           </span>
         )}
+        {v.baseStatus === "disponible" && onQuickReserve && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
+            className="ml-auto flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+          >
+            <Bookmark size={11} /> Réserver
+          </button>
+        )}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -878,7 +932,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
   );
 }
 
-function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
+function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, onQuickReserve }) {
   if (vehicles.length === 0) {
     return (
       <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
@@ -892,7 +946,7 @@ function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vend
         const isOpen = v.orderNumber === expandedOrder;
         return (
           <div key={v.orderNumber}>
-            <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} />
+            <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} onQuickReserve={onQuickReserve} />
             {isOpen && (
               <div className={`overflow-hidden rounded-b-xl border border-t-0 ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
                 <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} />
@@ -1723,22 +1777,60 @@ function AccidentManualList({ dark, accidents, vehicles, vendorName, onAdd, onRe
   );
 }
 
-function AccessGate({ dark, onUnlock }) {
+function Toast({ dark, toast, onDismiss }) {
+  if (!toast) return null;
+  const isError = toast.type === "error";
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      <div
+        className={`pointer-events-auto flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-lg ${
+          isError
+            ? dark
+              ? "bg-rose-950 border-rose-800 text-rose-200"
+              : "bg-rose-50 border-rose-200 text-rose-800"
+            : dark
+            ? "bg-zinc-900 border-zinc-700 text-zinc-100"
+            : "bg-zinc-900 border-zinc-800 text-white"
+        }`}
+      >
+        {isError ? <AlertTriangle size={15} className="shrink-0" /> : <CheckCircle2 size={15} className="shrink-0 text-emerald-400" />}
+        <span>{toast.message}</span>
+        {toast.action && (
+          <button onClick={() => { toast.action.onClick(); onDismiss(); }} className="ml-1 shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-bold text-zinc-950 hover:bg-amber-400">
+            {toast.action.label}
+          </button>
+        )}
+        <button onClick={onDismiss} className="ml-1 shrink-0 opacity-60 hover:opacity-100">
+          <X size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AccessGate({ dark, vendorName, onUnlock }) {
+  const [step, setStep] = useState("code");
   const [code, setCode] = useState("");
+  const [name, setName] = useState("");
   const [error, setError] = useState(false);
   const [checking, setChecking] = useState(false);
 
-  async function submit() {
+  async function submitCode() {
     if (!code.trim() || checking) return;
     setChecking(true);
     const ok = await checkAccessCode(code);
     setChecking(false);
     if (ok) {
-      onUnlock();
+      if (vendorName) onUnlock();
+      else setStep("name");
     } else {
       setError(true);
       setTimeout(() => setError(false), 1600);
     }
+  }
+  function submitName() {
+    if (!name.trim()) return;
+    onUnlock(name.trim());
   }
 
   return (
@@ -1746,32 +1838,53 @@ function AccessGate({ dark, onUnlock }) {
       <div className={`w-full max-w-sm rounded-2xl border p-6 text-center shadow-sm ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
         <div className="mb-4 flex justify-center">
           <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
-            <Lock size={20} />
+            {step === "code" ? <Lock size={20} /> : <User size={20} />}
           </span>
         </div>
         <div className={`font-display text-lg font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>
             Parc<span className={dark ? "text-amber-400" : "text-amber-600"}>Live</span>
         </div>
-        <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Accès réservé à l'équipe — entrez le code pour continuer.</p>
-        <input
-          type="password"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Code d'accès"
-          autoFocus
-          className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
-            error
-              ? "border-rose-500 focus:ring-rose-500/30"
-              : dark
-              ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30"
-              : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
-          }`}
-        />
-        {error && <div className="mt-2 text-xs font-semibold text-rose-500">Code incorrect, réessayez.</div>}
-        <button onClick={submit} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
-          {checking ? "Vérification…" : "Continuer"}
-        </button>
+        {step === "code" ? (
+          <>
+            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Accès réservé à l'équipe — entrez le code pour continuer.</p>
+            <input
+              type="password"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitCode()}
+              placeholder="Code d'accès"
+              autoFocus
+              className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
+                error
+                  ? "border-rose-500 focus:ring-rose-500/30"
+                  : dark
+                  ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30"
+                  : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
+              }`}
+            />
+            {error && <div className="mt-2 text-xs font-semibold text-rose-500">Code incorrect, réessayez.</div>}
+            <button onClick={submitCode} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+              {checking ? "Vérification…" : "Continuer"}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Dernière étape — quel est votre nom ? Il sera associé à vos réservations.</p>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitName()}
+              placeholder="Nom du vendeur"
+              autoFocus
+              className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
+                dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
+              }`}
+            />
+            <button onClick={submitName} disabled={!name.trim()} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+              Entrer dans l'application
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1798,11 +1911,51 @@ export default function App() {
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [selected, setSelected] = useState(null);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [selected, setSelected] = useState(() => {
+    const saved = loadLocal("dsr:ui-selected", null);
+    return saved ? { orderNumber: saved } : null;
+  });
   const [resetConfirm, setResetConfirm] = useState(false);
-  const [tab, setTab] = useState("vehicules");
-  const [filters, setFilters] = useState({ concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", query: "" });
-  const [sortBy, setSortBy] = useState("stock_desc");
+  const [tab, setTab] = useState(() => loadLocal("dsr:ui-tab", "vehicules"));
+  const [filters, setFilters] = useState(() =>
+    loadLocal("dsr:ui-filters", { concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", query: "" })
+  );
+  const [sortBy, setSortBy] = useState(() => loadLocal("dsr:ui-sort", "stock_desc"));
+
+  useEffect(() => { saveLocal("dsr:ui-tab", tab); }, [tab]);
+  useEffect(() => { saveLocal("dsr:ui-filters", filters); }, [filters]);
+  useEffect(() => { saveLocal("dsr:ui-sort", sortBy); }, [sortBy]);
+  useEffect(() => { saveLocal("dsr:ui-selected", selected?.orderNumber || null); }, [selected]);
+
+  const [toast, setToast] = useState(null);
+  function showToast(message, opts = {}) {
+    setToast({ message, type: opts.type || "success", action: opts.action, id: Date.now() });
+  }
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), toast.action ? 5000 : 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    function onKeyDown(e) {
+      const tag = document.activeElement?.tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || document.activeElement?.isContentEditable;
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        setTab("vehicules");
+        setTimeout(() => document.getElementById("parclive-search")?.focus(), 0);
+      } else if (e.key === "Escape") {
+        if (importOpen) setImportOpen(false);
+        else if (alertsOpen) setAlertsOpen(false);
+        else if (legendOpen) setLegendOpen(false);
+        else if (selected) setSelected(null);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [importOpen, alertsOpen, selected, legendOpen]);
 
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
@@ -1835,10 +1988,28 @@ export default function App() {
         setUnlocked(true);
         const vn = await sGet(STORE_KEYS.vendor, false);
         if (vn) setVendorName(vn);
-        else setShowVendorPrompt(true);
-        await refreshAll(false);
+
+        const [o, s, ov, meta] = await Promise.all([
+          sGet(STORE_KEYS.orders, true),
+          sGet(STORE_KEYS.stock, true),
+          sGet(STORE_KEYS.overlays, true),
+          sGet(STORE_KEYS.meta, true),
+        ]);
+        if (o) setOrdersData(JSON.parse(o));
+        if (s) setStockData(JSON.parse(s));
+        setOverlays(ov ? JSON.parse(ov) : {});
+        if (meta) setImportMeta(JSON.parse(meta));
+        setLastSync(new Date());
+        setLoading(false);
+
+        Promise.all([sGet(STORE_KEYS.accidents, true), sGet(STORE_KEYS.dossiers, true), sGet(STORE_KEYS.dossiersMeta, true)]).then(([acc2, doss, dossMeta]) => {
+          setAccidents(acc2 ? JSON.parse(acc2) : []);
+          setDossiersData(doss ? JSON.parse(doss) : []);
+          if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
+        });
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
     })();
   }, [refreshAll]);
 
@@ -1859,12 +2030,13 @@ export default function App() {
     })();
   }, []);
 
-  async function handleUnlock() {
+  async function handleUnlock(name) {
     setUnlocked(true);
     await sSet(STORE_KEYS.access, "true", false);
-    const vn = await sGet(STORE_KEYS.vendor, false);
-    if (vn) setVendorName(vn);
-    else setShowVendorPrompt(true);
+    if (name) {
+      setVendorName(name);
+      await sSet(STORE_KEYS.vendor, name, false);
+    }
     await refreshAll(false);
   }
 
@@ -1897,6 +2069,7 @@ export default function App() {
       setStockData(stock);
       setImportMeta(meta);
       setImportOpen(false);
+      showToast(`Import réussi — ${orders.length} commandes, ${stock.length} en stock`);
     }
     return ok;
   }
@@ -1933,6 +2106,14 @@ export default function App() {
     setOverlays(next);
   }
 
+  async function handleQuickReserve(v) {
+    const today = new Date().toISOString().slice(0, 10);
+    await handleReservationSave(v.orderNumber, { vendeur: vendorName || "Vendeur", statut: "Réservé", dateDebut: today, dateFin: "", commentaire: "" });
+    showToast(`${displayModelBase(v)} réservé`, {
+      action: { label: "Voir", onClick: () => { setTab("vehicules"); setSelected(v); } },
+    });
+  }
+
   async function handleImportDossiers({ rows, fileName }) {
     const dossiers = rows.map(toDossierRecord).filter((d) => d.numero || d.numeroUsine || d.vendeur);
     const meta = { importedAt: new Date().toISOString(), count: dossiers.length, fileName };
@@ -1944,8 +2125,18 @@ export default function App() {
     if (ok) {
       setDossiersData(dossiers);
       setDossiersMeta(meta);
+      showToast(`Import réussi — ${dossiers.length} dossiers`);
     }
     return ok;
+  }
+
+  const pendingAccidentDeleteRef = useRef(null);
+
+  async function commitAccidentDelete(id) {
+    const freshRaw = await sGet(STORE_KEYS.accidents, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const next = fresh.filter((a) => a.id !== id);
+    await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
   }
 
   async function handleAddAccident({ orderNumber, note, addedBy }) {
@@ -1956,16 +2147,35 @@ export default function App() {
       { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, orderNumber, note, addedBy, addedAt: now.toLocaleDateString("fr-FR") },
       ...fresh,
     ];
-    await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
+    const ok = await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
     setAccidents(next);
+    if (ok) showToast(`Véhicule ${orderNumber} ajouté aux accidentés`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleRemoveAccident(id) {
-    const freshRaw = await sGet(STORE_KEYS.accidents, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
-    const next = fresh.filter((a) => a.id !== id);
-    await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
-    setAccidents(next);
+    const removed = accidents.find((a) => a.id === id);
+    if (!removed) return;
+    if (pendingAccidentDeleteRef.current) {
+      clearTimeout(pendingAccidentDeleteRef.current.timer);
+      commitAccidentDelete(pendingAccidentDeleteRef.current.id);
+    }
+    setAccidents((prev) => prev.filter((a) => a.id !== id));
+    const timer = setTimeout(() => {
+      commitAccidentDelete(id);
+      pendingAccidentDeleteRef.current = null;
+    }, 5000);
+    pendingAccidentDeleteRef.current = { id, timer };
+    showToast(`Véhicule ${removed.orderNumber} retiré des accidentés`, {
+      action: {
+        label: "Annuler",
+        onClick: () => {
+          clearTimeout(timer);
+          pendingAccidentDeleteRef.current = null;
+          setAccidents((prev) => [removed, ...prev]);
+        },
+      },
+    });
   }
 
   async function handleReset() {
@@ -2145,7 +2355,7 @@ export default function App() {
         .font-display { font-family: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif; }
       `}</style>
       {!unlocked ? (
-        <AccessGate dark={dark} onUnlock={handleUnlock} />
+        <AccessGate dark={dark} vendorName={vendorName} onUnlock={handleUnlock} />
       ) : (
         <>
       <TopBar
@@ -2159,6 +2369,8 @@ export default function App() {
         alertCount={totalAlerts}
         onOpenAlerts={() => setAlertsOpen(true)}
         syncing={syncing}
+        legendOpen={legendOpen}
+        setLegendOpen={setLegendOpen}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
@@ -2238,10 +2450,10 @@ export default function App() {
                 onExport={() => exportVehiclesToExcel(filtered)}
               />
               <div className="hidden lg:block">
-                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
+                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
               </div>
               <div className="lg:hidden">
-                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
+                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
               </div>
               {importMeta && (
                 <div className={`flex flex-wrap items-center justify-between gap-2 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>
@@ -2277,9 +2489,10 @@ export default function App() {
           <ImportForm dark={dark} onImport={handleImport} existingMeta={importMeta} />
         </Modal>
       )}
-      {showVendorPrompt && <VendorPrompt dark={dark} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
+      {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
         </>
       )}
+      <Toast dark={dark} toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 }
