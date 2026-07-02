@@ -231,7 +231,15 @@ function parseDescription(description) {
   const options = parts.slice(optionsStart).filter(Boolean);
   return { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options };
 }
-function displayModel(v) {
+function ModelYearLabel({ v, dark, className }) {
+  return (
+    <span className={className}>
+      {displayModelBase(v)}
+      {v.modelYear && <span className={`font-normal italic ${dark ? "text-zinc-400" : "text-stone-500"}`}> - {v.modelYear}</span>}
+    </span>
+  );
+}
+function displayModelBase(v) {
   const bits = [v.model];
   if (v.model === "Transit Custom") {
     const bt = (v.bodyType || "").toUpperCase().trim();
@@ -242,8 +250,11 @@ function displayModel(v) {
     else if (bt === "FG" || bt.includes("FOURGON")) bits.push("FG");
   }
   if (v.vu && v.length && !/courier/i.test(v.model)) bits.push(v.length);
-  if (v.modelYear) bits.push(`- ${v.modelYear}`);
   return bits.join(" ");
+}
+function displayModel(v) {
+  const base = displayModelBase(v);
+  return v.modelYear ? `${base} - ${v.modelYear}` : base;
 }
 function gearboxLabel(v) {
   if (v.energy === "Électrique") return "BVA";
@@ -645,7 +656,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <span className={`truncate font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{displayModel(v)}</span>
+              <ModelYearLabel v={v} dark={dark} className={`truncate font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`} />
               {(isElectric || isPHEV) && (
                 <Zap size={13} className={`shrink-0 ${isElectric ? (dark ? "text-sky-400" : "text-sky-600") : (dark ? "text-violet-400" : "text-violet-600")}`} aria-label={v.energy}>
                   <title>{v.energy}</title>
@@ -768,7 +779,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
         <VehicleTypeIcon vu={v.vu} dark={dark} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className={`truncate font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{displayModel(v)}</span>
+            <ModelYearLabel v={v} dark={dark} className={`truncate font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`} />
             {(isElectric || isPHEV) && (
               <Zap size={13} className={`shrink-0 ${isElectric ? (dark ? "text-sky-400" : "text-sky-600") : (dark ? "text-violet-400" : "text-violet-600")}`} />
             )}
@@ -1046,7 +1057,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
         <div className="flex flex-wrap items-center gap-2.5">
           <VehicleTypeIcon vu={v.vu} dark={dark} />
           <div>
-            <div className={`text-base font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{displayModel(v)}</div>
+            <ModelYearLabel v={v} dark={dark} className={`text-base font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`} />
             <div className={`text-xs font-medium ${dark ? "text-zinc-400" : "text-stone-500"}`}>Commande {v.orderNumber} · {v.concession}</div>
           </div>
           <StatusBadge vehicle={v} dark={dark} />
@@ -1182,7 +1193,9 @@ function AlertsDrawer({ dark, vehicles, onClose, onSelect }) {
               className={`block w-full rounded-lg border p-3 text-left text-sm ${dark ? "border-zinc-800 hover:bg-zinc-900" : "border-stone-200 hover:bg-stone-50"}`}
             >
               <div className="flex items-center gap-1.5 text-xs font-medium text-rose-500"><AlertTriangle size={12} />{a.label}</div>
-              <div className={`mt-1 ${dark ? "text-zinc-200" : "text-stone-800"}`}>{displayModel(v)} · {v.orderNumber}</div>
+              <div className={`mt-1 ${dark ? "text-zinc-200" : "text-stone-800"}`}>
+                <ModelYearLabel v={v} dark={dark} /> · {v.orderNumber}
+              </div>
               <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.concession}{v.reservation?.vendeur ? ` · ${v.reservation.vendeur}` : ""}</div>
             </button>
           ))}
