@@ -36,6 +36,8 @@ const STORE_KEYS = {
   vendor: "dsr:vendor-name",
   accidents: "dsr:accidents",
   access: "dsr:access-unlocked",
+  dossiers: "dsr:dossiers",
+  dossiersMeta: "dsr:dossiers-meta",
 };
 const ACCESS_CODE_KEY = "dsr:access-code-hash";
 
@@ -146,6 +148,31 @@ function toStockRecord(n) {
     orderNumber: pick(n, "n° de commande", "n de commande"),
     joursStock: Number(pick(n, "jours de stock")) || 0,
     codesNotes: pick(n, "codes des notes"),
+  };
+}
+function formatMaybeDate(v) {
+  if (v instanceof Date) return v.toLocaleDateString("fr-FR");
+  if (!v) return "";
+  return String(v).trim();
+}
+function toDossierRecord(n) {
+  return {
+    numero: pick(n, "#"),
+    dateCmd: formatMaybeDate(n["date de cmd."]),
+    societe: pick(n, "société", "societe"),
+    nom: pick(n, "nom"),
+    prenom: pick(n, "prénom", "prenom"),
+    vendeur: pick(n, "vendeur"),
+    mailVendeur: pick(n, "mail vendeur"),
+    bonCmd: pick(n, "bon de cmd."),
+    numeroUsine: pick(n, "n° usine", "n usine"),
+    localisation: pick(n, "localisation"),
+    marque: pick(n, "marque"),
+    modele: pick(n, "modèle", "modele"),
+    financeOrganisme: pick(n, "organisme financement"),
+    categorie: pick(n, "cat."),
+    etat: pick(n, "etat"),
+    statutLivraison: pick(n, "statut liv"),
   };
 }
 function parseExcelDateStr(str) {
@@ -431,10 +458,11 @@ function KPICard({ label, value, dark }) {
 }
 
 
-function Tabs({ dark, tab, setTab, accidentCount }) {
+function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
   const items = [
     { id: "vehicules", label: "Véhicules" },
     { id: "dashboard", label: "Tableau de bord" },
+    { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     { id: "accidentes", label: "Accidentés", count: accidentCount },
   ];
   return (
@@ -1224,6 +1252,135 @@ function Modal({ dark, title, onClose, children }) {
   );
 }
 
+function DossierImportForm({ dark, onImport, existingMeta }) {
+  const [file, setFile] = useState(null);
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleFile(f) {
+    setError("");
+    try {
+      const parsed = await parseWorkbook(f);
+      setFile(f);
+      setRows(parsed);
+    } catch (e) {
+      setError("Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un export de dossiers au format Excel.");
+    }
+  }
+  async function submit() {
+    if (!rows) { setError("Sélectionnez un fichier."); return; }
+    setBusy(true);
+    const ok = await onImport({ rows, fileName: file?.name });
+    setBusy(false);
+    if (!ok) setError("Échec de l'enregistrement (base de données injoignable). Ouvrez la console (F12) pour le détail.");
+  }
+  const dropCls = `flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dark ? "border-zinc-700 hover:border-amber-500/60 hover:bg-amber-500/5" : "border-stone-300 hover:border-amber-400 hover:bg-amber-50/50"}`;
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <label className={dropCls}>
+        <FileSpreadsheet size={22} className={dark ? "text-zinc-500" : "text-stone-400"} />
+        <div className={`text-sm font-medium ${dark ? "text-zinc-200" : "text-stone-700"}`}>Export dossiers (MyAna)</div>
+        <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{file ? `${file.name} · ${rows?.length ?? 0} lignes` : ".xlsx — dossiers en cours"}</div>
+        <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} />
+      </label>
+      {error && <div className="mt-2 text-sm text-rose-500">{error}</div>}
+      {existingMeta && (
+        <div className={`mt-2 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+          Dernier import : {new Date(existingMeta.importedAt).toLocaleString("fr-FR")} · {existingMeta.count} dossiers
+        </div>
+      )}
+      <button onClick={submit} disabled={!rows || busy} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+        {busy ? "Import en cours…" : "Valider l'import"}
+      </button>
+    </div>
+  );
+}
+
+function DossierRow({ dark, d }) {
+  const matched = !!d.vehicle;
+  const clientLabel = d.societe || [d.prenom, d.nom].filter(Boolean).join(" ") || "—";
+  const modelLabel = matched ? displayModelBase(d.vehicle) : d.modele || "—";
+  return (
+    <li className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`} style={{ boxShadow: `inset 4px 0 0 ${matched ? "transparent" : "#E11D48"}` }}>
+      <div className="min-w-[130px]">
+        <div className={`flex items-center gap-1.5 text-sm font-bold ${dark ? "text-amber-400" : "text-amber-700"}`}>
+          <User size={12} className="shrink-0" /> <span className="truncate">{d.vendeur || "—"}</span>
+        </div>
+        <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{clientLabel}</div>
+      </div>
+      <div className="min-w-[190px] flex-1">
+        <div className={`truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`} title={d.modele}>{modelLabel}</div>
+        <div className={`truncate text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          N° usine <span className="font-mono">{d.numeroUsine || "—"}</span> · {d.localisation || "—"} · {d.categorie || "—"}
+        </div>
+      </div>
+      {!matched && (
+        <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${dark ? "bg-rose-500/20 text-rose-300" : "bg-rose-100 text-rose-800"}`}>
+          <AlertTriangle size={11} /> Non rapproché
+        </span>
+      )}
+      <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>{d.statutLivraison || "—"}</span>
+      <span className={`shrink-0 text-xs tabular-nums ${dark ? "text-zinc-500" : "text-stone-400"}`}>{d.dateCmd || "—"}</span>
+    </li>
+  );
+}
+
+function DossierList({ dark, dossiers }) {
+  const [query, setQuery] = useState("");
+  const [vendeurFilter, setVendeurFilter] = useState("all");
+  const vendeurs = useMemo(() => [...new Set(dossiers.map((d) => d.vendeur).filter(Boolean))].sort(), [dossiers]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return dossiers.filter((d) => {
+      if (vendeurFilter !== "all" && d.vendeur !== vendeurFilter) return false;
+      if (q) {
+        const hay = `${d.vendeur} ${d.nom} ${d.prenom} ${d.societe} ${d.numeroUsine} ${d.modele}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [dossiers, query, vendeurFilter]);
+  const unmatchedCount = dossiers.filter((d) => !d.vehicle).length;
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <KPICard dark={dark} label="Dossiers" value={dossiers.length} />
+        <KPICard dark={dark} label="Rapprochés" value={dossiers.length - unmatchedCount} />
+        <KPICard dark={dark} label="Non rapprochés" value={unmatchedCount} />
+        <KPICard dark={dark} label="Vendeurs actifs" value={vendeurs.length} />
+      </div>
+      <div className={`flex flex-wrap items-center gap-2 rounded-2xl border p-2.5 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <div className={`flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
+          <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Vendeur, client, N° usine, modèle…" className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`} />
+        </div>
+        <select className={inputCls} value={vendeurFilter} onChange={(e) => setVendeurFilter(e.target.value)}>
+          <option value="all">Tous vendeurs</option>
+          {vendeurs.map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+        <span className={`ml-auto text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{filtered.length} dossier{filtered.length > 1 ? "s" : ""}</span>
+      </div>
+      <div className={`overflow-hidden rounded-2xl border shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+        {filtered.length === 0 ? (
+          <div className={`p-10 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucun dossier ne correspond.</div>
+        ) : (
+          <ul className={`max-h-[560px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+            {filtered.map((d) => (
+              <DossierRow key={d.numero || d.numeroUsine} dark={dark} d={d} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ImportForm({ dark, onImport, existingMeta }) {
   const [ordersFile, setOrdersFile] = useState(null);
   const [stockFile, setStockFile] = useState(null);
@@ -1457,6 +1614,8 @@ export default function App() {
   const [overlays, setOverlays] = useState({});
   const [importMeta, setImportMeta] = useState(null);
   const [accidents, setAccidents] = useState([]);
+  const [dossiersData, setDossiersData] = useState([]);
+  const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
@@ -1468,18 +1627,22 @@ export default function App() {
 
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
-    const [o, s, ov, meta, acc] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
       sGet(STORE_KEYS.meta, true),
       sGet(STORE_KEYS.accidents, true),
+      sGet(STORE_KEYS.dossiers, true),
+      sGet(STORE_KEYS.dossiersMeta, true),
     ]);
     if (o) setOrdersData(JSON.parse(o));
     if (s) setStockData(JSON.parse(s));
     setOverlays(ov ? JSON.parse(ov) : {});
     if (meta) setImportMeta(JSON.parse(meta));
     setAccidents(acc ? JSON.parse(acc) : []);
+    setDossiersData(doss ? JSON.parse(doss) : []);
+    if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
     setLastSync(new Date());
     if (indicate) setSyncing(false);
   }, []);
@@ -1591,6 +1754,21 @@ export default function App() {
     setOverlays(next);
   }
 
+  async function handleImportDossiers({ rows, fileName }) {
+    const dossiers = rows.map(toDossierRecord).filter((d) => d.numero || d.numeroUsine || d.vendeur);
+    const meta = { importedAt: new Date().toISOString(), count: dossiers.length, fileName };
+    const results = await Promise.all([
+      sSet(STORE_KEYS.dossiers, JSON.stringify(dossiers), true),
+      sSet(STORE_KEYS.dossiersMeta, JSON.stringify(meta), true),
+    ]);
+    const ok = results.every(Boolean);
+    if (ok) {
+      setDossiersData(dossiers);
+      setDossiersMeta(meta);
+    }
+    return ok;
+  }
+
   async function handleAddAccident({ orderNumber, note, addedBy }) {
     const now = new Date();
     const freshRaw = await sGet(STORE_KEYS.accidents, true);
@@ -1631,6 +1809,14 @@ export default function App() {
       .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null))
       .filter((v) => v.baseStatus !== "livre_client");
   }, [ordersData, stockData, overlays]);
+
+  const dossiers = useMemo(() => {
+    const vehicleByOrder = new Map(vehicles.map((v) => [v.orderNumber, v]));
+    const allVehicleByOrder = new Map(
+      ordersData.map((o) => [o.orderNumber, buildVehicle(o, new Map(stockData.map((s) => [s.orderNumber, s])).get(o.orderNumber) || null, overlays[o.orderNumber] || null)])
+    );
+    return dossiersData.map((d) => ({ ...d, vehicle: vehicleByOrder.get(d.numeroUsine) || allVehicleByOrder.get(d.numeroUsine) || null }));
+  }, [dossiersData, vehicles, ordersData, stockData, overlays]);
 
   const expandedOrder = selected?.orderNumber ?? null;
   function toggleExpand(v) {
@@ -1791,7 +1977,7 @@ export default function App() {
         <ImportGate dark={dark} onImport={handleImport} />
       ) : (
         <div className="space-y-6 p-4 md:p-6">
-          <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} />
+          <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} />
 
           {tab === "dashboard" ? (
             <>
@@ -1831,6 +2017,11 @@ export default function App() {
             </>
           ) : tab === "accidentes" ? (
             <AccidentManualList dark={dark} accidents={accidents} vehicles={vehicles} vendorName={vendorName} onAdd={handleAddAccident} onRemove={handleRemoveAccident} />
+          ) : tab === "dossiers" ? (
+            <div className="space-y-4">
+              <DossierImportForm dark={dark} onImport={handleImportDossiers} existingMeta={dossiersMeta} />
+              {dossiers.length > 0 && <DossierList dark={dark} dossiers={dossiers} />}
+            </div>
           ) : (
             <>
               <VehiclesHeader dark={dark} count={filtered.length} totalCount={vehicles.length} />
