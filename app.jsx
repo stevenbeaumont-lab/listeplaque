@@ -763,49 +763,47 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
         </div>
       </td>
       <td className="px-2 py-2" title={v.description}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <ModelYearLabel v={v} dark={dark} className={`truncate font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`} />
-              {(isElectric || isPHEV) && (
-                <Zap size={13} className={`shrink-0 ${isElectric ? (dark ? "text-sky-400" : "text-sky-600") : (dark ? "text-violet-400" : "text-violet-600")}`} aria-label={v.energy}>
-                  <title>{v.energy}</title>
-                </Zap>
-              )}
-            </div>
-            <div className={`truncate text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={meta}>{meta}</div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <ModelYearLabel v={v} dark={dark} className={`truncate font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`} />
+            {(isElectric || isPHEV) && (
+              <Zap size={13} className={`shrink-0 ${isElectric ? (dark ? "text-sky-400" : "text-sky-600") : (dark ? "text-violet-400" : "text-violet-600")}`} aria-label={v.energy}>
+                <title>{v.energy}</title>
+              </Zap>
+            )}
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className={`truncate text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={meta}>{meta}</div>
+        </div>
+      </td>
+      <td className="px-2 py-2">
+        <div className="flex flex-col items-start gap-1">
+          <div className="flex items-center gap-1.5">
             <StatusBadge vehicle={v} dark={dark} />
-            {v.baseStatus === "vendu" && (
-              <div className={`flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={venduLabel(v)}>
-                <span className="max-w-[130px] truncate">{venduLabel(v)}</span>
-                <User size={10} className="shrink-0" />
-              </div>
-            )}
-            {v.baseStatus === "reserve" && v.reservation?.vendeur && (
-              <div className={`flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
-                <span className="max-w-[100px] truncate">{v.reservation.vendeur}</span>
-                <User size={10} className="shrink-0" />
-              </div>
-            )}
-            {v.baseStatus === "disponible" && onQuickReserve && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
-                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-amber-500 px-2 py-1 text-[11px] font-bold text-zinc-950 transition-colors hover:bg-amber-400"
-              >
-                <Bookmark size={10} /> Réserver
-              </button>
-            )}
+            {hasAlert && <AlertTriangle size={13} className="shrink-0 text-rose-500" />}
           </div>
+          {v.baseStatus === "vendu" && (
+            <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={venduLabel(v)}>
+              <User size={10} className="shrink-0" /> <span className="truncate">{venduLabel(v)}</span>
+            </div>
+          )}
+          {v.baseStatus === "reserve" && v.reservation?.vendeur && (
+            <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
+              <User size={10} className="shrink-0" /> <span className="truncate">{v.reservation.vendeur}</span>
+            </div>
+          )}
+          {v.baseStatus === "disponible" && onQuickReserve && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-amber-500 px-2 py-1 text-[11px] font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+            >
+              <Bookmark size={10} /> Réserver
+            </button>
+          )}
         </div>
       </td>
       <td className={`truncate px-2 py-2 font-mono text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={v.vin}>{v.vin || "—"}</td>
       <td className={`truncate px-2 py-2 font-medium tabular-nums ${dark ? "text-zinc-200" : "text-stone-700"}`}>
         {v.inStock ? `${v.joursStock} j` : (fmtRange(v.estRange) || "—")}
-      </td>
-      <td className="whitespace-nowrap px-2 py-2 pr-4 text-right">
-        {hasAlert && <AlertTriangle size={14} className="inline text-rose-500" />}
       </td>
     </tr>
   );
@@ -859,19 +857,19 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
       <div className="max-h-[640px] overflow-auto">
         <table className="w-full table-fixed text-sm">
           <colgroup>
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "40%" }} />
-            <col style={{ width: "17%" }} />
-            <col style={{ width: "24%" }} />
             <col style={{ width: "9%" }} />
+            <col style={{ width: "34%" }} />
+            <col style={{ width: "19%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "22%" }} />
           </colgroup>
           <thead>
             <tr>
               <th className={`${thCls} px-3 text-center`}>Véhicule</th>
-              <th className={`${thCls} px-2`}>Modèle &amp; statut</th>
+              <th className={`${thCls} px-2`}>Modèle</th>
+              <th className={`${thCls} px-2`}>Statut</th>
               <th className={`${thCls} px-2`}>VIN</th>
               <th className={`${thCls} px-2`}>Stock / Arrivée</th>
-              <th className={`${thCls} px-2`}></th>
             </tr>
           </thead>
           <tbody>
