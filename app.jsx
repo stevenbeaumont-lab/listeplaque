@@ -1071,8 +1071,9 @@ function ImportForm({ dark, onImport, existingMeta }) {
   async function submit() {
     if (!ordersRows) { setError("Le fichier des véhicules commandés est requis."); return; }
     setBusy(true);
-    await onImport({ ordersRows, stockRows: stockRows || [], ordersFileName: ordersFile?.name, stockFileName: stockFile?.name });
+    const ok = await onImport({ ordersRows, stockRows: stockRows || [], ordersFileName: ordersFile?.name, stockFileName: stockFile?.name });
     setBusy(false);
+    if (!ok) setError("Échec de l'enregistrement (base de données injoignable ou table absente). Ouvrez la console du navigateur (F12) pour le détail, et vérifiez la table Supabase.");
   }
 
   const dropCls = `flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dark ? "border-zinc-700 hover:border-amber-500/60 hover:bg-amber-500/5" : "border-stone-300 hover:border-amber-400 hover:bg-amber-50/50"}`;
@@ -1266,6 +1267,7 @@ function AccessGate({ dark, onUnlock }) {
 export default function App() {
   const [dark, setDark] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
+  const [dbStatus, setDbStatus] = useState("checking");
   const [vendorName, setVendorName] = useState("");
   const [showVendorPrompt, setShowVendorPrompt] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1324,6 +1326,17 @@ export default function App() {
     return () => clearInterval(id);
   }, [refreshAll, unlocked]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const { error } = await supabase.from(TABLE).select("key").limit(1);
+        setDbStatus(error ? "error" : "ok");
+      } catch (e) {
+        setDbStatus("error");
+      }
+    })();
+  }, []);
+
   async function handleUnlock() {
     setUnlocked(true);
     await sSet(STORE_KEYS.access, "true", false);
@@ -1350,16 +1363,20 @@ export default function App() {
   async function handleImport({ ordersRows, stockRows, ordersFileName, stockFileName }) {
     const orders = ordersRows.map(toOrderRecord).filter((o) => o.orderNumber);
     const stock = stockRows.map(toStockRecord).filter((s) => s.orderNumber);
-    setOrdersData(orders);
-    setStockData(stock);
     const meta = { importedAt: new Date().toISOString(), ordersCount: orders.length, stockCount: stock.length, ordersFileName, stockFileName };
-    setImportMeta(meta);
-    await Promise.all([
+    const results = await Promise.all([
       sSet(STORE_KEYS.orders, JSON.stringify(orders), true),
       sSet(STORE_KEYS.stock, JSON.stringify(stock), true),
       sSet(STORE_KEYS.meta, JSON.stringify(meta), true),
     ]);
-    setImportOpen(false);
+    const ok = results.every(Boolean);
+    if (ok) {
+      setOrdersData(orders);
+      setStockData(stock);
+      setImportMeta(meta);
+      setImportOpen(false);
+    }
+    return ok;
   }
 
   async function handleReservationSave(orderNumber, form) {
@@ -1524,6 +1541,11 @@ export default function App() {
         onOpenAlerts={() => setAlertsOpen(true)}
         syncing={syncing}
       />
+      {dbStatus === "error" && (
+        <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
+          <AlertTriangle size={13} /> Connexion à la base de données impossible — vérifiez que la table Supabase existe (voir README) et que la clé API est correcte. Rien ne sera sauvegardé tant que ce n'est pas résolu.
+        </div>
+      )}
 
       {loading ? (
         <div className="flex h-[500px] items-center justify-center">
