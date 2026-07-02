@@ -1309,6 +1309,11 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
                   )}
                 </div>
                 <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber}{v.vin ? ` · ${v.vin}` : ""}</div>
+                {v.vendu && v.venduPar && (
+                  <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
+                    <User size={10} className="shrink-0" /> Vendu par {v.venduPar}
+                  </div>
+                )}
               </div>
               {renderExtra(v)}
             </li>
