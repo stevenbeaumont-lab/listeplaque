@@ -1300,7 +1300,14 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
             >
               <VehicleTypeIcon vu={v.vu} dark={dark} size="sm" />
               <div className="min-w-[140px] flex-1">
-                <div className={`truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModel(v)}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModel(v)}</span>
+                  {v.vendu && (
+                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800"}`} title={`Contremarqué — vendu par ${v.venduPar}`}>
+                      CM
+                    </span>
+                  )}
+                </div>
                 <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber}{v.vin ? ` · ${v.vin}` : ""}</div>
               </div>
               {renderExtra(v)}
@@ -1314,23 +1321,34 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
 
 function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
   const [query, setQuery] = useState("");
+  const [contremarqueFilter, setContremarqueFilter] = useState("all");
   const q = query.trim().toLowerCase();
-  const matches = (v) => !q || `${v.orderNumber} ${v.vin} ${v.model} ${v.typeVente}`.toLowerCase().includes(q);
+  const matches = (v) => {
+    if (contremarqueFilter === "oui" && !v.vendu) return false;
+    if (contremarqueFilter === "non" && v.vendu) return false;
+    if (!q) return true;
+    return `${v.orderNumber} ${v.vin} ${v.model} ${v.typeVente}`.toLowerCase().includes(q);
+  };
 
   const enStock = useMemo(
     () => vehicles.filter((v) => v.inStock && matches(v)).sort((a, b) => (a.joursStock ?? 0) - (b.joursStock ?? 0)),
-    [vehicles, q]
+    [vehicles, q, contremarqueFilter]
   );
   const enTransit = useMemo(
     () =>
       vehicles
         .filter((v) => v.baseStatus === "commande" && matches(v))
         .sort((a, b) => (a.estRange?.end ? a.estRange.end.getTime() : Infinity) - (b.estRange?.end ? b.estRange.end.getTime() : Infinity)),
-    [vehicles, q]
+    [vehicles, q, contremarqueFilter]
   );
-  const nonSerialises = useMemo(() => vehicles.filter((v) => v.baseStatus === "non_serialise" && matches(v)), [vehicles, q]);
+  const nonSerialises = useMemo(() => vehicles.filter((v) => v.baseStatus === "non_serialise" && matches(v)), [vehicles, q, contremarqueFilter]);
 
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  function chipCls(active) {
+    return `rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+      active ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+    }`;
+  }
 
   return (
     <div className="space-y-4">
@@ -1339,10 +1357,15 @@ function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
         <KPICard dark={dark} label="En transit" value={enTransit.length} />
         <KPICard dark={dark} label="Non sérialisés" value={nonSerialises.length} />
       </div>
-      <div className={`flex items-center gap-2 rounded-2xl border p-2.5 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
-        <div className={`flex h-9 flex-1 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
+      <div className={`flex flex-wrap items-center gap-2 rounded-2xl border p-2.5 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <div className={`flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
           <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Commande, VIN, modèle, type de vente…" className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setContremarqueFilter("all")} className={chipCls(contremarqueFilter === "all")}>Tous</button>
+          <button onClick={() => setContremarqueFilter("oui")} className={chipCls(contremarqueFilter === "oui")}>Contremarqué</button>
+          <button onClick={() => setContremarqueFilter("non")} className={chipCls(contremarqueFilter === "non")}>Non contremarqué</button>
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
