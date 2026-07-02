@@ -334,16 +334,19 @@ function fmtRange(range) {
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
-function buildVehicle(order, stock, overlay) {
+function buildVehicle(order, stock, overlay, dossier) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
   const inStock = !!stock;
   const deliveredToClient = /customer|livre client/i.test(order.localisation || "");
   const reservation = overlay?.reservation || null;
   const activeReservation = !!(reservation && reservation.statut && reservation.statut !== "Réservation annulée");
+  const vendu = !!dossier;
+  const venduPar = dossier?.vendeur || "";
 
   let baseStatus;
   if (deliveredToClient) baseStatus = "livre_client";
+  else if (vendu) baseStatus = "vendu";
   else if (!order.vin) baseStatus = "non_serialise";
   else if (!inStock) baseStatus = "commande";
   else if (activeReservation) baseStatus = "reserve";
@@ -400,6 +403,8 @@ function buildVehicle(order, stock, overlay) {
     codesNotes: stock ? stock.codesNotes : "",
     deliveredToClient,
     reservation,
+    vendu,
+    venduPar,
     dataWarning,
     dataWarningReason,
     history: overlay?.history || [],
@@ -412,6 +417,7 @@ function buildVehicle(order, stock, overlay) {
 const STATUS_META = {
   disponible: { label: "Disponible", dot: "bg-emerald-500", text: "text-emerald-800", bg: "bg-emerald-100", textDark: "text-emerald-300", bgDark: "bg-emerald-500/20" },
   reserve: { label: "Réservé", dot: "bg-amber-500", text: "text-amber-800", bg: "bg-amber-100", textDark: "text-amber-300", bgDark: "bg-amber-500/20" },
+  vendu: { label: "Vendu", dot: "bg-violet-600", text: "text-violet-800", bg: "bg-violet-100", textDark: "text-violet-300", bgDark: "bg-violet-500/20" },
   commande: { label: "Commandé", dot: "bg-zinc-400", text: "text-zinc-700", bg: "bg-zinc-200", textDark: "text-zinc-300", bgDark: "bg-zinc-500/20" },
   non_serialise: { label: "Non sérialisé", dot: "bg-indigo-500", text: "text-indigo-800", bg: "bg-indigo-100", textDark: "text-indigo-300", bgDark: "bg-indigo-500/20" },
   livre_client: { label: "Livré client", dot: "bg-zinc-600", text: "text-zinc-700", bg: "bg-zinc-200", textDark: "text-zinc-200", bgDark: "bg-zinc-600/20" },
@@ -591,7 +597,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
             <div>
               <div className={labelCls}>Statut</div>
               <div className="flex flex-wrap gap-1.5">
-                {[["all", "Tous"], ["disponible", "Disponible"], ["reserve", "Réservé"], ["commande", "Commandé"], ["non_serialise", "Non sérialisé"]].map(([val, lbl]) => (
+                {[["all", "Tous"], ["disponible", "Disponible"], ["reserve", "Réservé"], ["vendu", "Vendu"], ["commande", "Commandé"], ["non_serialise", "Non sérialisé"]].map(([val, lbl]) => (
                   <button key={val} onClick={() => setFilters((f) => ({ ...f, statut: val }))} className={chipCls(filters.statut === val)}>{lbl}</button>
                 ))}
               </div>
@@ -695,6 +701,12 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
           </div>
           <div className="shrink-0 text-right">
             <StatusBadge vehicle={v} dark={dark} />
+            {v.baseStatus === "vendu" && v.venduPar && (
+              <div className={`mt-1 flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={`Vendu par ${v.venduPar}`}>
+                <span className="max-w-[110px] truncate">Vendu par {v.venduPar}</span>
+                <User size={10} className="shrink-0" />
+              </div>
+            )}
             {v.baseStatus === "reserve" && v.reservation?.vendeur && (
               <div className={`mt-1 flex items-center justify-end gap-1 text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
                 <span className="max-w-[100px] truncate">{v.reservation.vendeur}</span>
@@ -821,6 +833,11 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className={`font-mono text-xs font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{v.orderNumber}</span>
         <StatusBadge vehicle={v} dark={dark} />
+        {v.baseStatus === "vendu" && v.venduPar && (
+          <span className={`flex items-center gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
+            <User size={11} /> Vendu par {v.venduPar}
+          </span>
+        )}
         {v.baseStatus === "reserve" && v.reservation?.vendeur && (
           <span className={`flex items-center gap-1 text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>
             <User size={11} /> {v.reservation.vendeur}
@@ -1089,6 +1106,11 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             <div className={`text-xs font-medium ${dark ? "text-zinc-400" : "text-stone-500"}`}>Commande {v.orderNumber} · {v.concession}</div>
           </div>
           <StatusBadge vehicle={v} dark={dark} />
+          {v.baseStatus === "vendu" && v.venduPar && (
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800"}`}>
+              <User size={11} /> Vendu par {v.venduPar}
+            </span>
+          )}
           {(v.energy === "Électrique" || v.energy === "Hybride rechargeable") && (
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -1805,10 +1827,14 @@ export default function App() {
 
   const vehicles = useMemo(() => {
     const stockByOrder = new Map(stockData.map((s) => [s.orderNumber, s]));
+    const dossierByOrder = new Map();
+    dossiersData.forEach((d) => {
+      if (d.numeroUsine && !dossierByOrder.has(d.numeroUsine)) dossierByOrder.set(d.numeroUsine, d);
+    });
     return ordersData
-      .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null))
+      .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null, dossierByOrder.get(o.orderNumber) || null))
       .filter((v) => v.baseStatus !== "livre_client");
-  }, [ordersData, stockData, overlays]);
+  }, [ordersData, stockData, overlays, dossiersData]);
 
   const dossiers = useMemo(() => {
     const vehicleByOrder = new Map(vehicles.map((v) => [v.orderNumber, v]));
@@ -1838,13 +1864,14 @@ export default function App() {
       else if (v.joursStock <= 30) buckets[2].count++;
       else buckets[3].count++;
     });
-    const STATUS_LABELS = { disponible: "Disponible", reserve: "Réservé", commande: "Commandé", non_serialise: "Non sérialisé" };
+    const STATUS_LABELS = { disponible: "Disponible", reserve: "Réservé", vendu: "Vendu", commande: "Commandé", non_serialise: "Non sérialisé" };
     return {
       total: vehicles.length,
       vp: vehicles.filter((v) => !v.vu).length,
       vu: vehicles.filter((v) => v.vu).length,
       disponibles: vehicles.filter((v) => v.baseStatus === "disponible").length,
       reserves: vehicles.filter((v) => v.baseStatus === "reserve").length,
+      vendus: vehicles.filter((v) => v.baseStatus === "vendu").length,
       arrivees: vehicles.filter((v) => v.inStock && v.joursStock <= 3).length,
       nonSerialises: vehicles.filter((v) => v.baseStatus === "non_serialise").length,
       electriques: vehicles.filter((v) => v.energy === "Électrique").length,
@@ -1987,6 +2014,7 @@ export default function App() {
                 <KPICard dark={dark} label="VU" value={stats.vu} />
                 <KPICard dark={dark} label="Disponibles" value={stats.disponibles} />
                 <KPICard dark={dark} label="Réservés" value={stats.reserves} />
+                <KPICard dark={dark} label="Vendus" value={stats.vendus} />
                 <KPICard dark={dark} label="Arrivés (≤3j)" value={stats.arrivees} />
                 <KPICard dark={dark} label="Non sérialisés" value={stats.nonSerialises} />
                 <KPICard dark={dark} label="Alertes actives" value={stats.activeAlerts} />
