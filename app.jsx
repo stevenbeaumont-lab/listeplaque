@@ -38,6 +38,7 @@ const STORE_KEYS = {
   access: "dsr:access-unlocked",
   dossiers: "dsr:dossiers",
   dossiersMeta: "dsr:dossiers-meta",
+  vendeurs: "dsr:vendeurs-list",
 };
 const ACCESS_CODE_KEY = "dsr:access-code-hash";
 
@@ -496,6 +497,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
     { id: "logistique", label: "Logistique" },
     { id: "dashboard", label: "Tableau de bord" },
     { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
+    { id: "vendeurs", label: "Vendeurs" },
     { id: "accidentes", label: "Accidentés", count: accidentCount },
   ];
   return (
@@ -1238,7 +1240,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             <CalendarClock size={13} /> Réservation
           </div>
           <div className="space-y-2.5">
-            <input className={inputCls} placeholder="Nom du vendeur" value={form.vendeur} onChange={(e) => setForm((f) => ({ ...f, vendeur: e.target.value }))} />
+            <input className={inputCls} list="vendeurs-datalist" placeholder="Nom du vendeur" value={form.vendeur} onChange={(e) => setForm((f) => ({ ...f, vendeur: e.target.value }))} />
             <select className={inputCls} value={form.statut} onChange={(e) => setForm((f) => ({ ...f, statut: e.target.value }))}>
               <option value="">— Statut —</option>
               {RESERVATION_STATUSES.map((s) => (
@@ -1693,6 +1695,7 @@ function VendorPrompt({ dark, onSave, onClose }) {
       <p className={`mb-3 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Ce nom sera associé à vos réservations et à l'historique des modifications.</p>
       <input
         autoFocus
+        list="vendeurs-datalist"
         className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
         placeholder="Nom du vendeur"
         value={name}
@@ -1701,6 +1704,69 @@ function VendorPrompt({ dark, onSave, onClose }) {
       />
       <button onClick={() => name.trim() && onSave(name.trim())} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400">Continuer</button>
     </Modal>
+  );
+}
+
+function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove }) {
+  const [name, setName] = useState("");
+
+  const usage = useMemo(() => {
+    const counts = {};
+    vehicles.forEach((v) => {
+      if (v.baseStatus === "reserve" && v.reservation?.vendeur) counts[v.reservation.vendeur] = (counts[v.reservation.vendeur] || 0) + 1;
+    });
+    dossiers.forEach((d) => {
+      if (d.vendeur) counts[d.vendeur] = (counts[d.vendeur] || 0) + 1;
+    });
+    return counts;
+  }, [vehicles, dossiers]);
+
+  function submit() {
+    if (!name.trim()) return;
+    onAdd(name.trim());
+    setName("");
+  }
+
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  return (
+    <div className="space-y-4">
+      <div className={`flex flex-wrap items-center gap-2 rounded-2xl border p-3.5 shadow-sm ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Nom du vendeur (ex. NEE Alexandre)"
+          className={`${inputCls} min-w-[220px] flex-1`}
+        />
+        <button onClick={submit} disabled={!name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+          <Plus size={15} /> Ajouter
+        </button>
+      </div>
+
+      {vendeurs.length === 0 ? (
+        <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+          Aucun vendeur enregistré pour l'instant.
+        </div>
+      ) : (
+        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+            {[...vendeurs].sort((a, b) => a.localeCompare(b)).map((v) => (
+              <li key={v} className={`flex items-center gap-3 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+                  <User size={14} />
+                </span>
+                <span className={`flex-1 font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v}</span>
+                <span className={`text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage[v] || 0} dossier{(usage[v] || 0) > 1 ? "s" : ""}</span>
+                <button onClick={() => onRemove(v)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+                  <Trash2 size={15} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1875,6 +1941,7 @@ function AccessGate({ dark, vendorName, onUnlock }) {
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submitName()}
               placeholder="Nom du vendeur"
+              list="vendeurs-datalist"
               autoFocus
               className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
                 dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
@@ -1907,6 +1974,7 @@ export default function App() {
   const [importMeta, setImportMeta] = useState(null);
   const [accidents, setAccidents] = useState([]);
   const [dossiersData, setDossiersData] = useState([]);
+  const [vendeursList, setVendeursList] = useState([]);
   const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1959,7 +2027,7 @@ export default function App() {
 
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
-    const [o, s, ov, meta, acc, doss, dossMeta] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta, vends] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
@@ -1967,6 +2035,7 @@ export default function App() {
       sGet(STORE_KEYS.accidents, true),
       sGet(STORE_KEYS.dossiers, true),
       sGet(STORE_KEYS.dossiersMeta, true),
+      sGet(STORE_KEYS.vendeurs, true),
     ]);
     if (o) setOrdersData(JSON.parse(o));
     if (s) setStockData(JSON.parse(s));
@@ -1975,6 +2044,7 @@ export default function App() {
     setAccidents(acc ? JSON.parse(acc) : []);
     setDossiersData(doss ? JSON.parse(doss) : []);
     if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
+    if (vends) setVendeursList(JSON.parse(vends));
     setLastSync(new Date());
     if (indicate) setSyncing(false);
   }, []);
@@ -1983,6 +2053,7 @@ export default function App() {
     (async () => {
       const t = await sGet(STORE_KEYS.theme, false);
       if (t) setDark(t === "dark");
+      sGet(STORE_KEYS.vendeurs, true).then((v) => v && setVendeursList(JSON.parse(v)));
       const acc = await sGet(STORE_KEYS.access, false);
       if (acc === "true") {
         setUnlocked(true);
@@ -2126,11 +2197,68 @@ export default function App() {
       setDossiersData(dossiers);
       setDossiersMeta(meta);
       showToast(`Import réussi — ${dossiers.length} dossiers`);
+
+      const foundNames = [...new Set(dossiers.map((d) => d.vendeur).filter(Boolean))];
+      const freshVendeursRaw = await sGet(STORE_KEYS.vendeurs, true);
+      const freshVendeurs = freshVendeursRaw ? JSON.parse(freshVendeursRaw) : [];
+      const lowerExisting = new Set(freshVendeurs.map((v) => v.toLowerCase()));
+      const newOnes = foundNames.filter((n) => !lowerExisting.has(n.toLowerCase()));
+      if (newOnes.length > 0) {
+        const merged = [...freshVendeurs, ...newOnes];
+        await sSet(STORE_KEYS.vendeurs, JSON.stringify(merged), true);
+        setVendeursList(merged);
+        showToast(`${newOnes.length} nouveau${newOnes.length > 1 ? "x" : ""} vendeur${newOnes.length > 1 ? "s" : ""} ajouté${newOnes.length > 1 ? "s" : ""} depuis l'import`);
+      }
     }
     return ok;
   }
 
   const pendingAccidentDeleteRef = useRef(null);
+  const pendingVendeurDeleteRef = useRef(null);
+
+  async function handleAddVendeur(name) {
+    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    if (fresh.some((v) => v.toLowerCase() === name.toLowerCase())) {
+      showToast(`${name} est déjà dans la liste`, { type: "error" });
+      return;
+    }
+    const next = [...fresh, name];
+    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+    setVendeursList(next);
+    if (ok) showToast(`${name} ajouté à la liste des vendeurs`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function commitVendeurDelete(name) {
+    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const next = fresh.filter((v) => v !== name);
+    await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+  }
+
+  function handleRemoveVendeur(name) {
+    if (pendingVendeurDeleteRef.current) {
+      clearTimeout(pendingVendeurDeleteRef.current.timer);
+      commitVendeurDelete(pendingVendeurDeleteRef.current.name);
+    }
+    setVendeursList((prev) => prev.filter((v) => v !== name));
+    const timer = setTimeout(() => {
+      commitVendeurDelete(name);
+      pendingVendeurDeleteRef.current = null;
+    }, 5000);
+    pendingVendeurDeleteRef.current = { name, timer };
+    showToast(`${name} retiré de la liste des vendeurs`, {
+      action: {
+        label: "Annuler",
+        onClick: () => {
+          clearTimeout(timer);
+          pendingVendeurDeleteRef.current = null;
+          setVendeursList((prev) => [...prev, name]);
+        },
+      },
+    });
+  }
 
   async function commitAccidentDelete(id) {
     const freshRaw = await sGet(STORE_KEYS.accidents, true);
@@ -2354,6 +2482,11 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
         .font-display { font-family: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif; }
       `}</style>
+      <datalist id="vendeurs-datalist">
+        {vendeursList.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
       {!unlocked ? (
         <AccessGate dark={dark} vendorName={vendorName} onUnlock={handleUnlock} />
       ) : (
@@ -2435,6 +2568,8 @@ export default function App() {
               <DossierImportForm dark={dark} onImport={handleImportDossiers} existingMeta={dossiersMeta} />
               {dossiers.length > 0 && <DossierList dark={dark} dossiers={dossiers} />}
             </div>
+          ) : tab === "vendeurs" ? (
+            <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} />
           ) : (
             <>
               <VehiclesHeader dark={dark} count={filtered.length} totalCount={vehicles.length} />
