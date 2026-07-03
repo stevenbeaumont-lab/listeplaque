@@ -300,6 +300,14 @@ function displayModel(v) {
   const base = displayModelBase(v);
   return v.modelYear ? `${base} - ${v.modelYear}` : base;
 }
+function transmissionType(energy, gearbox) {
+  if (energy === "Électrique") return "Automatique";
+  const gb = (gearbox || "").toUpperCase();
+  if (!gb) return "";
+  if (gb.includes("BVA") || gb === "CVT" || gb === "POWERSHIFT" || gb === "BV10") return "Automatique";
+  if (gb.includes("BVM") || /^BV\d+$/.test(gb)) return "Manuelle";
+  return "";
+}
 function gearboxLabel(v) {
   if (v.energy === "Électrique") return "BVA";
   return v.gearbox || "—";
@@ -457,6 +465,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale) 
     modelYear,
     bodyType,
     bodyCode: bodyCodeOf(model, bodyType),
+    transmission: transmissionType(energy, gearbox),
     trim,
     color,
     power,
@@ -712,6 +721,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
     (filters.statut !== "all" ? 1 : 0) +
     (filters.vendeur !== "all" ? 1 : 0) +
     (filters.carrosserie !== "all" ? 1 : 0) +
+    (filters.boite !== "all" ? 1 : 0) +
     (filters.typeVente.length > 0 ? 1 : 0);
 
   function chipCls(active) {
@@ -723,7 +733,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
     setFilters((f) => ({ ...f, typeVente: f.typeVente.includes(code) ? f.typeVente.filter((c) => c !== code) : [...f.typeVente, code] }));
   }
   function reset() {
-    setFilters((f) => ({ ...f, concession: "all", vu: "all", statut: "all", vendeur: "all", carrosserie: "all", typeVente: [] }));
+    setFilters((f) => ({ ...f, concession: "all", vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", typeVente: [] }));
   }
 
   return (
@@ -763,6 +773,14 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
               <div className="flex flex-wrap gap-1.5">
                 {[["all", "Toutes"], ["CA", "CA"], ["FG", "FG"], ["Kombi", "Kombi"], ["Kombi FG", "Kombi FG"], ["Multicab", "Multicab"]].map(([val, lbl]) => (
                   <button key={val} onClick={() => setFilters((f) => ({ ...f, carrosserie: val }))} className={chipCls(filters.carrosserie === val)}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className={labelCls}>Boîte de vitesse</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[["all", "Toutes"], ["Automatique", "Automatique"], ["Manuelle", "Manuelle"]].map(([val, lbl]) => (
+                  <button key={val} onClick={() => setFilters((f) => ({ ...f, boite: val }))} className={chipCls(filters.boite === val)}>{lbl}</button>
                 ))}
               </div>
             </div>
@@ -2435,7 +2453,7 @@ export default function App() {
   const [resetConfirm, setResetConfirm] = useState(false);
   const [tab, setTab] = useState(() => loadLocal("dsr:ui-tab", "vehicules"));
   const [filters, setFilters] = useState(() =>
-    loadLocal("dsr:ui-filters", { concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", query: "" })
+    loadLocal("dsr:ui-filters", { concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "" })
   );
   const [sortBy, setSortBy] = useState(() => loadLocal("dsr:ui-sort", "stock_desc"));
 
@@ -2859,7 +2877,7 @@ export default function App() {
   }
   function goToVehicles(patch) {
     setTab("vehicules");
-    setFilters((f) => ({ ...f, concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", query: "", ...patch }));
+    setFilters((f) => ({ ...f, concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "", ...patch }));
   }
 
   const stats = useMemo(() => {
@@ -2920,6 +2938,7 @@ export default function App() {
       if (filters.statut !== "all" && v.baseStatus !== filters.statut) return false;
       if (filters.vendeur !== "all" && activeReservationVendeur(v) !== filters.vendeur) return false;
       if (filters.carrosserie && filters.carrosserie !== "all" && v.bodyCode !== filters.carrosserie) return false;
+      if (filters.boite && filters.boite !== "all" && v.transmission !== filters.boite) return false;
       if (terms.length > 0) {
         const hay = `${v.orderNumber} ${v.vin} ${v.description} ${v.model} ${v.concession} ${activeReservationVendeur(v)} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase();
         if (!terms.some((t) => hay.includes(t))) return false;
