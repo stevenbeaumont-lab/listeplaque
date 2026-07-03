@@ -1469,32 +1469,38 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
   );
 }
 
-function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
+function LogisticsTab({ dark, vehicles, vendeursList, onOpenVehicle }) {
   const [query, setQuery] = useState("");
   const [contremarqueFilter, setContremarqueFilter] = useState("all");
   const [concessionFilter, setConcessionFilter] = useState("all");
+  const [vendeurFilter, setVendeurFilter] = useState("all");
+  const [siteFilter, setSiteFilter] = useState("all");
   const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
+  const vendeurSiteMap = useMemo(() => new Map(vendeursList.map((v) => [v.nom, v.site])), [vendeursList]);
+  const vendorOf = (v) => v.venduPar || v.reservation?.vendeur || "";
   const q = query.trim().toLowerCase();
   const matches = (v) => {
     if (contremarqueFilter === "oui" && !v.vendu) return false;
     if (contremarqueFilter === "non" && v.vendu) return false;
     if (concessionFilter !== "all" && v.concession !== concessionFilter) return false;
+    if (vendeurFilter !== "all" && vendorOf(v) !== vendeurFilter) return false;
+    if (siteFilter !== "all" && (vendeurSiteMap.get(vendorOf(v)) || "") !== siteFilter) return false;
     if (!q) return true;
     return `${v.orderNumber} ${v.vin} ${v.model} ${v.typeVente}`.toLowerCase().includes(q);
   };
 
   const enStock = useMemo(
     () => vehicles.filter((v) => v.inStock && matches(v)).sort((a, b) => (a.joursStock ?? 0) - (b.joursStock ?? 0)),
-    [vehicles, q, contremarqueFilter, concessionFilter]
+    [vehicles, q, contremarqueFilter, concessionFilter, vendeurFilter, siteFilter]
   );
   const enTransit = useMemo(
     () =>
       vehicles
         .filter((v) => !v.inStock && !!v.vin && matches(v))
         .sort((a, b) => (a.estRange?.end ? a.estRange.end.getTime() : Infinity) - (b.estRange?.end ? b.estRange.end.getTime() : Infinity)),
-    [vehicles, q, contremarqueFilter, concessionFilter]
+    [vehicles, q, contremarqueFilter, concessionFilter, vendeurFilter, siteFilter]
   );
-  const nonSerialises = useMemo(() => vehicles.filter((v) => !v.vin && matches(v)), [vehicles, q, contremarqueFilter, concessionFilter]);
+  const nonSerialises = useMemo(() => vehicles.filter((v) => !v.vin && matches(v)), [vehicles, q, contremarqueFilter, concessionFilter, vendeurFilter, siteFilter]);
 
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
   function chipCls(active) {
@@ -1524,6 +1530,18 @@ function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
           <option value="all">Toutes concessions</option>
           {concessions.map((c) => (
             <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+        <select value={vendeurFilter} onChange={(e) => setVendeurFilter(e.target.value)} className={inputCls}>
+          <option value="all">Tous vendeurs</option>
+          {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
+            <option key={v.nom} value={v.nom}>{v.nom}</option>
+          ))}
+        </select>
+        <select value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)} className={inputCls}>
+          <option value="all">Tous sites</option>
+          {FORD_SITES.map((s) => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </div>
@@ -2876,7 +2894,7 @@ export default function App() {
             <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
-            <LogisticsTab dark={dark} vehicles={vehicles} onOpenVehicle={openInVehicules} />
+            <LogisticsTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
