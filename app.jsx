@@ -741,7 +741,7 @@ function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeur
   );
 }
 
-function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
+function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
   const hasAlert = v.alerts.length > 0;
   const isElectric = v.energy === "Électrique";
   const isPHEV = v.energy === "Hybride rechargeable";
@@ -794,18 +794,8 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra, onQuickReserve }) {
         </div>
       </td>
       <td className={`truncate px-2 py-2 font-mono text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={v.vin}>{v.vin || "—"}</td>
-      <td className={`truncate px-2 py-2 font-medium tabular-nums ${dark ? "text-zinc-200" : "text-stone-700"}`}>
+      <td className={`truncate px-2 py-2 pr-4 font-medium tabular-nums ${dark ? "text-zinc-200" : "text-stone-700"}`}>
         {v.inStock ? `${v.joursStock} j` : (fmtRange(v.estRange) || "—")}
-      </td>
-      <td className="whitespace-nowrap px-2 py-2 pr-4 text-right">
-        {v.baseStatus === "disponible" && onQuickReserve && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
-            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-amber-500 px-2 py-1 text-[11px] font-bold text-zinc-950 transition-colors hover:bg-amber-400"
-          >
-            <Bookmark size={10} /> Réserver
-          </button>
-        )}
       </td>
     </tr>
   );
@@ -852,7 +842,7 @@ function VehiclesHeader({ dark, count, totalCount, viewMode, setViewMode }) {
   );
 }
 
-function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, onQuickReserve }) {
+function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
   const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
   return (
     <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
@@ -860,11 +850,10 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col style={{ width: "9%" }} />
-            <col style={{ width: "31%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "14%" }} />
+            <col style={{ width: "34%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "25%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -872,8 +861,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
               <th className={`${thCls} px-2`}>Modèle</th>
               <th className={`${thCls} px-2`}>Statut</th>
               <th className={`${thCls} px-2`}>VIN</th>
-              <th className={`${thCls} px-2`}>Stock / Arrivée</th>
-              <th className={`${thCls} px-2`}></th>
+              <th className={`${thCls} px-2 pr-4`}>Stock / Arrivée</th>
             </tr>
           </thead>
           <tbody>
@@ -881,10 +869,10 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
               const isOpen = v.orderNumber === expandedOrder;
               return (
                 <Fragment key={v.orderNumber}>
-                  <VehicleRow v={v} dark={dark} onSelect={onSelect} expanded={isOpen} zebra={i % 2 === 1} onQuickReserve={onQuickReserve} />
+                  <VehicleRow v={v} dark={dark} onSelect={onSelect} expanded={isOpen} zebra={i % 2 === 1} />
                   {isOpen && (
                     <tr>
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={5} className="p-0">
                         <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} />
                       </td>
                     </tr>
@@ -894,7 +882,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
             })}
             {vehicles.length === 0 && (
               <tr>
-                <td colSpan={6} className={`px-4 py-10 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                <td colSpan={5} className={`px-4 py-10 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
                   Aucun véhicule ne correspond aux filtres.
                 </td>
               </tr>
@@ -906,7 +894,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
   );
 }
 
-function VehicleCard({ v, dark, onSelect, expanded, onQuickReserve }) {
+function VehicleCard({ v, dark, onSelect, expanded }) {
   const hasAlert = v.alerts.length > 0;
   const isElectric = v.energy === "Électrique";
   const isPHEV = v.energy === "Hybride rechargeable";
@@ -949,14 +937,6 @@ function VehicleCard({ v, dark, onSelect, expanded, onQuickReserve }) {
             <User size={11} /> {v.reservation.vendeur}
           </span>
         )}
-        {v.baseStatus === "disponible" && onQuickReserve && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onQuickReserve(v); }}
-            className="ml-auto flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400"
-          >
-            <Bookmark size={11} /> Réserver
-          </button>
-        )}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -979,7 +959,7 @@ function VehicleCard({ v, dark, onSelect, expanded, onQuickReserve }) {
   );
 }
 
-function VehicleGrid({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, onQuickReserve }) {
+function VehicleGrid({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
   if (vehicles.length === 0) {
     return (
       <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
@@ -992,7 +972,7 @@ function VehicleGrid({ dark, vehicles, expandedOrder, onSelect, onSave, vendorNa
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {vehicles.map((v) => (
-          <VehicleCard key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} onQuickReserve={onQuickReserve} />
+          <VehicleCard key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} />
         ))}
       </div>
       {expandedVehicle && (
@@ -1004,7 +984,7 @@ function VehicleGrid({ dark, vehicles, expandedOrder, onSelect, onSave, vendorNa
   );
 }
 
-function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, onQuickReserve }) {
+function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
   if (vehicles.length === 0) {
     return (
       <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
@@ -1018,7 +998,7 @@ function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vend
         const isOpen = v.orderNumber === expandedOrder;
         return (
           <div key={v.orderNumber}>
-            <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} onQuickReserve={onQuickReserve} />
+            <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} />
             {isOpen && (
               <div className={`overflow-hidden rounded-b-xl border border-t-0 ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
                 <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} />
@@ -1173,10 +1153,17 @@ function TrendChart({ dark }) {
 }
 
 function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
-  const [form, setForm] = useState(() => v.reservation || { vendeur: vendorName || "", statut: "", dateDebut: "", dateFin: "", commentaire: "" });
+  function defaultForm() {
+    if (v.reservation) return v.reservation;
+    const today = new Date();
+    const plus7 = new Date(Date.now() + 7 * 86400000);
+    return { vendeur: vendorName || "", statut: "", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" };
+  }
+  const [form, setForm] = useState(defaultForm);
   const [saved, setSaved] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   useEffect(() => {
-    setForm(v.reservation || { vendeur: vendorName || "", statut: "", dateDebut: "", dateFin: "", commentaire: "" });
+    setForm(defaultForm());
     setSaved(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.orderNumber]);
@@ -1184,7 +1171,9 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
   const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30 focus:border-amber-500/40" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20 focus:border-amber-400"}`;
 
   function save() {
-    onSave(v.orderNumber, { ...form, vendeur: form.vendeur || vendorName });
+    const vendeurFinal = form.vendeur || vendorName;
+    onSave(v.orderNumber, { ...form, vendeur: vendeurFinal });
+    setForm((f) => ({ ...f, vendeur: vendeurFinal }));
     setSaved(true);
     setTimeout(() => setSaved(false), 2200);
   }
@@ -1227,12 +1216,20 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             </span>
           ))}
         </div>
-        <button onClick={onClose} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-200"}`}>
-          <X size={16} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+          >
+            <History size={13} /> Historique {v.history.length > 0 && `(${v.history.length})`}
+          </button>
+          <button onClick={onClose} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-200"}`}>
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <div className={`space-y-4 rounded-xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
           <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
             <Info size={13} /> Fiche véhicule
@@ -1272,7 +1269,9 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             <CalendarClock size={13} /> Réservation
           </div>
           <div className="space-y-2.5">
-            <input className={inputCls} list="vendeurs-datalist" placeholder="Nom du vendeur" value={form.vendeur} onChange={(e) => setForm((f) => ({ ...f, vendeur: e.target.value }))} />
+            <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-300" : "border-stone-200 bg-stone-50 text-stone-600"}`}>
+              <User size={13} className="shrink-0" /> {form.vendeur || vendorName || "—"}
+            </div>
             <select className={inputCls} value={form.statut} onChange={(e) => setForm((f) => ({ ...f, statut: e.target.value }))}>
               <option value="">— Statut —</option>
               {RESERVATION_STATUSES.map((s) => (
@@ -1297,27 +1296,29 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             </div>
           </div>
         </div>
-
-        <div className={`rounded-xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
-          <div className={`mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-            <History size={13} /> Historique
-          </div>
-          {v.history.length === 0 && <div className={`text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune modification enregistrée.</div>}
-          <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
-            {v.history.map((h, i) => (
-              <li key={i} className={`rounded-lg border p-2.5 text-xs ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}>
-                <div className={`flex items-center justify-between font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>
-                  <span>{h.champ}</span>
-                  <span className={`font-normal ${dark ? "text-zinc-500" : "text-stone-400"}`}>{h.date} · {h.heure}</span>
-                </div>
-                <div className={dark ? "text-zinc-400" : "text-stone-500"}>
-                  {h.utilisateur} : <span className="line-through">{h.ancienne}</span> → <span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{h.nouvelle}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
       </div>
+
+      {historyOpen && (
+        <Modal dark={dark} title={`Historique — ${v.orderNumber}`} onClose={() => setHistoryOpen(false)}>
+          {v.history.length === 0 ? (
+            <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune modification enregistrée.</div>
+          ) : (
+            <ul className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {v.history.map((h, i) => (
+                <li key={i} className={`rounded-lg border p-2.5 text-xs ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}>
+                  <div className={`flex items-center justify-between font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>
+                    <span>{h.champ}</span>
+                    <span className={`font-normal ${dark ? "text-zinc-500" : "text-stone-400"}`}>{h.date} · {h.heure}</span>
+                  </div>
+                  <div className={dark ? "text-zinc-400" : "text-stone-500"}>
+                    {h.utilisateur} : <span className="line-through">{h.ancienne}</span> → <span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{h.nouvelle}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
@@ -2239,13 +2240,6 @@ export default function App() {
     setOverlays(next);
   }
 
-  async function handleQuickReserve(v) {
-    const today = new Date().toISOString().slice(0, 10);
-    await handleReservationSave(v.orderNumber, { vendeur: vendorName || "Vendeur", statut: "Réservé", dateDebut: today, dateFin: "", commentaire: "" });
-    showToast(`${displayModelBase(v)} réservé`, {
-      action: { label: "Voir", onClick: () => { setTab("vehicules"); setSelected(v); } },
-    });
-  }
 
   async function handleImportDossiers({ rows, fileName }) {
     const dossiers = rows.map(toDossierRecord).filter((d) => d.numero || d.numeroUsine || d.vendeur);
@@ -2675,13 +2669,13 @@ export default function App() {
               />
               <div className="hidden lg:block">
                 {viewMode === "grid" ? (
-                  <VehicleGrid dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
+                  <VehicleGrid dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
                 ) : (
-                  <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
+                  <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
                 )}
               </div>
               <div className="lg:hidden">
-                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} onQuickReserve={handleQuickReserve} />
+                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
               </div>
               {importMeta && (
                 <div className={`flex flex-wrap items-center justify-between gap-2 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>
