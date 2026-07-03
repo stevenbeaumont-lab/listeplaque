@@ -36,6 +36,7 @@ const STORE_KEYS = {
   dossiers: "dsr:dossiers",
   dossiersMeta: "dsr:dossiers-meta",
   vendeurs: "dsr:vendeurs-list",
+  manualSales: "dsr:manual-sales",
 };
 const ACCESS_CODE_KEY = "dsr:access-code-hash";
 
@@ -326,6 +327,27 @@ function exportVehiclesToExcel(vehicles) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-export-${stamp}.xlsx`);
 }
+function exportDossiersToExcel(dossiers) {
+  const rows = dossiers.map((d) => ({
+    "N° usine": d.numeroUsine || "",
+    "Vendeur": d.vendeur || "",
+    "Client": d.societe || [d.prenom, d.nom].filter(Boolean).join(" ") || "",
+    "Modèle": d.vehicle ? displayModelBase(d.vehicle) : d.modele || "",
+    "Localisation": d.localisation || "",
+    "Catégorie": d.categorie || "",
+    "Statut livraison": d.statutLivraison || "",
+    "Date de commande": d.dateCmd || "",
+    "Bon de commande": d.bonCmd || "",
+    "Financement": d.financeOrganisme || "",
+    "Rapproché": d.vehicle ? "Oui" : "Non",
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = Object.keys(rows[0] || {}).map((k) => ({ wch: Math.max(k.length, 14) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Dossiers");
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `parclive-dossiers-${stamp}.xlsx`);
+}
 function normalizeOrderNum(s) {
   return String(s || "").trim().replace(/^0+(?=\d)/, "");
 }
@@ -355,7 +377,7 @@ function venduLabel(v) {
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
-function buildVehicle(order, stock, overlay, dossier, isAccidented) {
+function buildVehicle(order, stock, overlay, dossier, isAccidented, manualVendeur) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
   const inStock = !!stock;
@@ -364,7 +386,8 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented) {
   const activeReservation = !!(reservation && reservation.statut && reservation.statut !== "Réservation annulée");
   const venduByCode = VENDU_TYPE_CODES.includes((order.typeVente || "").toUpperCase().trim());
   const vendu = !!dossier || venduByCode;
-  const venduPar = dossier?.vendeur || "";
+  const venduPar = dossier?.vendeur || manualVendeur || "";
+  const venduAttribManuelle = !dossier && !!manualVendeur;
 
   let baseStatus;
   if (deliveredToClient) baseStatus = "livre_client";
@@ -428,6 +451,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented) {
     reservation,
     vendu,
     venduPar,
+    venduAttribManuelle,
     dataWarning,
     dataWarningReason,
     history: overlay?.history || [],
@@ -523,12 +547,12 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
     { id: "accidentes", label: "Accidentés", count: accidentCount },
   ];
   return (
-    <div className={`inline-flex gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+    <div className={`flex max-w-full gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
       {items.map((it) => (
         <button
           key={it.id}
           onClick={() => setTab(it.id)}
-          className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+          className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors sm:px-4 ${
             tab === it.id
               ? "bg-amber-500 text-zinc-950"
               : dark
@@ -1081,6 +1105,54 @@ function BarListCard({ dark, title, data, color, layout }) {
   );
 }
 
+function SiteComparisonTable({ dark, vehicles }) {
+  const rows = useMemo(() => {
+    const map = {};
+    vehicles.forEach((v) => {
+      const c = v.concession || "—";
+      if (!map[c]) map[c] = { concession: c, total: 0, disponibles: 0, vendus: 0, reserves: 0, alertes: 0 };
+      map[c].total++;
+      if (v.baseStatus === "disponible") map[c].disponibles++;
+      if (v.baseStatus === "vendu") map[c].vendus++;
+      if (v.baseStatus === "reserve") map[c].reserves++;
+      map[c].alertes += v.alerts.length;
+    });
+    return Object.values(map).sort((a, b) => b.total - a.total);
+  }, [vehicles]);
+
+  const thCls = `px-4 py-2.5 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`;
+  const tdCls = `px-4 py-2.5 text-right tabular-nums font-medium ${dark ? "text-zinc-200" : "text-stone-700"}`;
+
+  return (
+    <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className={dark ? "bg-zinc-900" : "bg-stone-100"}>
+            <th className={`${thCls} text-left`}>Concession</th>
+            <th className={`${thCls} text-right`}>Total</th>
+            <th className={`${thCls} text-right`}>Disponibles</th>
+            <th className={`${thCls} text-right`}>Réservés</th>
+            <th className={`${thCls} text-right`}>Vendus</th>
+            <th className={`${thCls} text-right`}>Alertes</th>
+          </tr>
+        </thead>
+        <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+          {rows.map((r) => (
+            <tr key={r.concession} className={dark ? "hover:bg-zinc-900/60" : "hover:bg-amber-50/40"}>
+              <td className={`px-4 py-2.5 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{r.concession}</td>
+              <td className={tdCls}>{r.total}</td>
+              <td className={`${tdCls} ${dark ? "text-emerald-400" : "text-emerald-600"}`}>{r.disponibles}</td>
+              <td className={`${tdCls} ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.reserves}</td>
+              <td className={`${tdCls} ${dark ? "text-violet-400" : "text-violet-600"}`}>{r.vendus}</td>
+              <td className={`${tdCls} ${r.alertes > 0 ? (dark ? "text-rose-400" : "text-rose-600") : ""}`}>{r.alertes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function AlertsSummaryCard({ dark, vehicles }) {
   const counts = {};
   vehicles.forEach((v) => v.alerts.forEach((a) => { counts[a.label] = (counts[a.label] || 0) + 1; }));
@@ -1420,26 +1492,29 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
 function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
   const [query, setQuery] = useState("");
   const [contremarqueFilter, setContremarqueFilter] = useState("all");
+  const [concessionFilter, setConcessionFilter] = useState("all");
+  const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
   const q = query.trim().toLowerCase();
   const matches = (v) => {
     if (contremarqueFilter === "oui" && !v.vendu) return false;
     if (contremarqueFilter === "non" && v.vendu) return false;
+    if (concessionFilter !== "all" && v.concession !== concessionFilter) return false;
     if (!q) return true;
     return `${v.orderNumber} ${v.vin} ${v.model} ${v.typeVente}`.toLowerCase().includes(q);
   };
 
   const enStock = useMemo(
     () => vehicles.filter((v) => v.inStock && matches(v)).sort((a, b) => (a.joursStock ?? 0) - (b.joursStock ?? 0)),
-    [vehicles, q, contremarqueFilter]
+    [vehicles, q, contremarqueFilter, concessionFilter]
   );
   const enTransit = useMemo(
     () =>
       vehicles
         .filter((v) => !v.inStock && !!v.vin && matches(v))
         .sort((a, b) => (a.estRange?.end ? a.estRange.end.getTime() : Infinity) - (b.estRange?.end ? b.estRange.end.getTime() : Infinity)),
-    [vehicles, q, contremarqueFilter]
+    [vehicles, q, contremarqueFilter, concessionFilter]
   );
-  const nonSerialises = useMemo(() => vehicles.filter((v) => !v.vin && matches(v)), [vehicles, q, contremarqueFilter]);
+  const nonSerialises = useMemo(() => vehicles.filter((v) => !v.vin && matches(v)), [vehicles, q, contremarqueFilter, concessionFilter]);
 
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
   function chipCls(active) {
@@ -1465,6 +1540,12 @@ function LogisticsTab({ dark, vehicles, onOpenVehicle }) {
           <button onClick={() => setContremarqueFilter("oui")} className={chipCls(contremarqueFilter === "oui")}>Contremarqué</button>
           <button onClick={() => setContremarqueFilter("non")} className={chipCls(contremarqueFilter === "non")}>Non contremarqué</button>
         </div>
+        <select value={concessionFilter} onChange={(e) => setConcessionFilter(e.target.value)} className={inputCls}>
+          <option value="all">Toutes concessions</option>
+          {concessions.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <LogisticsGroup
@@ -1592,21 +1673,95 @@ function DossierRow({ dark, d }) {
   );
 }
 
-function DossierList({ dark, dossiers }) {
+function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
+  const unattributed = useMemo(() => vehicles.filter((v) => v.vendu && !v.venduPar), [vehicles]);
+  const attributedManually = useMemo(() => vehicles.filter((v) => v.venduAttribManuelle), [vehicles]);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const filtered = unattributed.filter((v) => !q || `${v.orderNumber} ${v.model} ${v.typeVente}`.toLowerCase().includes(q));
+  const inputCls = `h-9 rounded-lg border px-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  return (
+    <div className="space-y-3">
+      <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+        <User size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+        Commandes vendues sans dossier MyAna
+      </div>
+      <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        Ces véhicules sont marqués "Vendu" d'après leur type de vente, sans dossier MyAna correspondant. Attribuez-leur un vendeur manuellement.
+      </p>
+      <div className={`flex h-9 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
+        <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Commande, modèle, type de vente…" className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`} />
+      </div>
+      {filtered.length === 0 ? (
+        <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+          {unattributed.length === 0 ? "Toutes les ventes détectées sont attribuées." : "Aucune commande ne correspond."}
+        </div>
+      ) : (
+        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          <ul className={`max-h-[420px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+            {filtered.map((v) => (
+              <li key={v.orderNumber} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+                <div className="min-w-[160px] flex-1">
+                  <div className={`truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</div>
+                  <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber} · Type {v.typeVente}</div>
+                </div>
+                <select
+                  defaultValue=""
+                  onChange={(e) => e.target.value && onAssign(v.orderNumber, e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">— Attribuer à —</option>
+                  {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((vd) => (
+                    <option key={vd.nom} value={vd.nom}>{vd.nom}</option>
+                  ))}
+                </select>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {attributedManually.length > 0 && (
+        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          <div className={`border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest ${dark ? "border-zinc-800 bg-zinc-900 text-zinc-400" : "border-stone-200 bg-stone-100 text-stone-500"}`}>
+            Attribuées manuellement ({attributedManually.length})
+          </div>
+          <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+            {attributedManually.map((v) => (
+              <li key={v.orderNumber} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <span className={`flex-1 truncate ${dark ? "text-zinc-200" : "text-stone-700"}`}>{displayModelBase(v)} · {v.orderNumber}</span>
+                <span className={`flex items-center gap-1 font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}><User size={11} /> {v.venduPar}</span>
+                <button onClick={() => onAssign(v.orderNumber, "")} className={`rounded-lg p-1 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+                  <Trash2 size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DossierList({ dark, dossiers, onExport }) {
   const [query, setQuery] = useState("");
   const [vendeurFilter, setVendeurFilter] = useState("all");
+  const [localisationFilter, setLocalisationFilter] = useState("all");
   const vendeurs = useMemo(() => [...new Set(dossiers.map((d) => d.vendeur).filter(Boolean))].sort(), [dossiers]);
+  const localisations = useMemo(() => [...new Set(dossiers.map((d) => d.localisation).filter(Boolean))].sort(), [dossiers]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return dossiers.filter((d) => {
       if (vendeurFilter !== "all" && d.vendeur !== vendeurFilter) return false;
+      if (localisationFilter !== "all" && d.localisation !== localisationFilter) return false;
       if (q) {
         const hay = `${d.vendeur} ${d.nom} ${d.prenom} ${d.societe} ${d.numeroUsine} ${d.modele}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [dossiers, query, vendeurFilter]);
+  }, [dossiers, query, vendeurFilter, localisationFilter]);
   const unmatchedCount = dossiers.filter((d) => !d.vehicle).length;
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
 
@@ -1629,7 +1784,16 @@ function DossierList({ dark, dossiers }) {
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
+        <select className={inputCls} value={localisationFilter} onChange={(e) => setLocalisationFilter(e.target.value)}>
+          <option value="all">Tous sites</option>
+          {localisations.map((l) => (
+            <option key={l} value={l}>{l}</option>
+          ))}
+        </select>
         <span className={`ml-auto text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{filtered.length} dossier{filtered.length > 1 ? "s" : ""}</span>
+        <button onClick={() => onExport(filtered)} className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
+          <Download size={14} /> Exporter
+        </button>
       </div>
       <div className={`overflow-hidden rounded-2xl border shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
         {filtered.length === 0 ? (
@@ -1754,6 +1918,10 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
   const [siteFilter, setSiteFilter] = useState("all");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkSite, setBulkSite] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const usage = useMemo(() => {
     const counts = {};
@@ -1771,6 +1939,18 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
     onAdd(name.trim(), site);
     setName("");
     setSite("");
+  }
+
+  async function submitBulk() {
+    const names = [...new Set(bulkText.split("\n").map((s) => s.trim()).filter(Boolean))];
+    if (names.length === 0) return;
+    setBulkBusy(true);
+    for (const n of names) {
+      await onAdd(n, bulkSite);
+    }
+    setBulkBusy(false);
+    setBulkText("");
+    setBulkOpen(false);
   }
 
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
@@ -1796,7 +1976,34 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
         <button onClick={submit} disabled={!name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
           <Plus size={15} /> Ajouter
         </button>
+        <button onClick={() => setBulkOpen((o) => !o)} className={`text-xs font-semibold underline-offset-2 hover:underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          {bulkOpen ? "Annuler l'ajout groupé" : "Ajouter plusieurs à la fois"}
+        </button>
       </div>
+
+      {bulkOpen && (
+        <div className={`space-y-2.5 rounded-2xl border p-3.5 shadow-sm ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+          <p className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Un nom par ligne, collez directement depuis une liste ou un tableur.</p>
+          <textarea
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            rows={5}
+            placeholder={"LEROY Anthony\nPAILLETTE Nicolas\nNEE Alexandre"}
+            className={`w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={bulkSite} onChange={(e) => setBulkSite(e.target.value)} className={inputCls}>
+              <option value="">— Site pour tous (optionnel) —</option>
+              {FORD_SITES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <button onClick={submitBulk} disabled={!bulkText.trim() || bulkBusy} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+              {bulkBusy ? "Ajout en cours…" : "Ajouter la liste"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {vendeurs.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -2067,6 +2274,7 @@ export default function App() {
   const [accidents, setAccidents] = useState([]);
   const [dossiersData, setDossiersData] = useState([]);
   const [vendeursList, setVendeursList] = useState([]);
+  const [manualSales, setManualSales] = useState({});
   const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -2121,7 +2329,7 @@ export default function App() {
 
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
-    const [o, s, ov, meta, acc, doss, dossMeta, vends] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
@@ -2130,6 +2338,7 @@ export default function App() {
       sGet(STORE_KEYS.dossiers, true),
       sGet(STORE_KEYS.dossiersMeta, true),
       sGet(STORE_KEYS.vendeurs, true),
+      sGet(STORE_KEYS.manualSales, true),
     ]);
     if (o) setOrdersData(JSON.parse(o));
     if (s) setStockData(JSON.parse(s));
@@ -2139,6 +2348,7 @@ export default function App() {
     setDossiersData(doss ? JSON.parse(doss) : []);
     if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
     if (vends) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
+    setManualSales(manual ? JSON.parse(manual) : {});
     setLastSync(new Date());
     if (indicate) setSyncing(false);
   }, []);
@@ -2167,10 +2377,11 @@ export default function App() {
         setLastSync(new Date());
         setLoading(false);
 
-        Promise.all([sGet(STORE_KEYS.accidents, true), sGet(STORE_KEYS.dossiers, true), sGet(STORE_KEYS.dossiersMeta, true)]).then(([acc2, doss, dossMeta]) => {
+        Promise.all([sGet(STORE_KEYS.accidents, true), sGet(STORE_KEYS.dossiers, true), sGet(STORE_KEYS.dossiersMeta, true), sGet(STORE_KEYS.manualSales, true)]).then(([acc2, doss, dossMeta, manual]) => {
           setAccidents(acc2 ? JSON.parse(acc2) : []);
           setDossiersData(doss ? JSON.parse(doss) : []);
           if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
+          setManualSales(manual ? JSON.parse(manual) : {});
         });
       } else {
         setLoading(false);
@@ -2331,6 +2542,19 @@ export default function App() {
     if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
+  async function handleAssignManualSale(orderNumber, vendeurNom) {
+    const key = normalizeOrderNum(orderNumber);
+    const freshRaw = await sGet(STORE_KEYS.manualSales, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : {};
+    const next = { ...fresh };
+    if (vendeurNom) next[key] = vendeurNom;
+    else delete next[key];
+    const ok = await sSet(STORE_KEYS.manualSales, JSON.stringify(next), true);
+    setManualSales(next);
+    if (ok) showToast(vendeurNom ? `Commande ${orderNumber} attribuée à ${vendeurNom}` : `Attribution retirée pour ${orderNumber}`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
   async function commitVendeurDelete(name) {
     const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
     const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
@@ -2432,9 +2656,18 @@ export default function App() {
     });
     const accidentedOrders = new Set(accidents.map((a) => normalizeOrderNum(a.orderNumber)));
     return ordersData
-      .map((o) => buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null, dossierByOrder.get(normalizeOrderNum(o.orderNumber)) || null, accidentedOrders.has(normalizeOrderNum(o.orderNumber))))
+      .map((o) =>
+        buildVehicle(
+          o,
+          stockByOrder.get(o.orderNumber) || null,
+          overlays[o.orderNumber] || null,
+          dossierByOrder.get(normalizeOrderNum(o.orderNumber)) || null,
+          accidentedOrders.has(normalizeOrderNum(o.orderNumber)),
+          manualSales[normalizeOrderNum(o.orderNumber)] || null
+        )
+      )
       .filter((v) => v.baseStatus !== "livre_client");
-  }, [ordersData, stockData, overlays, dossiersData, accidents]);
+  }, [ordersData, stockData, overlays, dossiersData, accidents, manualSales]);
 
   const dossiers = useMemo(() => {
     const vehicleByOrder = new Map(vehicles.map((v) => [normalizeOrderNum(v.orderNumber), v]));
@@ -2666,6 +2899,7 @@ export default function App() {
                   <DonutCard dark={dark} title="VP / VU" data={stats.byType} />
                   <DonutCard dark={dark} title="Par concession" data={stats.byConcession} />
                 </div>
+                <SiteComparisonTable dark={dark} vehicles={vehicles} />
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <KPICard dark={dark} size="sm" label="Électriques" value={stats.electriques} />
                   <KPICard dark={dark} size="sm" label="Hybrides rechargeables" value={stats.hybridesRecharge} />
@@ -2693,9 +2927,12 @@ export default function App() {
           ) : tab === "accidentes" ? (
             <AccidentManualList dark={dark} accidents={accidents} vehicles={vehicles} vendorName={vendorName} onAdd={handleAddAccident} onRemove={handleRemoveAccident} />
           ) : tab === "dossiers" ? (
-            <div className="space-y-4">
-              <DossierImportForm dark={dark} onImport={handleImportDossiers} existingMeta={dossiersMeta} />
-              {dossiers.length > 0 && <DossierList dark={dark} dossiers={dossiers} />}
+            <div className="space-y-8">
+              <div className="space-y-4">
+                <DossierImportForm dark={dark} onImport={handleImportDossiers} existingMeta={dossiersMeta} />
+                {dossiers.length > 0 && <DossierList dark={dark} dossiers={dossiers} onExport={exportDossiersToExcel} />}
+              </div>
+              <ManualSalesSection dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
             </div>
           ) : tab === "vendeurs" ? (
             <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} onUpdateSite={handleUpdateVendeurSite} />
