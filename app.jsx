@@ -1469,10 +1469,14 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
               <div className="min-w-[140px] flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className={`truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModel(v)}</span>
-                  {v.vendu && (
-                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800"}`} title={`Contremarqué — ${venduLabel(v)}`}>
-                      CM
-                    </span>
+                  {(v.energy === "Électrique" || v.energy === "Hybride rechargeable") && (
+                    <Zap
+                      size={13}
+                      className={`shrink-0 ${v.energy === "Électrique" ? (dark ? "text-sky-400" : "text-sky-600") : (dark ? "text-violet-400" : "text-violet-600")}`}
+                      aria-label={v.energy}
+                    >
+                      <title>{v.energy}</title>
+                    </Zap>
                   )}
                 </div>
                 <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
