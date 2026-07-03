@@ -313,7 +313,7 @@ function exportVehiclesToExcel(vehicles) {
     "VIN": v.vin || "",
     "Concession": v.concession || "",
     "Statut": STATUS_META[v.baseStatus]?.label || v.baseStatus,
-    "Réservé par": v.reservation?.vendeur || "",
+    "Réservé par": activeReservationVendeur(v),
     "Vendu par": v.venduPar || "",
     "Client": v.clientLabel || "",
     "Type de vente": v.typeVente || "",
@@ -349,6 +349,9 @@ function exportDossiersToExcel(dossiers) {
   XLSX.utils.book_append_sheet(wb, ws, "Dossiers");
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-dossiers-${stamp}.xlsx`);
+}
+function activeReservationVendeur(v) {
+  return v.baseStatus === "reserve" ? (v.reservation?.vendeur || "") : "";
 }
 function normalizeOrderNum(s) {
   return String(s || "").trim().replace(/^0+(?=\d)/, "");
@@ -1419,7 +1422,7 @@ function AlertsDrawer({ dark, vehicles, onClose, onSelect }) {
               <div className={`mt-1 ${dark ? "text-zinc-200" : "text-stone-800"}`}>
                 <ModelYearLabel v={v} dark={dark} /> · {v.orderNumber}
               </div>
-              <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.concession}{v.reservation?.vendeur ? ` · ${v.reservation.vendeur}` : ""}</div>
+              <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.concession}{activeReservationVendeur(v) ? ` · ${activeReservationVendeur(v)}` : ""}</div>
             </button>
           ))}
         </div>
@@ -1505,7 +1508,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, onOpenVehicle }) {
   const [siteFilter, setSiteFilter] = useState("all");
   const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
   const vendeurSiteMap = useMemo(() => new Map(vendeursList.map((v) => [v.nom, v.site])), [vendeursList]);
-  const vendorOf = (v) => v.venduPar || v.reservation?.vendeur || "";
+  const vendorOf = (v) => v.venduPar || activeReservationVendeur(v);
   const q = query.trim().toLowerCase();
   const matches = (v) => {
     if (contremarqueFilter === "oui" && !v.vendu) return false;
@@ -2817,7 +2820,7 @@ export default function App() {
       avgJoursStock,
       dataWarnings: vehicles.filter((v) => v.dataWarning).length,
       byTypeVente: groupCount(vehicles, (v) => v.typeVente),
-      byVendeur: groupCount(vehicles.filter((v) => v.reservation?.vendeur), (v) => v.reservation.vendeur),
+      byVendeur: groupCount(vehicles.filter((v) => activeReservationVendeur(v)), (v) => v.reservation.vendeur),
       byStatus: groupCount(vehicles, (v) => STATUS_LABELS[v.baseStatus] || v.baseStatus).map((d) => ({ ...d, name: d.name === "—" ? "Autre" : d.name })),
       byConcession: groupCount(vehicles, (v) => v.concession),
       byType: [
@@ -2831,7 +2834,7 @@ export default function App() {
 
   const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
   const typeVentes = useMemo(() => [...new Set(vehicles.map((v) => v.typeVente))].filter(Boolean).sort(), [vehicles]);
-  const vendeurs = useMemo(() => [...new Set(vehicles.map((v) => v.reservation?.vendeur).filter(Boolean))].sort(), [vehicles]);
+  const vendeurs = useMemo(() => [...new Set(vehicles.map((v) => activeReservationVendeur(v)).filter(Boolean))].sort(), [vehicles]);
 
   const filtered = useMemo(() => {
     const terms = filters.query.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
@@ -2841,9 +2844,9 @@ export default function App() {
       if (filters.vu === "vp" && v.vu) return false;
       if (filters.vu === "vu" && !v.vu) return false;
       if (filters.statut !== "all" && v.baseStatus !== filters.statut) return false;
-      if (filters.vendeur !== "all" && v.reservation?.vendeur !== filters.vendeur) return false;
+      if (filters.vendeur !== "all" && activeReservationVendeur(v) !== filters.vendeur) return false;
       if (terms.length > 0) {
-        const hay = `${v.orderNumber} ${v.vin} ${v.description} ${v.model} ${v.concession} ${v.reservation?.vendeur || ""} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase();
+        const hay = `${v.orderNumber} ${v.vin} ${v.description} ${v.model} ${v.concession} ${activeReservationVendeur(v)} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase();
         if (!terms.some((t) => hay.includes(t))) return false;
       }
       return true;
