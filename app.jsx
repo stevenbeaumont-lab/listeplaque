@@ -866,23 +866,9 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
   );
 }
 
-function VehiclesHeader({ dark, count, totalCount, viewMode, setViewMode }) {
+function VehiclesHeader({ dark, viewMode, setViewMode }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-3">
-      <div>
-        <h2 className={`font-display text-2xl font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>Véhicules</h2>
-        <p className={`mt-0.5 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-          {count === totalCount ? (
-            <>
-              <span className={`font-display font-semibold ${dark ? "text-zinc-300" : "text-stone-600"}`}>{count}</span> véhicule{count > 1 ? "s" : ""} au total
-            </>
-          ) : (
-            <>
-              <span className={`font-display font-semibold ${dark ? "text-zinc-300" : "text-stone-600"}`}>{count}</span> sur {totalCount} véhicules
-            </>
-          )}
-        </p>
-      </div>
+    <div className="flex justify-end">
       <div className={`hidden items-center gap-1 rounded-lg border p-1 lg:inline-flex ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
         <button
           onClick={() => setViewMode("table")}
@@ -1854,7 +1840,7 @@ function DossierList({ dark, dossiers, onExport }) {
   );
 }
 
-function ImportForm({ dark, onImport, existingMeta, onImportDossiers, existingDossiersMeta }) {
+function ImportForm({ dark, onImport, existingMeta, onImportDossiers, existingDossiersMeta, dataWarningsCount, onReset, resetConfirm }) {
   const [ordersFile, setOrdersFile] = useState(null);
   const [stockFile, setStockFile] = useState(null);
   const [dossiersFile, setDossiersFile] = useState(null);
@@ -1918,11 +1904,19 @@ function ImportForm({ dark, onImport, existingMeta, onImportDossiers, existingDo
         <div className={`space-y-0.5 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
           {existingMeta && <div>Dernier import véhicules : {new Date(existingMeta.importedAt).toLocaleString("fr-FR")} · {existingMeta.ordersCount} commandes, {existingMeta.stockCount} en stock</div>}
           {existingDossiersMeta && <div>Dernier import dossiers : {new Date(existingDossiersMeta.importedAt).toLocaleString("fr-FR")} · {existingDossiersMeta.count} dossiers</div>}
+          {dataWarningsCount > 0 && (
+            <div className={dark ? "text-amber-400" : "text-amber-600"}>{dataWarningsCount} fiche{dataWarningsCount > 1 ? "s" : ""} véhicule à vérifier (données incomplètes)</div>
+          )}
         </div>
       )}
       <button onClick={submit} disabled={!ordersRows || busy} className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
         {busy ? "Import en cours…" : "Valider l'import"}
       </button>
+      {existingMeta && onReset && (
+        <button onClick={onReset} className={`flex w-full items-center justify-center gap-1.5 text-xs transition-colors ${dark ? "text-zinc-500 hover:text-rose-400" : "text-stone-400 hover:text-rose-600"}`}>
+          <RotateCcw size={12} /> {resetConfirm ? "Cliquer à nouveau pour confirmer" : "Réinitialiser toutes les données"}
+        </button>
+      )}
     </div>
   );
 }
@@ -3015,20 +3009,7 @@ export default function App() {
             <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} onUpdateSite={handleUpdateVendeurSite} />
           ) : (
             <>
-              <VehiclesHeader dark={dark} count={filtered.length} totalCount={vehicles.length} viewMode={viewMode} setViewMode={setViewMode} />
-              {importMeta && (
-                <div className={`-mt-2 flex flex-wrap items-center justify-between gap-2 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>
-                  <span>
-                    Import du {new Date(importMeta.importedAt).toLocaleString("fr-FR")} · {importMeta.ordersCount} commandes, {importMeta.stockCount} en stock · véhicules livrés client masqués
-                    {stats.dataWarnings > 0 && (
-                      <span className={dark ? "text-amber-400" : "text-amber-600"}> · {stats.dataWarnings} fiche{stats.dataWarnings > 1 ? "s" : ""} à vérifier</span>
-                    )}
-                  </span>
-                  <button onClick={() => (resetConfirm ? handleReset() : setResetConfirm(true))} className="flex items-center gap-1 hover:underline">
-                    <RotateCcw size={12} /> {resetConfirm ? "Cliquer à nouveau pour confirmer" : "Réinitialiser les données"}
-                  </button>
-                </div>
-              )}
+              <VehiclesHeader dark={dark} viewMode={viewMode} setViewMode={setViewMode} />
               <FilterBar
                 dark={dark}
                 filters={filters}
@@ -3070,7 +3051,16 @@ export default function App() {
       )}
       {importOpen && (
         <Modal dark={dark} title="Importer / mettre à jour les fichiers" onClose={() => setImportOpen(false)}>
-          <ImportForm dark={dark} onImport={handleImport} existingMeta={importMeta} onImportDossiers={handleImportDossiers} existingDossiersMeta={dossiersMeta} />
+          <ImportForm
+            dark={dark}
+            onImport={handleImport}
+            existingMeta={importMeta}
+            onImportDossiers={handleImportDossiers}
+            existingDossiersMeta={dossiersMeta}
+            dataWarningsCount={stats.dataWarnings}
+            onReset={() => (resetConfirm ? handleReset() : setResetConfirm(true))}
+            resetConfirm={resetConfirm}
+          />
         </Modal>
       )}
       {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} vendeursList={vendeursList} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
