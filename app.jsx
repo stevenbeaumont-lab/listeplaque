@@ -545,7 +545,7 @@ const NAV_ICONS = {
   vendeurs: Users,
   accidentes: AlertTriangle,
 };
-function Sidebar({ dark, setDark, vendorName, onOpenVendor, tab, setTab, accidentCount, dossierUnmatchedCount, legendOpen, setLegendOpen }) {
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
   const items = [
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
@@ -577,39 +577,6 @@ function Sidebar({ dark, setDark, vendorName, onOpenVendor, tab, setTab, acciden
           </button>
         );
       })}
-
-      <div className={`my-1 border-t ${dark ? "border-zinc-800" : "border-stone-200"}`} />
-
-      <button onClick={onOpenVendor} className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}>
-        <User size={16} className="shrink-0" />
-        <span className="flex-1 truncate text-left">{vendorName || "Définir mon nom"}</span>
-      </button>
-      <button onClick={() => setDark(!dark)} className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}>
-        {dark ? <Sun size={16} className="shrink-0" /> : <Moon size={16} className="shrink-0" />}
-        <span className="flex-1 truncate text-left">{dark ? "Mode clair" : "Mode sombre"}</span>
-      </button>
-      <div className="relative">
-        <button onClick={() => setLegendOpen((o) => !o)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"}`}>
-          <Info size={16} className="shrink-0" />
-          <span className="flex-1 truncate text-left">Légende des statuts</span>
-        </button>
-        {legendOpen && (
-          <>
-            <div className="fixed inset-0 z-30" onClick={() => setLegendOpen(false)} />
-            <div className={`absolute bottom-0 left-full z-40 ml-2 w-64 space-y-1.5 rounded-xl border p-3 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
-              <div className={`mb-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Statuts</div>
-              {Object.entries(STATUS_META)
-                .filter(([key]) => key !== "livre_client")
-                .map(([key, meta]) => (
-                  <div key={key} className="flex items-center gap-2 text-sm">
-                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${meta.dot}`} />
-                    <span className={dark ? "text-zinc-200" : "text-stone-700"}>{meta.label}</span>
-                  </div>
-                ))}
-            </div>
-          </>
-        )}
-      </div>
     </nav>
   );
 }
@@ -649,7 +616,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing }) {
+function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen }) {
   const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
   return (
     <div className={`sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-t-2xl border-b px-4 py-3 md:px-6 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -680,10 +647,31 @@ function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, 
       <button onClick={onImport} className={`gap-1.5 px-3 text-sm font-medium ${btnCls}`}>
         <Upload size={14} /> Importer
       </button>
-      <button onClick={() => setDark(!dark)} className={`w-9 lg:hidden ${btnCls}`}>
+      <div className="relative">
+        <button onClick={() => setLegendOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Légende des statuts">
+          <Info size={16} />
+        </button>
+        {legendOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setLegendOpen(false)} />
+            <div className={`absolute right-0 z-40 mt-1 w-64 space-y-1.5 rounded-xl border p-3 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+              <div className={`mb-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Statuts</div>
+              {Object.entries(STATUS_META)
+                .filter(([key]) => key !== "livre_client")
+                .map(([key, meta]) => (
+                  <div key={key} className="flex items-center gap-2 text-sm">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${meta.dot}`} />
+                    <span className={dark ? "text-zinc-200" : "text-stone-700"}>{meta.label}</span>
+                  </div>
+                ))}
+            </div>
+          </>
+        )}
+      </div>
+      <button onClick={() => setDark(!dark)} className={`w-9 ${btnCls}`} title={dark ? "Mode clair" : "Mode sombre"}>
         {dark ? <Sun size={16} /> : <Moon size={16} />}
       </button>
-      <button onClick={onOpenVendor} className={`gap-2 px-3 text-sm font-medium lg:hidden ${btnCls}`}>
+      <button onClick={onOpenVendor} className={`gap-2 px-3 text-sm font-medium ${btnCls}`}>
         <User size={14} /> {vendorName || "Définir mon nom"}
       </button>
     </div>
@@ -2912,6 +2900,8 @@ export default function App() {
         alertCount={totalAlerts}
         onOpenAlerts={() => setAlertsOpen(true)}
         syncing={syncing}
+        legendOpen={legendOpen}
+        setLegendOpen={setLegendOpen}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
@@ -2934,15 +2924,10 @@ export default function App() {
             <div className="hidden lg:block">
               <Sidebar
                 dark={dark}
-                setDark={setDark}
-                vendorName={vendorName}
-                onOpenVendor={() => setShowVendorPrompt(true)}
                 tab={tab}
                 setTab={setTab}
                 accidentCount={accidents.length}
                 dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length}
-                legendOpen={legendOpen}
-                setLegendOpen={setLegendOpen}
               />
             </div>
             <div className="min-w-0 flex-1 space-y-6">
