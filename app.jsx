@@ -2347,8 +2347,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [importOpen, alertsOpen, selected, legendOpen]);
 
+  const localWriteVersionRef = useRef(0);
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
+    const versionBefore = localWriteVersionRef.current;
     const [o, s, ov, meta, acc, doss, dossMeta, vends, manual] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
@@ -2362,13 +2364,18 @@ export default function App() {
     ]);
     if (o) setOrdersData(JSON.parse(o));
     if (s) setStockData(JSON.parse(s));
-    setOverlays(ov ? JSON.parse(ov) : {});
     if (meta) setImportMeta(JSON.parse(meta));
-    setAccidents(acc ? JSON.parse(acc) : []);
-    setDossiersData(doss ? JSON.parse(doss) : []);
     if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
-    if (vends) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
-    setManualSales(manual ? JSON.parse(manual) : {});
+    // Skip overwriting locally-edited stores if a save happened while this fetch was in flight —
+    // the fetch may have captured data from just before that save committed. The next poll (8s later)
+    // will pick up the now-committed version.
+    if (versionBefore === localWriteVersionRef.current) {
+      setOverlays(ov ? JSON.parse(ov) : {});
+      setAccidents(acc ? JSON.parse(acc) : []);
+      setDossiersData(doss ? JSON.parse(doss) : []);
+      if (vends) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
+      setManualSales(manual ? JSON.parse(manual) : {});
+    }
     setLastSync(new Date());
     if (indicate) setSyncing(false);
   }, []);
@@ -2500,6 +2507,7 @@ export default function App() {
     const next = { ...freshOverlays, [orderNumber]: { ...current, reservation: form, history } };
     await sSet(STORE_KEYS.overlays, JSON.stringify(next), true);
     setOverlays(next);
+    localWriteVersionRef.current++;
   }
 
 
@@ -2549,6 +2557,7 @@ export default function App() {
     const next = [...fresh, { nom: name, site: site || "" }];
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
+    localWriteVersionRef.current++;
     if (ok) showToast(`${name} ajouté à la liste des vendeurs`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
@@ -2559,6 +2568,7 @@ export default function App() {
     const next = fresh.map((v) => (v.nom === name ? { ...v, site } : v));
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
+    localWriteVersionRef.current++;
     if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
@@ -2571,6 +2581,7 @@ export default function App() {
     else delete next[key];
     const ok = await sSet(STORE_KEYS.manualSales, JSON.stringify(next), true);
     setManualSales(next);
+    localWriteVersionRef.current++;
     if (ok) showToast(vendeurNom ? `Commande ${orderNumber} attribuée à ${vendeurNom}` : `Attribution retirée pour ${orderNumber}`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
@@ -2589,6 +2600,7 @@ export default function App() {
       commitVendeurDelete(pendingVendeurDeleteRef.current.name);
     }
     setVendeursList((prev) => prev.filter((v) => v.nom !== name));
+    localWriteVersionRef.current++;
     const timer = setTimeout(() => {
       commitVendeurDelete(name);
       pendingVendeurDeleteRef.current = null;
@@ -2601,6 +2613,7 @@ export default function App() {
           clearTimeout(timer);
           pendingVendeurDeleteRef.current = null;
           setVendeursList((prev) => [...prev, removed || { nom: name, site: "" }]);
+          localWriteVersionRef.current++;
         },
       },
     });
@@ -2623,6 +2636,7 @@ export default function App() {
     ];
     const ok = await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
     setAccidents(next);
+    localWriteVersionRef.current++;
     if (ok) showToast(`Véhicule ${orderNumber} ajouté aux accidentés`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
@@ -2635,6 +2649,7 @@ export default function App() {
       commitAccidentDelete(pendingAccidentDeleteRef.current.id);
     }
     setAccidents((prev) => prev.filter((a) => a.id !== id));
+    localWriteVersionRef.current++;
     const timer = setTimeout(() => {
       commitAccidentDelete(id);
       pendingAccidentDeleteRef.current = null;
@@ -2647,6 +2662,7 @@ export default function App() {
           clearTimeout(timer);
           pendingAccidentDeleteRef.current = null;
           setAccidents((prev) => [removed, ...prev]);
+          localWriteVersionRef.current++;
         },
       },
     });
