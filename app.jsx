@@ -1737,13 +1737,54 @@ function DossierRow({ dark, d }) {
   );
 }
 
+function ManualSaleRow({ dark, v, vendeursList, onAssign, initialVendeur, initialClient, isEdit }) {
+  const [vendeur, setVendeur] = useState(initialVendeur || "");
+  const [client, setClient] = useState(initialClient || "");
+  const ready = vendeur.trim() && client.trim();
+  const inputCls = `h-9 rounded-lg border px-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  function confirm() {
+    if (!ready) return;
+    onAssign(v.orderNumber, { vendeur: vendeur.trim(), client: client.trim() });
+  }
+
+  return (
+    <li className={`flex flex-wrap items-center gap-2 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+      <div className="min-w-[160px] flex-1">
+        <div className={`truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</div>
+        <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber} · Type {v.typeVente}</div>
+      </div>
+      <select value={vendeur} onChange={(e) => setVendeur(e.target.value)} className={inputCls}>
+        <option value="">— Vendeur —</option>
+        {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((vd) => (
+          <option key={vd.nom} value={vd.nom}>{vd.nom}</option>
+        ))}
+      </select>
+      <input
+        value={client}
+        onChange={(e) => setClient(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && confirm()}
+        placeholder="Nom du client"
+        className={`${inputCls} w-40`}
+      />
+      <button onClick={confirm} disabled={!ready} className="flex h-9 items-center gap-1 rounded-lg bg-amber-500 px-3 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+        OK
+      </button>
+      {isEdit && (
+        <button onClick={() => onAssign(v.orderNumber, { vendeur: "", client: "" })} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+          <Trash2 size={13} />
+        </button>
+      )}
+    </li>
+  );
+}
+
 function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
   const unattributed = useMemo(() => vehicles.filter((v) => v.vendu && !v.venduPar && !v.clientLabel), [vehicles]);
   const attributedManually = useMemo(() => vehicles.filter((v) => v.venduAttribManuelle), [vehicles]);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const filtered = unattributed.filter((v) => !q || `${v.orderNumber} ${v.model} ${v.typeVente}`.toLowerCase().includes(q));
-  const inputCls = `h-9 rounded-lg border px-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
 
   return (
     <div className="space-y-3">
@@ -1752,7 +1793,7 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
         Commandes vendues sans dossier MyAna
       </div>
       <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-        Ces véhicules sont marqués "Vendu" d'après leur type de vente, sans dossier MyAna correspondant. Attribuez-leur un vendeur et/ou un nom de client manuellement.
+        Ces véhicules sont marqués "Vendu" d'après leur type de vente, sans dossier MyAna correspondant. Renseignez le vendeur et le nom du client, puis validez avec OK.
       </p>
       <div className={`flex h-9 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
         <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
@@ -1766,29 +1807,7 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <ul className={`max-h-[420px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
             {filtered.map((v) => (
-              <li key={v.orderNumber} className={`flex flex-wrap items-center gap-2 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
-                <div className="min-w-[160px] flex-1">
-                  <div className={`truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</div>
-                  <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber} · Type {v.typeVente}</div>
-                </div>
-                <select
-                  defaultValue=""
-                  onChange={(e) => e.target.value && onAssign(v.orderNumber, { vendeur: e.target.value })}
-                  className={inputCls}
-                >
-                  <option value="">— Vendeur —</option>
-                  {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((vd) => (
-                    <option key={vd.nom} value={vd.nom}>{vd.nom}</option>
-                  ))}
-                </select>
-                <input
-                  defaultValue=""
-                  onBlur={(e) => e.target.value.trim() && onAssign(v.orderNumber, { client: e.target.value.trim() })}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
-                  placeholder="Nom du client"
-                  className={`${inputCls} w-40`}
-                />
-              </li>
+              <ManualSaleRow key={v.orderNumber} dark={dark} v={v} vendeursList={vendeursList} onAssign={onAssign} />
             ))}
           </ul>
         </div>
@@ -1800,29 +1819,7 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
           </div>
           <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
             {attributedManually.map((v) => (
-              <li key={v.orderNumber} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">
-                <span className={`min-w-[140px] flex-1 truncate ${dark ? "text-zinc-200" : "text-stone-700"}`}>{displayModelBase(v)} · {v.orderNumber}</span>
-                <select
-                  defaultValue={v.venduPar || ""}
-                  onChange={(e) => onAssign(v.orderNumber, { vendeur: e.target.value })}
-                  className={inputCls}
-                >
-                  <option value="">— Vendeur —</option>
-                  {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((vd) => (
-                    <option key={vd.nom} value={vd.nom}>{vd.nom}</option>
-                  ))}
-                </select>
-                <input
-                  defaultValue={v.clientLabel || ""}
-                  onBlur={(e) => onAssign(v.orderNumber, { client: e.target.value.trim() })}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
-                  placeholder="Nom du client"
-                  className={`${inputCls} w-40`}
-                />
-                <button onClick={() => onAssign(v.orderNumber, { vendeur: "", client: "" })} className={`rounded-lg p-1 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
-                  <Trash2 size={13} />
-                </button>
-              </li>
+              <ManualSaleRow key={v.orderNumber} dark={dark} v={v} vendeursList={vendeursList} onAssign={onAssign} initialVendeur={v.venduPar} initialClient={v.clientLabel} isEdit />
             ))}
           </ul>
         </div>
