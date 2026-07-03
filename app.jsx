@@ -1358,6 +1358,13 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList }) 
           <div className={`mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
             <CalendarClock size={13} /> Réservation
           </div>
+          {v.baseStatus === "vendu" || v.baseStatus === "hs" ? (
+            <div className={`rounded-lg border px-3 py-3 text-sm ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-400" : "border-stone-200 bg-stone-50 text-stone-500"}`}>
+              {v.baseStatus === "vendu"
+                ? "Ce véhicule est déjà vendu — la réservation n'est pas disponible."
+                : "Ce véhicule est signalé HS — la réservation n'est pas disponible."}
+            </div>
+          ) : (
           <div className="space-y-2.5">
             {canReserveForOthers ? (
               <select className={inputCls} value={form.vendeur || vendorName || ""} onChange={(e) => setForm((f) => ({ ...f, vendeur: e.target.value }))}>
@@ -1396,6 +1403,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList }) 
               )}
             </div>
           </div>
+          )}
         </div>
       </div>
 
