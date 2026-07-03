@@ -27,6 +27,10 @@ const RESERVATION_STATUSES = [
   "Livraison programmée",
   "Réservation annulée",
 ];
+const FORD_SITES = ["Ford Caen", "Ford Lisieux", "Ford Bernay", "Ford Pont-Audemer", "Ford St-Lô", "Ford Cherbourg"];
+function normalizeVendeur(v) {
+  return typeof v === "string" ? { nom: v, site: "" } : v;
+}
 const STORE_KEYS = {
   orders: "dsr:orders",
   stock: "dsr:stock",
@@ -1734,8 +1738,8 @@ function VendorPrompt({ dark, vendeursList, onSave, onClose }) {
           onChange={(e) => setName(e.target.value)}
         >
           <option value="">— Choisissez votre nom —</option>
-          {[...vendeursList].sort((a, b) => a.localeCompare(b)).map((v) => (
-            <option key={v} value={v}>{v}</option>
+          {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
+            <option key={v.nom} value={v.nom}>{v.nom}{v.site ? ` — ${v.site}` : ""}</option>
           ))}
         </select>
       ) : (
@@ -1753,8 +1757,10 @@ function VendorPrompt({ dark, vendeursList, onSave, onClose }) {
   );
 }
 
-function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove }) {
+function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, onUpdateSite }) {
   const [name, setName] = useState("");
+  const [site, setSite] = useState("");
+  const [siteFilter, setSiteFilter] = useState("all");
 
   const usage = useMemo(() => {
     const counts = {};
@@ -1769,11 +1775,14 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove }
 
   function submit() {
     if (!name.trim()) return;
-    onAdd(name.trim());
+    onAdd(name.trim(), site);
     setName("");
+    setSite("");
   }
 
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  const filtered = siteFilter === "all" ? vendeurs : vendeurs.filter((v) => v.site === siteFilter);
 
   return (
     <div className="space-y-4">
@@ -1785,26 +1794,55 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove }
           placeholder="Nom du vendeur (ex. NEE Alexandre)"
           className={`${inputCls} min-w-[220px] flex-1`}
         />
+        <select value={site} onChange={(e) => setSite(e.target.value)} className={inputCls}>
+          <option value="">— Site (optionnel) —</option>
+          {FORD_SITES.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
         <button onClick={submit} disabled={!name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
           <Plus size={15} /> Ajouter
         </button>
       </div>
 
-      {vendeurs.length === 0 ? (
+      {vendeurs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button onClick={() => setSiteFilter("all")} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === "all" ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
+            Tous les sites
+          </button>
+          {FORD_SITES.map((s) => (
+            <button key={s} onClick={() => setSiteFilter(s)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === s ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
         <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-          Aucun vendeur enregistré pour l'instant.
+          {vendeurs.length === 0 ? "Aucun vendeur enregistré pour l'instant." : "Aucun vendeur sur ce site."}
         </div>
       ) : (
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
-            {[...vendeurs].sort((a, b) => a.localeCompare(b)).map((v) => (
-              <li key={v} className={`flex items-center gap-3 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+            {[...filtered].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
+              <li key={v.nom} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
                 <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
                   <User size={14} />
                 </span>
-                <span className={`flex-1 font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v}</span>
-                <span className={`text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage[v] || 0} dossier{(usage[v] || 0) > 1 ? "s" : ""}</span>
-                <button onClick={() => onRemove(v)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+                <span className={`flex-1 font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v.nom}</span>
+                <select
+                  value={v.site || ""}
+                  onChange={(e) => onUpdateSite(v.nom, e.target.value)}
+                  className={`h-8 rounded-lg border px-2 text-xs outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`}
+                >
+                  <option value="">Site non défini</option>
+                  {FORD_SITES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <span className={`text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage[v.nom] || 0} dossier{(usage[v.nom] || 0) > 1 ? "s" : ""}</span>
+                <button onClick={() => onRemove(v.nom)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
                   <Trash2 size={15} />
                 </button>
               </li>
@@ -1992,8 +2030,8 @@ function AccessGate({ dark, vendorName, vendeursList, onUnlock }) {
                 }`}
               >
                 <option value="">— Choisissez votre nom —</option>
-                {[...vendeursList].sort((a, b) => a.localeCompare(b)).map((v) => (
-                  <option key={v} value={v}>{v}</option>
+                {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
+                  <option key={v.nom} value={v.nom}>{v.nom}{v.site ? ` — ${v.site}` : ""}</option>
                 ))}
               </select>
             ) : (
@@ -2107,7 +2145,7 @@ export default function App() {
     setAccidents(acc ? JSON.parse(acc) : []);
     setDossiersData(doss ? JSON.parse(doss) : []);
     if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
-    if (vends) setVendeursList(JSON.parse(vends));
+    if (vends) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
     setLastSync(new Date());
     if (indicate) setSyncing(false);
   }, []);
@@ -2116,7 +2154,7 @@ export default function App() {
     (async () => {
       const t = await sGet(STORE_KEYS.theme, false);
       if (t) setDark(t === "dark");
-      sGet(STORE_KEYS.vendeurs, true).then((v) => v && setVendeursList(JSON.parse(v)));
+      sGet(STORE_KEYS.vendeurs, true).then((v) => v && setVendeursList(JSON.parse(v).map(normalizeVendeur)));
       const acc = await sGet(STORE_KEYS.access, false);
       if (acc === "true") {
         setUnlocked(true);
@@ -2256,10 +2294,15 @@ export default function App() {
 
       const foundNames = [...new Set(dossiers.map((d) => d.vendeur).filter(Boolean))];
       const freshVendeursRaw = await sGet(STORE_KEYS.vendeurs, true);
-      const freshVendeurs = freshVendeursRaw ? JSON.parse(freshVendeursRaw) : [];
-      const lowerExisting = new Set(freshVendeurs.map((v) => v.toLowerCase()));
-      const newOnes = foundNames.filter((n) => !lowerExisting.has(n.toLowerCase()));
-      if (newOnes.length > 0) {
+      const freshVendeurs = freshVendeursRaw ? JSON.parse(freshVendeursRaw).map(normalizeVendeur) : [];
+      const lowerExisting = new Set(freshVendeurs.map((v) => v.nom.toLowerCase()));
+      const newNames = foundNames.filter((n) => !lowerExisting.has(n.toLowerCase()));
+      if (newNames.length > 0) {
+        const newOnes = newNames.map((n) => {
+          const localisation = dossiers.find((d) => d.vendeur === n)?.localisation || "";
+          const matchedSite = FORD_SITES.find((s) => localisation && s.toLowerCase().includes(localisation.toLowerCase()));
+          return { nom: n, site: matchedSite || "" };
+        });
         const merged = [...freshVendeurs, ...newOnes];
         await sSet(STORE_KEYS.vendeurs, JSON.stringify(merged), true);
         setVendeursList(merged);
@@ -2272,33 +2315,43 @@ export default function App() {
   const pendingAccidentDeleteRef = useRef(null);
   const pendingVendeurDeleteRef = useRef(null);
 
-  async function handleAddVendeur(name) {
+  async function handleAddVendeur(name, site) {
     const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
-    if (fresh.some((v) => v.toLowerCase() === name.toLowerCase())) {
+    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
+    if (fresh.some((v) => v.nom.toLowerCase() === name.toLowerCase())) {
       showToast(`${name} est déjà dans la liste`, { type: "error" });
       return;
     }
-    const next = [...fresh, name];
+    const next = [...fresh, { nom: name, site: site || "" }];
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
     if (ok) showToast(`${name} ajouté à la liste des vendeurs`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
+  async function handleUpdateVendeurSite(name, site) {
+    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
+    const next = fresh.map((v) => (v.nom === name ? { ...v, site } : v));
+    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+    setVendeursList(next);
+    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
   async function commitVendeurDelete(name) {
     const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
-    const next = fresh.filter((v) => v !== name);
+    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
+    const next = fresh.filter((v) => v.nom !== name);
     await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
   }
 
   function handleRemoveVendeur(name) {
+    const removed = vendeursList.find((v) => v.nom === name);
     if (pendingVendeurDeleteRef.current) {
       clearTimeout(pendingVendeurDeleteRef.current.timer);
       commitVendeurDelete(pendingVendeurDeleteRef.current.name);
     }
-    setVendeursList((prev) => prev.filter((v) => v !== name));
+    setVendeursList((prev) => prev.filter((v) => v.nom !== name));
     const timer = setTimeout(() => {
       commitVendeurDelete(name);
       pendingVendeurDeleteRef.current = null;
@@ -2310,7 +2363,7 @@ export default function App() {
         onClick: () => {
           clearTimeout(timer);
           pendingVendeurDeleteRef.current = null;
-          setVendeursList((prev) => [...prev, name]);
+          setVendeursList((prev) => [...prev, removed || { nom: name, site: "" }]);
         },
       },
     });
@@ -2544,7 +2597,7 @@ export default function App() {
       `}</style>
       <datalist id="vendeurs-datalist">
         {vendeursList.map((v) => (
-          <option key={v} value={v} />
+          <option key={v.nom} value={v.nom} />
         ))}
       </datalist>
       {!unlocked ? (
@@ -2652,7 +2705,7 @@ export default function App() {
               {dossiers.length > 0 && <DossierList dark={dark} dossiers={dossiers} />}
             </div>
           ) : tab === "vendeurs" ? (
-            <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} />
+            <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} onUpdateSite={handleUpdateVendeurSite} />
           ) : (
             <>
               <VehiclesHeader dark={dark} count={filtered.length} totalCount={vehicles.length} viewMode={viewMode} setViewMode={setViewMode} />
