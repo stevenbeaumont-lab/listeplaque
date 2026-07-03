@@ -570,7 +570,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
     { id: "dashboard", label: "Tableau de bord" },
     { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     { id: "vendeurs", label: "Vendeurs" },
-    { id: "accidentes", label: "Accidentés", count: accidentCount },
+    { id: "accidentes", label: "Accidentés" },
   ];
   return (
     <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -606,7 +606,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
     { id: "dashboard", label: "Tableau de bord" },
     { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     { id: "vendeurs", label: "Vendeurs" },
-    { id: "accidentes", label: "Accidentés", count: accidentCount },
+    { id: "accidentes", label: "Accidentés" },
   ];
   return (
     <div className={`flex max-w-full gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
