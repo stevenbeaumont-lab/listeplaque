@@ -350,6 +350,10 @@ function exportDossiersToExcel(dossiers) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-dossiers-${stamp}.xlsx`);
 }
+function isAdminVendeur(name) {
+  const n = (name || "").toLowerCase();
+  return n.includes("audrey") || n.includes("beaumont");
+}
 function activeReservationVendeur(v) {
   return v.baseStatus === "reserve" ? (v.reservation?.vendeur || "") : "";
 }
@@ -379,7 +383,9 @@ function venduLabel(v) {
   return v.venduPar ? `Vendu par ${v.venduPar}` : `Vendu · type ${v.typeVente}`;
 }
 function clientLine(v) {
-  return v.vendu && v.clientLabel ? v.clientLabel : "";
+  if (v.vendu && v.clientLabel) return v.clientLabel;
+  if (v.baseStatus === "reserve" && v.reservation?.client) return v.reservation.client;
+  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -869,9 +875,14 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
             </>
           )}
           {v.baseStatus === "reserve" && v.reservation?.vendeur && (
-            <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
-              <User size={10} className="shrink-0" /> <span className="truncate">{v.reservation.vendeur}</span>
-            </div>
+            <>
+              <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
+                <User size={10} className="shrink-0" /> <span className="truncate">{v.reservation.vendeur}</span>
+              </div>
+              {v.reservation.client && (
+                <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Client : {v.reservation.client}</div>
+              )}
+            </>
           )}
         </div>
       </td>
@@ -885,7 +896,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
 
 
 
-function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
+function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList }) {
   const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
   return (
     <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
@@ -916,7 +927,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
                   {isOpen && (
                     <tr>
                       <td colSpan={5} className="p-0">
-                        <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} />
+                        <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} />
                       </td>
                     </tr>
                   )}
@@ -977,7 +988,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
         )}
         {v.baseStatus === "reserve" && v.reservation?.vendeur && (
           <span className={`flex items-center gap-1 text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>
-            <User size={11} /> {v.reservation.vendeur}
+            <User size={11} /> {v.reservation.vendeur}{v.reservation.client && ` · Client : ${v.reservation.client}`}
           </span>
         )}
       </div>
@@ -1002,7 +1013,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
   );
 }
 
-function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
+function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList }) {
   if (vehicles.length === 0) {
     return (
       <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
@@ -1019,7 +1030,7 @@ function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vend
             <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} />
             {isOpen && (
               <div className={`overflow-hidden rounded-b-xl border border-t-0 ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
-                <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} />
+                <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} />
               </div>
             )}
           </div>
@@ -1218,12 +1229,13 @@ function TrendChart({ dark }) {
   );
 }
 
-function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
+function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList }) {
+  const canReserveForOthers = isAdminVendeur(vendorName);
   function defaultForm() {
-    if (v.reservation && v.reservation.statut !== "Réservation annulée") return v.reservation;
+    if (v.reservation && v.reservation.statut !== "Réservation annulée") return { client: "", ...v.reservation };
     const today = new Date();
     const plus7 = new Date(Date.now() + 7 * 86400000);
-    return { vendeur: vendorName || "", statut: "Réservé", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" };
+    return { vendeur: vendorName || "", client: "", statut: "Réservé", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" };
   }
   const [form, setForm] = useState(defaultForm);
   const [saved, setSaved] = useState(false);
@@ -1237,6 +1249,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
   const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30 focus:border-amber-500/40" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20 focus:border-amber-400"}`;
 
   function save() {
+    if (!form.client?.trim()) return;
     const vendeurFinal = form.vendeur || vendorName;
     const statutFinal = form.statut === "Réservation annulée" ? form.statut : "Réservé";
     onSave(v.orderNumber, { ...form, vendeur: vendeurFinal, statut: statutFinal });
@@ -1249,7 +1262,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
     onSave(v.orderNumber, cleared);
     const today = new Date();
     const plus7 = new Date(Date.now() + 7 * 86400000);
-    setForm({ vendeur: vendorName || "", statut: "Réservé", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" });
+    setForm({ vendeur: vendorName || "", client: "", statut: "Réservé", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" });
   }
 
   return (
@@ -1346,9 +1359,23 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             <CalendarClock size={13} /> Réservation
           </div>
           <div className="space-y-2.5">
-            <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-300" : "border-stone-200 bg-stone-50 text-stone-600"}`}>
-              <User size={13} className="shrink-0" /> {form.vendeur || vendorName || "—"}
-            </div>
+            {canReserveForOthers ? (
+              <select className={inputCls} value={form.vendeur || vendorName || ""} onChange={(e) => setForm((f) => ({ ...f, vendeur: e.target.value }))}>
+                {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((vd) => (
+                  <option key={vd.nom} value={vd.nom}>{vd.nom}</option>
+                ))}
+              </select>
+            ) : (
+              <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-300" : "border-stone-200 bg-stone-50 text-stone-600"}`}>
+                <User size={13} className="shrink-0" /> {form.vendeur || vendorName || "—"}
+              </div>
+            )}
+            <input
+              className={inputCls}
+              placeholder="Nom du client *"
+              value={form.client || ""}
+              onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))}
+            />
             <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${form.statut === "Réservation annulée" ? (dark ? "border-rose-800 bg-rose-500/10 text-rose-300" : "border-rose-200 bg-rose-50 text-rose-700") : (dark ? "border-amber-800 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700")}`}>
               <CheckCircle2 size={13} className="shrink-0" /> {form.statut === "Réservation annulée" ? "Réservation annulée" : "Réservé"}
             </div>
@@ -1358,7 +1385,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             </div>
             <textarea className={inputCls} rows={3} placeholder="Commentaire libre" value={form.commentaire} onChange={(e) => setForm((f) => ({ ...f, commentaire: e.target.value }))} />
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button onClick={save} className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400">Enregistrer</button>
+              <button onClick={save} disabled={!form.client?.trim()} className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 disabled:opacity-40">Enregistrer</button>
               {v.reservation?.statut && v.reservation.statut !== "Réservation annulée" && (
                 <button onClick={cancelReservation} className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>Annuler</button>
               )}
@@ -2540,6 +2567,7 @@ export default function App() {
     const history = [...(current.history || [])];
     [
       ["vendeur", "Vendeur"],
+      ["client", "Client"],
       ["statut", "Statut"],
       ["dateDebut", "Date début"],
       ["dateFin", "Date fin"],
@@ -3051,10 +3079,10 @@ export default function App() {
                 onExport={() => exportVehiclesToExcel(filtered)}
               />
               <div className="hidden lg:block">
-                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
+                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} />
               </div>
               <div className="lg:hidden">
-                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
+                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} />
               </div>
             </>
           )}
