@@ -314,6 +314,8 @@ function exportVehiclesToExcel(vehicles) {
     "Concession": v.concession || "",
     "Statut": STATUS_META[v.baseStatus]?.label || v.baseStatus,
     "Réservé par": v.reservation?.vendeur || "",
+    "Vendu par": v.venduPar || "",
+    "Client": v.clientLabel || "",
     "Type de vente": v.typeVente || "",
     "Boîte": gearboxLabel(v),
     [v.energy === "Électrique" ? "Batterie" : "Puissance"]: powerLabel(v),
@@ -373,6 +375,9 @@ function venduLabel(v) {
   if (!v.vendu) return "";
   return v.venduPar ? `Vendu par ${v.venduPar}` : `Vendu · type ${v.typeVente}`;
 }
+function clientLine(v) {
+  return v.vendu && v.clientLabel ? v.clientLabel : "";
+}
 
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
@@ -388,6 +393,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualVendeu
   const vendu = !!dossier || venduByCode;
   const venduPar = dossier?.vendeur || manualVendeur || "";
   const venduAttribManuelle = !dossier && !!manualVendeur;
+  const clientLabel = dossier ? (dossier.societe || [dossier.prenom, dossier.nom].filter(Boolean).join(" ")) : "";
 
   let baseStatus;
   if (deliveredToClient) baseStatus = "livre_client";
@@ -452,6 +458,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualVendeu
     vendu,
     venduPar,
     venduAttribManuelle,
+    clientLabel,
     dataWarning,
     dataWarningReason,
     history: overlay?.history || [],
@@ -847,9 +854,14 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
             {hasAlert && <AlertTriangle size={13} className="shrink-0 text-rose-500" />}
           </div>
           {v.baseStatus === "vendu" && (
-            <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={venduLabel(v)}>
-              <User size={10} className="shrink-0" /> <span className="truncate">{venduLabel(v)}</span>
-            </div>
+            <>
+              <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`} title={venduLabel(v)}>
+                <User size={10} className="shrink-0" /> <span className="truncate">{venduLabel(v)}</span>
+              </div>
+              {clientLine(v) && (
+                <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`} title={clientLine(v)}>Client : {clientLine(v)}</div>
+              )}
+            </>
           )}
           {v.baseStatus === "reserve" && v.reservation?.vendeur && (
             <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
@@ -955,7 +967,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
         <StatusBadge vehicle={v} dark={dark} />
         {v.baseStatus === "vendu" && (
           <span className={`flex items-center gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
-            <User size={11} /> {venduLabel(v)}
+            <User size={11} /> {venduLabel(v)}{clientLine(v) && ` · Client : ${clientLine(v)}`}
           </span>
         )}
         {v.baseStatus === "reserve" && v.reservation?.vendeur && (
@@ -1253,6 +1265,11 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
               <User size={11} /> {venduLabel(v)}
             </span>
           )}
+          {clientLine(v) && (
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>
+              Client : {clientLine(v)}
+            </span>
+          )}
           {(v.energy === "Électrique" || v.energy === "Hybride rechargeable") && (
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -1294,6 +1311,9 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
           <div className={`rounded-lg border p-3 text-xs leading-relaxed ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-300" : "border-stone-200 bg-stone-50 text-stone-600"}`}>{v.description}</div>
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>VIN</dt><dd className={`font-mono font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.vin || "—"}</dd></div>
+            {clientLine(v) && (
+              <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Client</dt><dd className={`font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{clientLine(v)}</dd></div>
+            )}
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Type de vente</dt><dd className={`font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.typeVente || "—"}</dd></div>
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Finition</dt><dd className={`font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.trim || "—"}</dd></div>
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Couleur</dt><dd className={`font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.color || "—"}</dd></div>
@@ -1456,7 +1476,7 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
                 <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber}{v.vin ? ` · ${v.vin}` : ""}</div>
                 {v.vendu && (
                   <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
-                    <User size={10} className="shrink-0" /> {venduLabel(v)}
+                    <User size={10} className="shrink-0" /> {venduLabel(v)}{clientLine(v) && ` · ${clientLine(v)}`}
                   </div>
                 )}
               </div>
@@ -1486,7 +1506,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, onOpenVehicle }) {
     if (vendeurFilter !== "all" && vendorOf(v) !== vendeurFilter) return false;
     if (siteFilter !== "all" && (vendeurSiteMap.get(vendorOf(v)) || "") !== siteFilter) return false;
     if (!q) return true;
-    return `${v.orderNumber} ${v.vin} ${v.model} ${v.typeVente}`.toLowerCase().includes(q);
+    return `${v.orderNumber} ${v.vin} ${v.model} ${v.typeVente} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase().includes(q);
   };
 
   const enStock = useMemo(
@@ -2789,7 +2809,7 @@ export default function App() {
       if (filters.statut !== "all" && v.baseStatus !== filters.statut) return false;
       if (filters.vendeur !== "all" && v.reservation?.vendeur !== filters.vendeur) return false;
       if (terms.length > 0) {
-        const hay = `${v.orderNumber} ${v.vin} ${v.description} ${v.model} ${v.concession} ${v.reservation?.vendeur || ""}`.toLowerCase();
+        const hay = `${v.orderNumber} ${v.vin} ${v.description} ${v.model} ${v.concession} ${v.reservation?.vendeur || ""} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase();
         if (!terms.some((t) => hay.includes(t))) return false;
       }
       return true;
