@@ -1151,7 +1151,7 @@ function TrendChart({ dark }) {
 
 function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
   function defaultForm() {
-    if (v.reservation) return v.reservation;
+    if (v.reservation && v.reservation.statut !== "Réservation annulée") return v.reservation;
     const today = new Date();
     const plus7 = new Date(Date.now() + 7 * 86400000);
     return { vendeur: vendorName || "", statut: "Réservé", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" };
@@ -1177,8 +1177,10 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
   }
   function cancelReservation() {
     const cleared = { ...form, statut: "Réservation annulée" };
-    setForm(cleared);
     onSave(v.orderNumber, cleared);
+    const today = new Date();
+    const plus7 = new Date(Date.now() + 7 * 86400000);
+    setForm({ vendeur: vendorName || "", statut: "Réservé", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" });
   }
 
   return (
