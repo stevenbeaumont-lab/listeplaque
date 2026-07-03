@@ -19,14 +19,7 @@ import {
 const MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
 const VU_KEYWORDS = ["transit", "tourneo", "ranger"];
 const VP_OVERRIDE_MODELS = ["tourneo connect", "tourneo courier"];
-const RESERVATION_STATUSES = [
-  "Réservé",
-  "En attente d'accord FI",
-  "Dossier en cours",
-  "Client confirmé",
-  "Livraison programmée",
-  "Réservation annulée",
-];
+const RESERVATION_STATUSES = ["Réservé", "Réservation annulée"];
 const FORD_SITES = ["Ford Caen", "Ford Lisieux", "Ford Bernay", "Ford Pont-Audemer", "Ford St-Lô", "Ford Cherbourg"];
 function normalizeVendeur(v) {
   return typeof v === "string" ? { nom: v, site: "" } : v;
@@ -1161,7 +1154,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
     if (v.reservation) return v.reservation;
     const today = new Date();
     const plus7 = new Date(Date.now() + 7 * 86400000);
-    return { vendeur: vendorName || "", statut: "", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" };
+    return { vendeur: vendorName || "", statut: "Réservé", dateDebut: today.toISOString().slice(0, 10), dateFin: plus7.toISOString().slice(0, 10), commentaire: "" };
   }
   const [form, setForm] = useState(defaultForm);
   const [saved, setSaved] = useState(false);
@@ -1176,8 +1169,9 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
 
   function save() {
     const vendeurFinal = form.vendeur || vendorName;
-    onSave(v.orderNumber, { ...form, vendeur: vendeurFinal });
-    setForm((f) => ({ ...f, vendeur: vendeurFinal }));
+    const statutFinal = form.statut === "Réservation annulée" ? form.statut : "Réservé";
+    onSave(v.orderNumber, { ...form, vendeur: vendeurFinal, statut: statutFinal });
+    setForm((f) => ({ ...f, vendeur: vendeurFinal, statut: statutFinal }));
     setSaved(true);
     setTimeout(() => setSaved(false), 2200);
   }
@@ -1276,12 +1270,9 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
             <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-300" : "border-stone-200 bg-stone-50 text-stone-600"}`}>
               <User size={13} className="shrink-0" /> {form.vendeur || vendorName || "—"}
             </div>
-            <select className={inputCls} value={form.statut} onChange={(e) => setForm((f) => ({ ...f, statut: e.target.value }))}>
-              <option value="">— Statut —</option>
-              {RESERVATION_STATUSES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+            <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${form.statut === "Réservation annulée" ? (dark ? "border-rose-800 bg-rose-500/10 text-rose-300" : "border-rose-200 bg-rose-50 text-rose-700") : (dark ? "border-amber-800 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700")}`}>
+              <CheckCircle2 size={13} className="shrink-0" /> {form.statut === "Réservation annulée" ? "Réservation annulée" : "Réservé"}
+            </div>
             <div className="flex gap-2">
               <input type="date" className={inputCls} value={form.dateDebut} onChange={(e) => setForm((f) => ({ ...f, dateDebut: e.target.value }))} />
               <input type="date" className={inputCls} value={form.dateFin} onChange={(e) => setForm((f) => ({ ...f, dateFin: e.target.value }))} />
