@@ -1866,11 +1866,13 @@ function DossierList({ dark, dossiers, onExport }) {
   );
 }
 
-function ImportForm({ dark, onImport, existingMeta }) {
+function ImportForm({ dark, onImport, existingMeta, onImportDossiers, existingDossiersMeta }) {
   const [ordersFile, setOrdersFile] = useState(null);
   const [stockFile, setStockFile] = useState(null);
+  const [dossiersFile, setDossiersFile] = useState(null);
   const [ordersRows, setOrdersRows] = useState(null);
   const [stockRows, setStockRows] = useState(null);
+  const [dossiersRows, setDossiersRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -1879,9 +1881,10 @@ function ImportForm({ dark, onImport, existingMeta }) {
     try {
       const rows = await parseWorkbook(file);
       if (which === "orders") { setOrdersFile(file); setOrdersRows(rows); }
-      else { setStockFile(file); setStockRows(rows); }
+      else if (which === "stock") { setStockFile(file); setStockRows(rows); }
+      else { setDossiersFile(file); setDossiersRows(rows); }
     } catch (e) {
-      setError("Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un export DSR au format Excel.");
+      setError("Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un export Excel.");
     }
   }
 
@@ -1889,15 +1892,20 @@ function ImportForm({ dark, onImport, existingMeta }) {
     if (!ordersRows) { setError("Le fichier des véhicules commandés est requis."); return; }
     setBusy(true);
     const ok = await onImport({ ordersRows, stockRows: stockRows || [], ordersFileName: ordersFile?.name, stockFileName: stockFile?.name });
+    let dossiersOk = true;
+    if (ok && dossiersRows && onImportDossiers) {
+      dossiersOk = await onImportDossiers({ rows: dossiersRows, fileName: dossiersFile?.name });
+    }
     setBusy(false);
     if (!ok) setError("Échec de l'enregistrement (base de données injoignable ou table absente). Ouvrez la console du navigateur (F12) pour le détail, et vérifiez la table Supabase.");
+    else if (!dossiersOk) setError("Commandes/stock enregistrés, mais l'import des dossiers a échoué — réessayez.");
   }
 
   const dropCls = `flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dark ? "border-zinc-700 hover:border-amber-500/60 hover:bg-amber-500/5" : "border-stone-300 hover:border-amber-400 hover:bg-amber-50/50"}`;
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <label className={dropCls}>
           <FileSpreadsheet size={22} className={dark ? "text-zinc-500" : "text-stone-400"} />
           <div className={`text-sm font-medium ${dark ? "text-zinc-200" : "text-stone-700"}`}>Véhicules commandés</div>
@@ -1910,11 +1918,18 @@ function ImportForm({ dark, onImport, existingMeta }) {
           <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{stockFile ? `${stockFile.name} · ${stockRows?.length ?? 0} lignes` : ".xlsx — optionnel"}</div>
           <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0], "stock")} />
         </label>
+        <label className={dropCls}>
+          <FileText size={22} className={dark ? "text-zinc-500" : "text-stone-400"} />
+          <div className={`text-sm font-medium ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers (MyAna)</div>
+          <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{dossiersFile ? `${dossiersFile.name} · ${dossiersRows?.length ?? 0} lignes` : ".xlsx — optionnel"}</div>
+          <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0], "dossiers")} />
+        </label>
       </div>
       {error && <div className="text-sm text-rose-500">{error}</div>}
-      {existingMeta && (
-        <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-          Dernier import : {new Date(existingMeta.importedAt).toLocaleString("fr-FR")} · {existingMeta.ordersCount} commandes, {existingMeta.stockCount} en stock
+      {(existingMeta || existingDossiersMeta) && (
+        <div className={`space-y-0.5 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+          {existingMeta && <div>Dernier import véhicules : {new Date(existingMeta.importedAt).toLocaleString("fr-FR")} · {existingMeta.ordersCount} commandes, {existingMeta.stockCount} en stock</div>}
+          {existingDossiersMeta && <div>Dernier import dossiers : {new Date(existingDossiersMeta.importedAt).toLocaleString("fr-FR")} · {existingDossiersMeta.count} dossiers</div>}
         </div>
       )}
       <button onClick={submit} disabled={!ordersRows || busy} className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
@@ -1924,7 +1939,7 @@ function ImportForm({ dark, onImport, existingMeta }) {
   );
 }
 
-function ImportGate({ dark, onImport }) {
+function ImportGate({ dark, onImport, onImportDossiers }) {
   return (
     <div className="flex min-h-[500px] items-center justify-center p-6">
       <div className={`w-full max-w-lg rounded-2xl border p-6 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -1932,7 +1947,7 @@ function ImportGate({ dark, onImport }) {
         <div className={`mb-5 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
           Chargez les deux exports DSR pour démarrer le suivi du parc. Ces données de référence resteront visibles par toute l'équipe et ne pourront pas être modifiées directement.
         </div>
-        <ImportForm dark={dark} onImport={onImport} />
+        <ImportForm dark={dark} onImport={onImport} onImportDossiers={onImportDossiers} />
       </div>
     </div>
   );
@@ -2909,7 +2924,7 @@ export default function App() {
           <RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={24} />
         </div>
       ) : ordersData.length === 0 ? (
-        <ImportGate dark={dark} onImport={handleImport} />
+        <ImportGate dark={dark} onImport={handleImport} onImportDossiers={handleImportDossiers} />
       ) : (
         <div className="p-4 md:p-6">
           <div className="mb-6 lg:hidden">
@@ -3001,8 +3016,13 @@ export default function App() {
           ) : tab === "dossiers" ? (
             <div className="space-y-8">
               <div className="space-y-4">
-                <DossierImportForm dark={dark} onImport={handleImportDossiers} existingMeta={dossiersMeta} />
-                {dossiers.length > 0 && <DossierList dark={dark} dossiers={dossiers} onExport={exportDossiersToExcel} />}
+                {dossiers.length > 0 ? (
+                  <DossierList dark={dark} dossiers={dossiers} onExport={exportDossiersToExcel} />
+                ) : (
+                  <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+                    Aucun dossier importé pour l'instant — utilisez le bouton <span className="font-semibold">Importer</span> en haut de la page pour charger le fichier MyAna.
+                  </div>
+                )}
               </div>
               <ManualSalesSection dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
             </div>
@@ -3065,7 +3085,7 @@ export default function App() {
       )}
       {importOpen && (
         <Modal dark={dark} title="Importer / mettre à jour les fichiers" onClose={() => setImportOpen(false)}>
-          <ImportForm dark={dark} onImport={handleImport} existingMeta={importMeta} />
+          <ImportForm dark={dark} onImport={handleImport} existingMeta={importMeta} onImportDossiers={handleImportDossiers} existingDossiersMeta={dossiersMeta} />
         </Modal>
       )}
       {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} vendeursList={vendeursList} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
