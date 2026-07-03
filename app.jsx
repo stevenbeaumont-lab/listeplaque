@@ -20,7 +20,7 @@ const MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7,
 const VU_KEYWORDS = ["transit", "tourneo", "ranger"];
 const VP_OVERRIDE_MODELS = ["tourneo connect", "tourneo courier"];
 const RESERVATION_STATUSES = ["Réservé", "Réservation annulée"];
-const FORD_SITES = ["Ford Caen", "Ford Lisieux", "Ford Bernay", "Ford Pont-Audemer", "Ford St-Lô", "Ford Cherbourg"];
+const FORD_SITES = ["Ford Caen", "Ford Lisieux", "Ford Bernay", "Ford Pont-Audemer", "Ford St-Lô", "Ford Cherbourg", "Multi site"];
 function normalizeVendeur(v) {
   return typeof v === "string" ? { nom: v, site: "" } : v;
 }
@@ -364,7 +364,7 @@ function exportDossiersToExcel(dossiers) {
 }
 function isAdminVendeur(name) {
   const n = (name || "").toLowerCase();
-  return n.includes("audrey") || n.includes("beaumont");
+  return n.includes("audrey") || n.includes("beaumont") || n.includes("le bon");
 }
 function activeReservationVendeur(v) {
   return v.baseStatus === "reserve" ? (v.reservation?.vendeur || "") : "";
