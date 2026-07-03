@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -536,6 +536,50 @@ function DashboardSection({ dark, icon: Icon, title, children }) {
   );
 }
 
+
+const NAV_ICONS = {
+  vehicules: Car,
+  logistique: Truck,
+  dashboard: TrendingUp,
+  dossiers: FileText,
+  vendeurs: Users,
+  accidentes: AlertTriangle,
+};
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
+  const items = [
+    { id: "vehicules", label: "Véhicules" },
+    { id: "logistique", label: "Logistique" },
+    { id: "dashboard", label: "Tableau de bord" },
+    { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
+    { id: "vendeurs", label: "Vendeurs" },
+    { id: "accidentes", label: "Accidentés", count: accidentCount },
+  ];
+  return (
+    <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+      {items.map((it) => {
+        const Icon = NAV_ICONS[it.id];
+        const active = tab === it.id;
+        return (
+          <button
+            key={it.id}
+            onClick={() => setTab(it.id)}
+            className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              active ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+            }`}
+          >
+            <Icon size={16} className="shrink-0" />
+            <span className="flex-1 truncate text-left">{it.label}</span>
+            {!!it.count && (
+              <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-zinc-950/20 text-zinc-950" : "bg-rose-500 text-white"}`}>
+                {it.count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
 function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
   const items = [
@@ -2857,8 +2901,15 @@ export default function App() {
       ) : ordersData.length === 0 ? (
         <ImportGate dark={dark} onImport={handleImport} />
       ) : (
-        <div className="space-y-6 p-4 md:p-6">
-          <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} />
+        <div className="p-4 md:p-6">
+          <div className="mb-6 lg:hidden">
+            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} />
+          </div>
+          <div className="flex items-start gap-6">
+            <div className="hidden lg:block">
+              <Sidebar dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} />
+            </div>
+            <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
             <LogisticsTab dark={dark} vehicles={vehicles} onOpenVehicle={openInVehicules} />
@@ -2975,6 +3026,8 @@ export default function App() {
               )}
             </>
           )}
+            </div>
+          </div>
         </div>
       )}
 
