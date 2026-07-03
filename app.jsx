@@ -866,32 +866,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
   );
 }
 
-function VehiclesHeader({ dark, viewMode, setViewMode }) {
-  return (
-    <div className="flex justify-end">
-      <div className={`hidden items-center gap-1 rounded-lg border p-1 lg:inline-flex ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
-        <button
-          onClick={() => setViewMode("table")}
-          title="Vue tableau"
-          className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-            viewMode === "table" ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
-          }`}
-        >
-          <List size={15} />
-        </button>
-        <button
-          onClick={() => setViewMode("grid")}
-          title="Vue galerie"
-          className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-            viewMode === "grid" ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
-          }`}
-        >
-          <LayoutGrid size={15} />
-        </button>
-      </div>
-    </div>
-  );
-}
+
 
 function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
   const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
@@ -1004,31 +979,6 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
               <AlertTriangle size={10} /> {a.label}
             </span>
           ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VehicleGrid({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName }) {
-  if (vehicles.length === 0) {
-    return (
-      <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-        Aucun véhicule ne correspond aux filtres.
-      </div>
-    );
-  }
-  const expandedVehicle = vehicles.find((v) => v.orderNumber === expandedOrder);
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {vehicles.map((v) => (
-          <VehicleCard key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} />
-        ))}
-      </div>
-      {expandedVehicle && (
-        <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
-          <ExpandedDetail v={expandedVehicle} dark={dark} onClose={() => onSelect(expandedVehicle)} onSave={onSave} vendorName={vendorName} />
         </div>
       )}
     </div>
@@ -2343,8 +2293,7 @@ export default function App() {
     loadLocal("dsr:ui-filters", { concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", query: "" })
   );
   const [sortBy, setSortBy] = useState(() => loadLocal("dsr:ui-sort", "stock_desc"));
-  const [viewMode, setViewMode] = useState(() => loadLocal("dsr:ui-view", "table"));
-  useEffect(() => { saveLocal("dsr:ui-view", viewMode); }, [viewMode]);
+
 
   useEffect(() => { saveLocal("dsr:ui-tab", tab); }, [tab]);
   useEffect(() => { saveLocal("dsr:ui-filters", filters); }, [filters]);
@@ -2930,16 +2879,6 @@ export default function App() {
             <LogisticsTab dark={dark} vehicles={vehicles} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <h2 className={`font-display text-2xl font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>Tableau de bord</h2>
-                  <p className={`mt-0.5 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-                    <span className={`font-display font-semibold ${dark ? "text-zinc-300" : "text-stone-600"}`}>{stats.total}</span> véhicules au total
-                    {lastSync && ` · synchronisé à ${lastSync.toLocaleTimeString("fr-FR")}`}
-                  </p>
-                </div>
-              </div>
-
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                   <KPICard dark={dark} label="Total" value={stats.total} onClick={() => goToVehicles({ statut: "all" })} />
@@ -3009,7 +2948,6 @@ export default function App() {
             <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} onUpdateSite={handleUpdateVendeurSite} />
           ) : (
             <>
-              <VehiclesHeader dark={dark} viewMode={viewMode} setViewMode={setViewMode} />
               <FilterBar
                 dark={dark}
                 filters={filters}
@@ -3022,11 +2960,7 @@ export default function App() {
                 onExport={() => exportVehiclesToExcel(filtered)}
               />
               <div className="hidden lg:block">
-                {viewMode === "grid" ? (
-                  <VehicleGrid dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
-                ) : (
-                  <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
-                )}
+                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
               </div>
               <div className="lg:hidden">
                 <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} />
@@ -3034,6 +2968,10 @@ export default function App() {
             </>
           )}
             </div>
+          </div>
+          <div className={`mt-6 text-center text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>
+            <span className={`font-display font-semibold ${dark ? "text-zinc-500" : "text-stone-500"}`}>{stats.total}</span> véhicules au total
+            {lastSync && ` · synchronisé à ${lastSync.toLocaleTimeString("fr-FR")}`}
           </div>
         </div>
       )}
