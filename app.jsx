@@ -22,7 +22,8 @@ const VP_OVERRIDE_MODELS = ["tourneo connect", "tourneo courier"];
 const RESERVATION_STATUSES = ["Réservé", "Réservation annulée"];
 const FORD_SITES = ["Ford Caen", "Ford Lisieux", "Ford Bernay", "Ford Pont-Audemer", "Ford St-Lô", "Ford Cherbourg", "Multi site"];
 function normalizeVendeur(v) {
-  return typeof v === "string" ? { nom: v, site: "" } : v;
+  const base = typeof v === "string" ? { nom: v, site: "" } : v;
+  return { role: "Vendeur", permOverrides: {}, ...base };
 }
 const STORE_KEYS = {
   orders: "dsr:orders",
@@ -362,9 +363,32 @@ function exportDossiersToExcel(dossiers) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-dossiers-${stamp}.xlsx`);
 }
-function isAdminVendeur(name) {
+const ROLES = ["Directeur de plaque", "Chef des ventes", "Responsable de site", "Vendeur", "Secrétariat"];
+const PERMISSION_KEYS = ["reserve", "reserveForOthers", "import", "dossiers", "accidentes", "vendeurs", "reset"];
+const ROLE_PERMISSIONS = {
+  "Directeur de plaque": { reserve: true, reserveForOthers: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
+  "Chef des ventes": { reserve: true, reserveForOthers: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
+  "Responsable de site": { reserve: true, reserveForOthers: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
+  "Vendeur": { reserve: true, reserveForOthers: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
+  "Secrétariat": { reserve: false, reserveForOthers: false, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
+};
+const DEFAULT_PERMISSIONS = ROLE_PERMISSIONS["Vendeur"];
+function isSuperAdmin(name) {
   const n = (name || "").toLowerCase();
-  return n.includes("audrey") || n.includes("beaumont") || n.includes("le bon");
+  return n.includes("beaumont") && n.includes("steven");
+}
+function findVendeur(vendeursList, name) {
+  return vendeursList.find((v) => v.nom === name) || null;
+}
+function getPermissions(vendorName, vendeursList) {
+  if (isSuperAdmin(vendorName)) {
+    const all = {};
+    PERMISSION_KEYS.forEach((k) => (all[k] = true));
+    return all;
+  }
+  const vd = findVendeur(vendeursList, vendorName);
+  const base = ROLE_PERMISSIONS[vd?.role] || DEFAULT_PERMISSIONS;
+  return { ...base, ...(vd?.permOverrides || {}) };
 }
 function activeReservationVendeur(v) {
   return v.baseStatus === "reserve" ? (v.reservation?.vendeur || "") : "";
@@ -575,17 +599,19 @@ const NAV_ICONS = {
   dashboard: TrendingUp,
   dossiers: FileText,
   vendeurs: Users,
+  permissions: Lock,
   accidentes: AlertTriangle,
 };
-function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
   const items = [
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
     { id: "dashboard", label: "Tableau de bord" },
-    { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
-    { id: "vendeurs", label: "Vendeurs" },
-    { id: "accidentes", label: "Accidentés" },
-  ];
+    permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
+    permissions.vendeurs && { id: "vendeurs", label: "Vendeurs" },
+    permissions.vendeurs && { id: "permissions", label: "Permissions" },
+    permissions.accidentes && { id: "accidentes", label: "Accidentés" },
+  ].filter(Boolean);
   return (
     <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
       {items.map((it) => {
@@ -613,15 +639,16 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
   );
 }
 
-function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
+function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
   const items = [
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
     { id: "dashboard", label: "Tableau de bord" },
-    { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
-    { id: "vendeurs", label: "Vendeurs" },
-    { id: "accidentes", label: "Accidentés" },
-  ];
+    permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
+    permissions.vendeurs && { id: "vendeurs", label: "Vendeurs" },
+    permissions.vendeurs && { id: "permissions", label: "Permissions" },
+    permissions.accidentes && { id: "accidentes", label: "Accidentés" },
+  ].filter(Boolean);
   return (
     <div className={`flex max-w-full gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
       {items.map((it) => (
@@ -648,7 +675,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount }) {
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen }) {
+function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport }) {
   const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
   return (
     <div className={`sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-t-2xl border-b px-4 py-3 md:px-6 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -676,9 +703,11 @@ function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, 
       <button onClick={onRefresh} className={`w-9 ${btnCls}`}>
         <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
       </button>
-      <button onClick={onImport} className={`gap-1.5 px-3 text-sm font-medium ${btnCls}`}>
-        <Upload size={14} /> Importer
-      </button>
+      {canImport && (
+        <button onClick={onImport} className={`gap-1.5 px-3 text-sm font-medium ${btnCls}`}>
+          <Upload size={14} /> Importer
+        </button>
+      )}
       <div className="relative">
         <button onClick={() => setLegendOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Légende des statuts">
           <Info size={16} />
@@ -1321,7 +1350,9 @@ function TrendChart({ dark }) {
 }
 
 function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList }) {
-  const canReserveForOthers = isAdminVendeur(vendorName);
+  const myPermissions = getPermissions(vendorName, vendeursList);
+  const canReserveForOthers = myPermissions.reserveForOthers;
+  const canReserve = myPermissions.reserve;
   function defaultForm() {
     if (v.reservation && v.reservation.statut !== "Réservation annulée") return { client: "", ...v.reservation };
     const today = new Date();
@@ -1454,6 +1485,10 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList }) 
               {v.baseStatus === "vendu"
                 ? "Ce véhicule est déjà vendu — la réservation n'est pas disponible."
                 : "Ce véhicule est signalé HS — la réservation n'est pas disponible."}
+            </div>
+          ) : !canReserve ? (
+            <div className={`rounded-lg border px-3 py-3 text-sm ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-400" : "border-stone-200 bg-stone-50 text-stone-500"}`}>
+              Votre rôle ne permet pas de réserver de véhicule.
             </div>
           ) : (
           <div className="space-y-2.5">
@@ -2139,6 +2174,100 @@ function VendorPrompt({ dark, vendeursList, onSave, onClose }) {
   );
 }
 
+const PERMISSION_LABELS = {
+  reserve: "Réserver des véhicules",
+  reserveForOthers: "Réserver au nom de n'importe qui",
+  import: "Importer (commandes / stock / dossiers MyAna)",
+  dossiers: "Onglet Dossiers (attribution manuelle des ventes)",
+  accidentes: "Onglet Accidentés",
+  vendeurs: "Onglet Vendeurs (gestion, sites, rôles)",
+  reset: "Réinitialiser toutes les données",
+};
+
+function PermissionRow({ dark, v, onUpdateRole, onUpdatePermission }) {
+  const [open, setOpen] = useState(false);
+  const role = v.role || "Vendeur";
+  const overrides = v.permOverrides || {};
+  const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
+  const hasOverrides = Object.keys(overrides).length > 0;
+  const superAdmin = isSuperAdmin(v.nom);
+  const selectCls = `h-9 rounded-lg border px-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  return (
+    <li className={`${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <span className={`min-w-[140px] flex-1 truncate font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v.nom}</span>
+        {superAdmin ? (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Accès complet permanent</span>
+        ) : (
+          <>
+            <select value={role} onChange={(e) => onUpdateRole(v.nom, e.target.value)} className={selectCls}>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setOpen((o) => !o)}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+            >
+              {hasOverrides && <span className={`h-1.5 w-1.5 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} />}
+              Personnaliser
+              <ChevronRight size={13} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+            </button>
+          </>
+        )}
+      </div>
+      {open && !superAdmin && (
+        <div className={`grid gap-2 border-t px-4 py-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
+          {PERMISSION_KEYS.map((key) => (
+            <div key={key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!effective[key]}
+                onChange={(e) => onUpdatePermission(v.nom, key, e.target.checked)}
+                className="accent-amber-500"
+              />
+              <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{PERMISSION_LABELS[key]}</span>
+              {overrides[key] !== undefined && (
+                <button onClick={() => onUpdatePermission(v.nom, key, null)} className={`text-xs underline-offset-2 hover:underline ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                  défaut
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function PermissionsManager({ dark, vendeurs, onUpdateRole, onUpdatePermission }) {
+  return (
+    <div className="space-y-4">
+      <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+        <Lock size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+        Permissions par personne
+      </div>
+      <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        Chaque rôle a des permissions par défaut. Cliquez "Personnaliser" pour ajuster individuellement une personne — l'ajustement prend le pas sur son rôle.
+      </p>
+      {vendeurs.length === 0 ? (
+        <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+          Aucun vendeur enregistré — ajoutez-en dans l'onglet Vendeurs.
+        </div>
+      ) : (
+        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+            {[...vendeurs].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
+              <PermissionRow key={v.nom} dark={dark} v={v} onUpdateRole={onUpdateRole} onUpdatePermission={onUpdatePermission} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, onUpdateSite }) {
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
@@ -2777,6 +2906,32 @@ export default function App() {
     if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
+  async function handleUpdateVendeurRole(name, role) {
+    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
+    const next = fresh.map((v) => (v.nom === name ? { ...v, role } : v));
+    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+    setVendeursList(next);
+    localWriteVersionRef.current++;
+    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleUpdateVendeurPermission(name, key, value) {
+    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
+    const next = fresh.map((v) => {
+      if (v.nom !== name) return v;
+      const overrides = { ...(v.permOverrides || {}) };
+      if (value === null) delete overrides[key];
+      else overrides[key] = value;
+      return { ...v, permOverrides: overrides };
+    });
+    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+    setVendeursList(next);
+    localWriteVersionRef.current++;
+    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
   async function handleAssignManualSale(orderNumber, patch) {
     const key = normalizeOrderNum(orderNumber);
     const freshRaw = await sGet(STORE_KEYS.manualSales, true);
@@ -3024,6 +3179,11 @@ export default function App() {
   }, [vehicles, filters, sortBy]);
 
   const totalAlerts = useMemo(() => vehicles.reduce((n, v) => n + v.alerts.length, 0), [vehicles]);
+  const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
+  useEffect(() => {
+    const gated = { dossiers: permissions.dossiers, vendeurs: permissions.vendeurs, permissions: permissions.vendeurs, accidentes: permissions.accidentes };
+    if (tab in gated && !gated[tab]) setTab("vehicules");
+  }, [tab, permissions]);
 
   useEffect(() => {
     if (!unlocked || vehicles.length === 0) return;
@@ -3090,6 +3250,7 @@ export default function App() {
         syncing={syncing}
         legendOpen={legendOpen}
         setLegendOpen={setLegendOpen}
+        canImport={permissions.import}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
@@ -3106,7 +3267,7 @@ export default function App() {
       ) : (
         <div className="p-4 md:p-6">
           <div className="mb-6 lg:hidden">
-            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} />
+            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} />
           </div>
           <div className="flex items-start gap-6">
             <div className="hidden lg:block">
@@ -3116,6 +3277,7 @@ export default function App() {
                 setTab={setTab}
                 accidentCount={accidents.length}
                 dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length}
+                permissions={permissions}
               />
             </div>
             <div className="min-w-0 flex-1 space-y-6">
@@ -3201,6 +3363,8 @@ export default function App() {
             </div>
           ) : tab === "vendeurs" ? (
             <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} onUpdateSite={handleUpdateVendeurSite} />
+          ) : tab === "permissions" ? (
+            <PermissionsManager dark={dark} vendeurs={vendeursList} onUpdateRole={handleUpdateVendeurRole} onUpdatePermission={handleUpdateVendeurPermission} />
           ) : (
             <>
               <FilterBar
@@ -3251,7 +3415,7 @@ export default function App() {
             onImportDossiers={handleImportDossiers}
             existingDossiersMeta={dossiersMeta}
             dataWarningsCount={stats.dataWarnings}
-            onReset={() => (resetConfirm ? handleReset() : setResetConfirm(true))}
+            onReset={permissions.reset ? () => (resetConfirm ? handleReset() : setResetConfirm(true)) : null}
             resetConfirm={resetConfirm}
           />
         </Modal>
