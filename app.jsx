@@ -2613,6 +2613,51 @@ function AccessGate({ dark, vendorName, vendeursList, onUnlock }) {
 // ---------------------------------------------------------------------------
 // Main app
 // ---------------------------------------------------------------------------
+function computeStats(vehicles) {
+  const inStockList = vehicles.filter((v) => v.inStock);
+  const avgJoursStock = inStockList.length ? Math.round(inStockList.reduce((n, v) => n + v.joursStock, 0) / inStockList.length) : 0;
+  const buckets = [
+    { name: "0-7j", count: 0 },
+    { name: "7-15j", count: 0 },
+    { name: "15-30j", count: 0 },
+    { name: "30j+", count: 0 },
+  ];
+  inStockList.forEach((v) => {
+    if (v.joursStock <= 7) buckets[0].count++;
+    else if (v.joursStock <= 15) buckets[1].count++;
+    else if (v.joursStock <= 30) buckets[2].count++;
+    else buckets[3].count++;
+  });
+  const STATUS_LABELS = { disponible: "Disponible", reserve: "Réservé", vendu: "Vendu", commande: "Commandé", non_serialise: "Non sérialisé", hs: "HS" };
+  return {
+    total: vehicles.length,
+    vp: vehicles.filter((v) => !v.vu).length,
+    vu: vehicles.filter((v) => v.vu).length,
+    disponibles: vehicles.filter((v) => v.baseStatus === "disponible").length,
+    reserves: vehicles.filter((v) => v.baseStatus === "reserve").length,
+    vendus: vehicles.filter((v) => v.baseStatus === "vendu").length,
+    hsCount: vehicles.filter((v) => v.baseStatus === "hs").length,
+    arrivees: vehicles.filter((v) => v.inStock && v.joursStock <= 3).length,
+    nonSerialises: vehicles.filter((v) => v.baseStatus === "non_serialise").length,
+    electriques: vehicles.filter((v) => v.energy === "Électrique").length,
+    hybridesRecharge: vehicles.filter((v) => v.energy === "Hybride rechargeable").length,
+    activeAlerts: vehicles.reduce((n, v) => n + v.alerts.length, 0),
+    avgJoursStock,
+    dataWarnings: vehicles.filter((v) => v.dataWarning).length,
+    byTypeVente: groupCount(vehicles, (v) => v.typeVente),
+    byVendeur: groupCount(vehicles.filter((v) => activeReservationVendeur(v)), (v) => v.reservation.vendeur),
+    byVenteVendeur: groupCount(vehicles.filter((v) => v.vendu && v.venduPar), (v) => v.venduPar),
+    byStatus: groupCount(vehicles, (v) => STATUS_LABELS[v.baseStatus] || v.baseStatus).map((d) => ({ ...d, name: d.name === "—" ? "Autre" : d.name })),
+    byConcession: groupCount(vehicles, (v) => v.concession),
+    byType: [
+      { name: "VP", count: vehicles.filter((v) => !v.vu).length },
+      { name: "VU", count: vehicles.filter((v) => v.vu).length },
+    ],
+    stockBuckets: buckets,
+    topModels: groupCount(vehicles, (v) => v.model).slice(0, 5),
+  };
+}
+
 export default function App() {
   const [dark, setDark] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
@@ -3094,50 +3139,7 @@ export default function App() {
     setFilters((f) => ({ ...f, concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "", ...patch }));
   }
 
-  const stats = useMemo(() => {
-    const inStockList = vehicles.filter((v) => v.inStock);
-    const avgJoursStock = inStockList.length ? Math.round(inStockList.reduce((n, v) => n + v.joursStock, 0) / inStockList.length) : 0;
-    const buckets = [
-      { name: "0-7j", count: 0 },
-      { name: "7-15j", count: 0 },
-      { name: "15-30j", count: 0 },
-      { name: "30j+", count: 0 },
-    ];
-    inStockList.forEach((v) => {
-      if (v.joursStock <= 7) buckets[0].count++;
-      else if (v.joursStock <= 15) buckets[1].count++;
-      else if (v.joursStock <= 30) buckets[2].count++;
-      else buckets[3].count++;
-    });
-    const STATUS_LABELS = { disponible: "Disponible", reserve: "Réservé", vendu: "Vendu", commande: "Commandé", non_serialise: "Non sérialisé", hs: "HS" };
-    return {
-      total: vehicles.length,
-      vp: vehicles.filter((v) => !v.vu).length,
-      vu: vehicles.filter((v) => v.vu).length,
-      disponibles: vehicles.filter((v) => v.baseStatus === "disponible").length,
-      reserves: vehicles.filter((v) => v.baseStatus === "reserve").length,
-      vendus: vehicles.filter((v) => v.baseStatus === "vendu").length,
-      hsCount: vehicles.filter((v) => v.baseStatus === "hs").length,
-      arrivees: vehicles.filter((v) => v.inStock && v.joursStock <= 3).length,
-      nonSerialises: vehicles.filter((v) => v.baseStatus === "non_serialise").length,
-      electriques: vehicles.filter((v) => v.energy === "Électrique").length,
-      hybridesRecharge: vehicles.filter((v) => v.energy === "Hybride rechargeable").length,
-      activeAlerts: vehicles.reduce((n, v) => n + v.alerts.length, 0),
-      avgJoursStock,
-      dataWarnings: vehicles.filter((v) => v.dataWarning).length,
-      byTypeVente: groupCount(vehicles, (v) => v.typeVente),
-      byVendeur: groupCount(vehicles.filter((v) => activeReservationVendeur(v)), (v) => v.reservation.vendeur),
-      byVenteVendeur: groupCount(vehicles.filter((v) => v.vendu && v.venduPar), (v) => v.venduPar),
-      byStatus: groupCount(vehicles, (v) => STATUS_LABELS[v.baseStatus] || v.baseStatus).map((d) => ({ ...d, name: d.name === "—" ? "Autre" : d.name })),
-      byConcession: groupCount(vehicles, (v) => v.concession),
-      byType: [
-        { name: "VP", count: vehicles.filter((v) => !v.vu).length },
-        { name: "VU", count: vehicles.filter((v) => v.vu).length },
-      ],
-      stockBuckets: buckets,
-      topModels: groupCount(vehicles, (v) => v.model).slice(0, 5),
-    };
-  }, [vehicles]);
+  const stats = useMemo(() => computeStats(vehicles), [vehicles]);
 
   const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
   const typeVentes = useMemo(() => [...new Set(vehicles.map((v) => v.typeVente))].filter(Boolean).sort(), [vehicles]);
@@ -3180,6 +3182,30 @@ export default function App() {
 
   const totalAlerts = useMemo(() => vehicles.reduce((n, v) => n + v.alerts.length, 0), [vehicles]);
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
+
+  const mySiteScope = useMemo(() => {
+    if (isSuperAdmin(vendorName)) return null;
+    const n = (vendorName || "").toLowerCase();
+    if (n.includes("audrey")) return null;
+    const vd = findVendeur(vendeursList, vendorName);
+    if (vd?.role === "Directeur de plaque") return null;
+    return vd?.site || null;
+  }, [vendorName, vendeursList]);
+
+  const visibleVehicles = useMemo(() => {
+    if (!mySiteScope) return vehicles;
+    const siteByVendeur = new Map(vendeursList.map((v) => [v.nom, v.site]));
+    const vehicleSite = (v) => {
+      const nom = v.venduPar || activeReservationVendeur(v);
+      return nom ? siteByVendeur.get(nom) : null;
+    };
+    return vehicles.filter((v) => {
+      const site = vehicleSite(v);
+      return !site || site === mySiteScope;
+    });
+  }, [vehicles, vendeursList, mySiteScope]);
+
+  const dashboardStats = useMemo(() => computeStats(visibleVehicles), [visibleVehicles]);
   useEffect(() => {
     const gated = { dossiers: permissions.dossiers, vendeurs: permissions.vendeurs, permissions: permissions.vendeurs, accidentes: permissions.accidentes };
     if (tab in gated && !gated[tab]) setTab("vehicules");
@@ -3283,63 +3309,63 @@ export default function App() {
             <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
-            <LogisticsTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} onOpenVehicle={openInVehicules} />
+            <LogisticsTab dark={dark} vehicles={visibleVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                  <KPICard dark={dark} label="Total" value={stats.total} onClick={() => goToVehicles({ statut: "all" })} />
-                  <KPICard dark={dark} label="Disponibles" value={stats.disponibles} onClick={() => goToVehicles({ statut: "disponible" })} />
-                  <KPICard dark={dark} label="Réservés" value={stats.reserves} onClick={() => goToVehicles({ statut: "reserve" })} />
-                  <KPICard dark={dark} label="Vendus" value={stats.vendus} onClick={() => goToVehicles({ statut: "vendu" })} />
-                  <KPICard dark={dark} label="HS" value={stats.hsCount} onClick={() => goToVehicles({ statut: "hs" })} />
+                  <KPICard dark={dark} label="Total" value={dashboardStats.total} onClick={() => goToVehicles({ statut: "all" })} />
+                  <KPICard dark={dark} label="Disponibles" value={dashboardStats.disponibles} onClick={() => goToVehicles({ statut: "disponible" })} />
+                  <KPICard dark={dark} label="Réservés" value={dashboardStats.reserves} onClick={() => goToVehicles({ statut: "reserve" })} />
+                  <KPICard dark={dark} label="Vendus" value={dashboardStats.vendus} onClick={() => goToVehicles({ statut: "vendu" })} />
+                  <KPICard dark={dark} label="HS" value={dashboardStats.hsCount} onClick={() => goToVehicles({ statut: "hs" })} />
                 </div>
                 <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
-                  <KPICard dark={dark} size="sm" label="VP" value={stats.vp} onClick={() => goToVehicles({ vu: "vp" })} />
-                  <KPICard dark={dark} size="sm" label="VU" value={stats.vu} onClick={() => goToVehicles({ vu: "vu" })} />
-                  <KPICard dark={dark} size="sm" label="Commandé" value={stats.total - stats.disponibles - stats.reserves - stats.vendus - stats.hsCount - stats.nonSerialises} />
-                  <KPICard dark={dark} size="sm" label="Non sérialisés" value={stats.nonSerialises} onClick={() => goToVehicles({ statut: "non_serialise" })} />
-                  <KPICard dark={dark} size="sm" label="Arrivés ≤3j" value={stats.arrivees} />
-                  <KPICard dark={dark} size="sm" label="Alertes" value={stats.activeAlerts} />
-                  <KPICard dark={dark} size="sm" label="Stock moy." value={`${stats.avgJoursStock} j`} />
+                  <KPICard dark={dark} size="sm" label="VP" value={dashboardStats.vp} onClick={() => goToVehicles({ vu: "vp" })} />
+                  <KPICard dark={dark} size="sm" label="VU" value={dashboardStats.vu} onClick={() => goToVehicles({ vu: "vu" })} />
+                  <KPICard dark={dark} size="sm" label="Commandé" value={dashboardStats.total - dashboardStats.disponibles - dashboardStats.reserves - dashboardStats.vendus - dashboardStats.hsCount - dashboardStats.nonSerialises} />
+                  <KPICard dark={dark} size="sm" label="Non sérialisés" value={dashboardStats.nonSerialises} onClick={() => goToVehicles({ statut: "non_serialise" })} />
+                  <KPICard dark={dark} size="sm" label="Arrivés ≤3j" value={dashboardStats.arrivees} />
+                  <KPICard dark={dark} size="sm" label="Alertes" value={dashboardStats.activeAlerts} />
+                  <KPICard dark={dark} size="sm" label="Stock moy." value={`${dashboardStats.avgJoursStock} j`} />
                 </div>
               </DashboardSection>
 
               <DashboardSection dark={dark} icon={Layers} title="Répartition">
                 <div className="grid gap-4 lg:grid-cols-3">
-                  <DonutCard dark={dark} title="Par statut" data={stats.byStatus} />
-                  <DonutCard dark={dark} title="VP / VU" data={stats.byType} />
-                  <DonutCard dark={dark} title="Par concession" data={stats.byConcession} />
+                  <DonutCard dark={dark} title="Par statut" data={dashboardStats.byStatus} />
+                  <DonutCard dark={dark} title="VP / VU" data={dashboardStats.byType} />
+                  <DonutCard dark={dark} title="Par concession" data={dashboardStats.byConcession} />
                 </div>
-                <SiteComparisonTable dark={dark} vehicles={vehicles} />
+                <SiteComparisonTable dark={dark} vehicles={visibleVehicles} />
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  <KPICard dark={dark} size="sm" label="Électriques" value={stats.electriques} />
-                  <KPICard dark={dark} size="sm" label="Hybrides rechargeables" value={stats.hybridesRecharge} />
+                  <KPICard dark={dark} size="sm" label="Électriques" value={dashboardStats.electriques} />
+                  <KPICard dark={dark} size="sm" label="Hybrides rechargeables" value={dashboardStats.hybridesRecharge} />
                 </div>
               </DashboardSection>
 
               <DashboardSection dark={dark} icon={Users} title="Activité commerciale">
                 <div className="grid grid-cols-3 gap-3">
-                  <KPICard dark={dark} size="sm" label="Ventes totales" value={stats.vendus} />
-                  <KPICard dark={dark} size="sm" label="Ventes attribuées" value={vehicles.filter((v) => v.vendu && v.venduPar).length} />
-                  <KPICard dark={dark} size="sm" label="Non attribuées" value={vehicles.filter((v) => v.vendu && !v.venduPar).length} onClick={() => setTab("dossiers")} />
+                  <KPICard dark={dark} size="sm" label="Ventes totales" value={dashboardStats.vendus} />
+                  <KPICard dark={dark} size="sm" label="Ventes attribuées" value={visibleVehicles.filter((v) => v.vendu && v.venduPar).length} />
+                  <KPICard dark={dark} size="sm" label="Non attribuées" value={visibleVehicles.filter((v) => v.vendu && !v.venduPar).length} onClick={() => setTab("dossiers")} />
                 </div>
-                <VendeurPerformanceTable dark={dark} vehicles={vehicles} vendeursList={vendeursList} dossiers={dossiers} />
+                <VendeurPerformanceTable dark={dark} vehicles={visibleVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} dossiers={dossiers} />
                 <div className="grid gap-4 lg:grid-cols-3">
-                  <BarListCard dark={dark} title="Ventes par vendeur" data={stats.byVenteVendeur.slice(0, 8)} color={dark ? "#A78BFA" : "#7C3AED"} layout="vertical" />
-                  <BarListCard dark={dark} title="Réservations par vendeur" data={stats.byVendeur.slice(0, 8)} color={dark ? "#38BDF8" : "#0284C7"} layout="vertical" />
+                  <BarListCard dark={dark} title="Ventes par vendeur" data={dashboardStats.byVenteVendeur.slice(0, 8)} color={dark ? "#A78BFA" : "#7C3AED"} layout="vertical" />
+                  <BarListCard dark={dark} title="Réservations par vendeur" data={dashboardStats.byVendeur.slice(0, 8)} color={dark ? "#38BDF8" : "#0284C7"} layout="vertical" />
                   <DonutCard dark={dark} title="Statut de livraison (dossiers)" data={groupCount(dossiers, (d) => d.statutLivraison)} />
                 </div>
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <BarListCard dark={dark} title="Par type de vente" data={stats.byTypeVente.slice(0, 8)} color={dark ? "#FBBF24" : "#D97706"} />
-                  <BarListCard dark={dark} title="Top 5 modèles" data={stats.topModels} color={dark ? "#FB923C" : "#EA580C"} layout="vertical" />
+                  <BarListCard dark={dark} title="Par type de vente" data={dashboardStats.byTypeVente.slice(0, 8)} color={dark ? "#FBBF24" : "#D97706"} />
+                  <BarListCard dark={dark} title="Top 5 modèles" data={dashboardStats.topModels} color={dark ? "#FB923C" : "#EA580C"} layout="vertical" />
                 </div>
               </DashboardSection>
 
               <DashboardSection dark={dark} icon={TrendingUp} title="Stock, alertes & tendance">
                 <div className="grid gap-4 lg:grid-cols-3">
-                  <BarListCard dark={dark} title="Ancienneté du stock" data={stats.stockBuckets} color={dark ? "#34D399" : "#059669"} />
-                  <AlertsSummaryCard dark={dark} vehicles={vehicles} />
+                  <BarListCard dark={dark} title="Ancienneté du stock" data={dashboardStats.stockBuckets} color={dark ? "#34D399" : "#059669"} />
+                  <AlertsSummaryCard dark={dark} vehicles={visibleVehicles} />
                   <div className="lg:col-span-1">
                     <TrendChart dark={dark} />
                   </div>
