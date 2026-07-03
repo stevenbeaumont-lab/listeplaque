@@ -1145,6 +1145,65 @@ function BarListCard({ dark, title, data, color, layout }) {
   );
 }
 
+function VendeurPerformanceTable({ dark, vehicles, vendeursList, dossiers }) {
+  const rows = useMemo(() => {
+    const siteByVendeur = new Map(vendeursList.map((v) => [v.nom, v.site]));
+    const map = {};
+    function ensure(nom) {
+      if (!map[nom]) map[nom] = { nom, site: siteByVendeur.get(nom) || "—", ventes: 0, reservations: 0 };
+      return map[nom];
+    }
+    vendeursList.forEach((v) => ensure(v.nom));
+    vehicles.forEach((v) => {
+      if (v.vendu && v.venduPar) ensure(v.venduPar).ventes++;
+      if (activeReservationVendeur(v)) ensure(v.reservation.vendeur).reservations++;
+    });
+    return Object.values(map)
+      .map((r) => ({ ...r, total: r.ventes + r.reservations }))
+      .sort((a, b) => b.total - a.total || b.ventes - a.ventes);
+  }, [vehicles, vendeursList]);
+
+  const thCls = `px-4 py-2.5 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`;
+  const tdCls = `px-4 py-2.5 text-right tabular-nums font-medium ${dark ? "text-zinc-200" : "text-stone-700"}`;
+
+  if (rows.length === 0) {
+    return (
+      <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+        Aucun vendeur enregistré — ajoutez-en dans l'onglet Vendeurs.
+      </div>
+    );
+  }
+
+  return (
+    <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className={dark ? "bg-zinc-900" : "bg-stone-100"}>
+            <th className={`${thCls} text-left`}>Vendeur</th>
+            <th className={`${thCls} text-left`}>Site</th>
+            <th className={`${thCls} text-right`}>Ventes</th>
+            <th className={`${thCls} text-right`}>Réservations</th>
+            <th className={`${thCls} text-right`}>Total</th>
+          </tr>
+        </thead>
+        <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+          {rows.map((r, i) => (
+            <tr key={r.nom} className={dark ? "hover:bg-zinc-900/60" : "hover:bg-amber-50/40"}>
+              <td className={`px-4 py-2.5 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+                {i === 0 && r.total > 0 && "🥇 "}{i === 1 && r.total > 0 && "🥈 "}{i === 2 && r.total > 0 && "🥉 "}{r.nom}
+              </td>
+              <td className={`px-4 py-2.5 ${dark ? "text-zinc-400" : "text-stone-500"}`}>{r.site}</td>
+              <td className={`${tdCls} ${dark ? "text-violet-400" : "text-violet-600"}`}>{r.ventes}</td>
+              <td className={`${tdCls} ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.reservations}</td>
+              <td className={tdCls}>{r.total}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function SiteComparisonTable({ dark, vehicles }) {
   const rows = useMemo(() => {
     const map = {};
@@ -2913,6 +2972,7 @@ export default function App() {
       dataWarnings: vehicles.filter((v) => v.dataWarning).length,
       byTypeVente: groupCount(vehicles, (v) => v.typeVente),
       byVendeur: groupCount(vehicles.filter((v) => activeReservationVendeur(v)), (v) => v.reservation.vendeur),
+      byVenteVendeur: groupCount(vehicles.filter((v) => v.vendu && v.venduPar), (v) => v.venduPar),
       byStatus: groupCount(vehicles, (v) => STATUS_LABELS[v.baseStatus] || v.baseStatus).map((d) => ({ ...d, name: d.name === "—" ? "Autre" : d.name })),
       byConcession: groupCount(vehicles, (v) => v.concession),
       byType: [
@@ -3097,10 +3157,20 @@ export default function App() {
               </DashboardSection>
 
               <DashboardSection dark={dark} icon={Users} title="Activité commerciale">
+                <div className="grid grid-cols-3 gap-3">
+                  <KPICard dark={dark} size="sm" label="Ventes totales" value={stats.vendus} />
+                  <KPICard dark={dark} size="sm" label="Ventes attribuées" value={vehicles.filter((v) => v.vendu && v.venduPar).length} />
+                  <KPICard dark={dark} size="sm" label="Non attribuées" value={vehicles.filter((v) => v.vendu && !v.venduPar).length} onClick={() => setTab("dossiers")} />
+                </div>
+                <VendeurPerformanceTable dark={dark} vehicles={vehicles} vendeursList={vendeursList} dossiers={dossiers} />
                 <div className="grid gap-4 lg:grid-cols-3">
-                  <BarListCard dark={dark} title="Par type de vente" data={stats.byTypeVente.slice(0, 8)} color={dark ? "#FBBF24" : "#D97706"} />
+                  <BarListCard dark={dark} title="Ventes par vendeur" data={stats.byVenteVendeur.slice(0, 8)} color={dark ? "#A78BFA" : "#7C3AED"} layout="vertical" />
                   <BarListCard dark={dark} title="Réservations par vendeur" data={stats.byVendeur.slice(0, 8)} color={dark ? "#38BDF8" : "#0284C7"} layout="vertical" />
-                  <BarListCard dark={dark} title="Top 5 modèles" data={stats.topModels} color={dark ? "#A78BFA" : "#7C3AED"} layout="vertical" />
+                  <DonutCard dark={dark} title="Statut de livraison (dossiers)" data={groupCount(dossiers, (d) => d.statutLivraison)} />
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <BarListCard dark={dark} title="Par type de vente" data={stats.byTypeVente.slice(0, 8)} color={dark ? "#FBBF24" : "#D97706"} />
+                  <BarListCard dark={dark} title="Top 5 modèles" data={stats.topModels} color={dark ? "#FB923C" : "#EA580C"} layout="vertical" />
                 </div>
               </DashboardSection>
 
