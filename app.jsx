@@ -1785,6 +1785,12 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const filtered = unattributed.filter((v) => !q || `${v.orderNumber} ${v.model} ${v.typeVente}`.toLowerCase().includes(q));
+  const [attribOpen, setAttribOpen] = useState(false);
+  const [attribQuery, setAttribQuery] = useState("");
+  const aq = attribQuery.trim().toLowerCase();
+  const attributedFiltered = attributedManually.filter(
+    (v) => !aq || `${v.orderNumber} ${v.model} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase().includes(aq)
+  );
 
   return (
     <div className="space-y-3">
@@ -1814,14 +1820,35 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
       )}
       {attributedManually.length > 0 && (
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-          <div className={`border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest ${dark ? "border-zinc-800 bg-zinc-900 text-zinc-400" : "border-stone-200 bg-stone-100 text-stone-500"}`}>
-            Attribuées manuellement ({attributedManually.length})
-          </div>
-          <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
-            {attributedManually.map((v) => (
-              <ManualSaleRow key={v.orderNumber} dark={dark} v={v} vendeursList={vendeursList} onAssign={onAssign} initialVendeur={v.venduPar} initialClient={v.clientLabel} isEdit />
-            ))}
-          </ul>
+          <button
+            onClick={() => setAttribOpen((o) => !o)}
+            className={`flex w-full items-center justify-between border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest transition-colors ${dark ? "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/70" : "border-stone-200 bg-stone-100 text-stone-500 hover:bg-stone-200/70"}`}
+          >
+            <span>Attribuées manuellement ({attributedManually.length})</span>
+            <ChevronRight size={14} className={`transition-transform ${attribOpen ? "rotate-90" : ""}`} />
+          </button>
+          {attribOpen && (
+            <>
+              <div className={`flex h-9 items-center gap-2 border-b px-3 ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}>
+                <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
+                <input
+                  value={attribQuery}
+                  onChange={(e) => setAttribQuery(e.target.value)}
+                  placeholder="Commande, modèle, vendeur, client…"
+                  className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
+                />
+              </div>
+              {attributedFiltered.length === 0 ? (
+                <div className={`p-6 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune correspondance.</div>
+              ) : (
+                <ul className={`max-h-[420px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+                  {attributedFiltered.map((v) => (
+                    <ManualSaleRow key={v.orderNumber} dark={dark} v={v} vendeursList={vendeursList} onAssign={onAssign} initialVendeur={v.venduPar} initialClient={v.clientLabel} isEdit />
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
