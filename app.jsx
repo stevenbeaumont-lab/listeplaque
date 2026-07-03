@@ -1312,7 +1312,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName }) {
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>VIN</dt><dd className={`font-mono font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.vin || "—"}</dd></div>
             {clientLine(v) && (
-              <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Client</dt><dd className={`font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{clientLine(v)}</dd></div>
+              <div className="col-span-2"><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Client</dt><dd className={`break-words font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{clientLine(v)}</dd></div>
             )}
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Type de vente</dt><dd className={`font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.typeVente || "—"}</dd></div>
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Finition</dt><dd className={`font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.trim || "—"}</dd></div>
@@ -1461,9 +1461,9 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
             <li
               key={v.orderNumber}
               onClick={() => onOpen(v)}
-              className={`flex cursor-pointer flex-wrap items-center gap-2.5 px-4 py-3 transition-colors ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}
+              className={`flex cursor-pointer flex-wrap items-start gap-2.5 px-4 py-3 transition-colors ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}
             >
-              <VehicleTypeIcon vu={v.vu} dark={dark} size="sm" />
+              <div className="mt-0.5"><VehicleTypeIcon vu={v.vu} dark={dark} size="sm" /></div>
               <div className="min-w-[140px] flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className={`truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModel(v)}</span>
@@ -1473,10 +1473,12 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
                     </span>
                   )}
                 </div>
-                <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber}{v.vin ? ` · ${v.vin}` : ""}</div>
+                <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                  Commande {v.orderNumber}{clientLine(v) ? ` · ${clientLine(v)}` : v.vin ? ` · ${v.vin}` : ""}
+                </div>
                 {v.vendu && (
                   <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
-                    <User size={10} className="shrink-0" /> {venduLabel(v)}{clientLine(v) && ` · ${clientLine(v)}`}
+                    <User size={10} className="shrink-0" /> <span className="truncate">{venduLabel(v)}</span>
                   </div>
                 )}
               </div>
