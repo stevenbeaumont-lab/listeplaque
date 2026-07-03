@@ -382,7 +382,7 @@ function clientLine(v) {
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
-function buildVehicle(order, stock, overlay, dossier, isAccidented, manualVendeur) {
+function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
   const inStock = !!stock;
@@ -391,9 +391,11 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualVendeu
   const activeReservation = !!(reservation && reservation.statut && reservation.statut !== "Réservation annulée");
   const venduByCode = VENDU_TYPE_CODES.includes((order.typeVente || "").toUpperCase().trim());
   const vendu = !!dossier || venduByCode;
+  const manualVendeur = typeof manualSale === "string" ? manualSale : manualSale?.vendeur || "";
+  const manualClient = typeof manualSale === "string" ? "" : manualSale?.client || "";
   const venduPar = dossier?.vendeur || manualVendeur || "";
-  const venduAttribManuelle = !dossier && !!manualVendeur;
-  const clientLabel = dossier ? (dossier.societe || [dossier.prenom, dossier.nom].filter(Boolean).join(" ")) : "";
+  const venduAttribManuelle = !dossier && (!!manualVendeur || !!manualClient);
+  const clientLabel = dossier ? (dossier.societe || [dossier.prenom, dossier.nom].filter(Boolean).join(" ")) : manualClient;
 
   let baseStatus;
   if (deliveredToClient) baseStatus = "livre_client";
@@ -1694,7 +1696,7 @@ function DossierRow({ dark, d }) {
 }
 
 function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
-  const unattributed = useMemo(() => vehicles.filter((v) => v.vendu && !v.venduPar), [vehicles]);
+  const unattributed = useMemo(() => vehicles.filter((v) => v.vendu && !v.venduPar && !v.clientLabel), [vehicles]);
   const attributedManually = useMemo(() => vehicles.filter((v) => v.venduAttribManuelle), [vehicles]);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
@@ -1708,7 +1710,7 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
         Commandes vendues sans dossier MyAna
       </div>
       <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-        Ces véhicules sont marqués "Vendu" d'après leur type de vente, sans dossier MyAna correspondant. Attribuez-leur un vendeur manuellement.
+        Ces véhicules sont marqués "Vendu" d'après leur type de vente, sans dossier MyAna correspondant. Attribuez-leur un vendeur et/ou un nom de client manuellement.
       </p>
       <div className={`flex h-9 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
         <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
@@ -1722,21 +1724,28 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <ul className={`max-h-[420px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
             {filtered.map((v) => (
-              <li key={v.orderNumber} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+              <li key={v.orderNumber} className={`flex flex-wrap items-center gap-2 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
                 <div className="min-w-[160px] flex-1">
                   <div className={`truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</div>
                   <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber} · Type {v.typeVente}</div>
                 </div>
                 <select
                   defaultValue=""
-                  onChange={(e) => e.target.value && onAssign(v.orderNumber, e.target.value)}
+                  onChange={(e) => e.target.value && onAssign(v.orderNumber, { vendeur: e.target.value })}
                   className={inputCls}
                 >
-                  <option value="">— Attribuer à —</option>
+                  <option value="">— Vendeur —</option>
                   {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((vd) => (
                     <option key={vd.nom} value={vd.nom}>{vd.nom}</option>
                   ))}
                 </select>
+                <input
+                  defaultValue=""
+                  onBlur={(e) => e.target.value.trim() && onAssign(v.orderNumber, { client: e.target.value.trim() })}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                  placeholder="Nom du client"
+                  className={`${inputCls} w-40`}
+                />
               </li>
             ))}
           </ul>
@@ -1749,10 +1758,26 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
           </div>
           <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
             {attributedManually.map((v) => (
-              <li key={v.orderNumber} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                <span className={`flex-1 truncate ${dark ? "text-zinc-200" : "text-stone-700"}`}>{displayModelBase(v)} · {v.orderNumber}</span>
-                <span className={`flex items-center gap-1 font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}><User size={11} /> {v.venduPar}</span>
-                <button onClick={() => onAssign(v.orderNumber, "")} className={`rounded-lg p-1 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+              <li key={v.orderNumber} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">
+                <span className={`min-w-[140px] flex-1 truncate ${dark ? "text-zinc-200" : "text-stone-700"}`}>{displayModelBase(v)} · {v.orderNumber}</span>
+                <select
+                  defaultValue={v.venduPar || ""}
+                  onChange={(e) => onAssign(v.orderNumber, { vendeur: e.target.value })}
+                  className={inputCls}
+                >
+                  <option value="">— Vendeur —</option>
+                  {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((vd) => (
+                    <option key={vd.nom} value={vd.nom}>{vd.nom}</option>
+                  ))}
+                </select>
+                <input
+                  defaultValue={v.clientLabel || ""}
+                  onBlur={(e) => onAssign(v.orderNumber, { client: e.target.value.trim() })}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                  placeholder="Nom du client"
+                  className={`${inputCls} w-40`}
+                />
+                <button onClick={() => onAssign(v.orderNumber, { vendeur: "", client: "" })} className={`rounded-lg p-1 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
                   <Trash2 size={13} />
                 </button>
               </li>
@@ -2594,17 +2619,20 @@ export default function App() {
     if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
-  async function handleAssignManualSale(orderNumber, vendeurNom) {
+  async function handleAssignManualSale(orderNumber, patch) {
     const key = normalizeOrderNum(orderNumber);
     const freshRaw = await sGet(STORE_KEYS.manualSales, true);
     const fresh = freshRaw ? JSON.parse(freshRaw) : {};
     const next = { ...fresh };
-    if (vendeurNom) next[key] = vendeurNom;
+    const existing = fresh[key];
+    const existingObj = typeof existing === "string" ? { vendeur: existing, client: "" } : existing || { vendeur: "", client: "" };
+    const merged = { ...existingObj, ...patch };
+    if (merged.vendeur || merged.client) next[key] = merged;
     else delete next[key];
     const ok = await sSet(STORE_KEYS.manualSales, JSON.stringify(next), true);
     setManualSales(next);
     localWriteVersionRef.current++;
-    if (ok) showToast(vendeurNom ? `Commande ${orderNumber} attribuée à ${vendeurNom}` : `Attribution retirée pour ${orderNumber}`);
+    if (ok) showToast(merged.vendeur || merged.client ? `Commande ${orderNumber} mise à jour` : `Attribution retirée pour ${orderNumber}`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
