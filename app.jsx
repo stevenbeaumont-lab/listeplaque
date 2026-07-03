@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -675,7 +675,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport }) {
+function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport, vendeursList, canManage, settingsOpen, setSettingsOpen, onGoToPermissions }) {
   const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
   return (
     <div className={`sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-t-2xl border-b px-4 py-3 md:px-6 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -729,6 +729,50 @@ function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, 
           </>
         )}
       </div>
+      {canManage && (
+        <div className="relative">
+          <button onClick={() => setSettingsOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Personnes et attributions">
+            <Settings size={16} />
+          </button>
+          {settingsOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setSettingsOpen(false)} />
+              <div className={`absolute right-0 z-40 mt-1 w-80 rounded-xl border p-3 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+                <div className={`mb-2 flex items-center justify-between text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                  <span>Personnes & attributions</span>
+                  <span className={dark ? "text-zinc-600" : "text-stone-400"}>{vendeursList.length}</span>
+                </div>
+                {vendeursList.length === 0 ? (
+                  <div className={`py-4 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucun vendeur enregistré.</div>
+                ) : (
+                  <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+                    {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => {
+                      const custom = Object.keys(v.permOverrides || {}).length > 0;
+                      const superAdmin = isSuperAdmin(v.nom);
+                      return (
+                        <li key={v.nom} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${dark ? "hover:bg-zinc-800/70" : "hover:bg-stone-100"}`}>
+                          <span className={`min-w-0 flex-1 truncate font-medium ${dark ? "text-zinc-200" : "text-stone-800"}`}>{v.nom}</span>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
+                            {superAdmin ? "Accès complet" : v.role || "Vendeur"}
+                          </span>
+                          {v.site && <span className={`shrink-0 truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.site}</span>}
+                          {custom && !superAdmin && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} title="Permissions personnalisées" />}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <button
+                  onClick={onGoToPermissions}
+                  className={`mt-2 w-full rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${dark ? "bg-zinc-800 text-zinc-200 hover:bg-zinc-700" : "bg-stone-100 text-stone-700 hover:bg-stone-200"}`}
+                >
+                  Gérer les rôles et permissions
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       <button onClick={() => setDark(!dark)} className={`w-9 ${btnCls}`} title={dark ? "Mode clair" : "Mode sombre"}>
         {dark ? <Sun size={16} /> : <Moon size={16} />}
       </button>
@@ -2679,6 +2723,7 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
     const saved = loadLocal("dsr:ui-selected", null);
     return saved ? { orderNumber: saved } : null;
@@ -3277,6 +3322,11 @@ export default function App() {
         legendOpen={legendOpen}
         setLegendOpen={setLegendOpen}
         canImport={permissions.import}
+        vendeursList={vendeursList}
+        canManage={permissions.vendeurs}
+        settingsOpen={settingsOpen}
+        setSettingsOpen={setSettingsOpen}
+        onGoToPermissions={() => { setTab("permissions"); setSettingsOpen(false); }}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
