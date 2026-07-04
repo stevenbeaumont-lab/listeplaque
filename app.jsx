@@ -21,6 +21,9 @@ const VU_KEYWORDS = ["transit", "tourneo", "ranger"];
 const VP_OVERRIDE_MODELS = ["tourneo connect", "tourneo courier"];
 const RESERVATION_STATUSES = ["Réservé", "Réservation annulée"];
 const FORD_SITES = ["Ford Caen", "Ford Lisieux", "Ford Bernay", "Ford Pont-Audemer", "Ford St-Lô", "Ford Cherbourg", "Multi site"];
+function stripAccents(s) {
+  return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
 function normalizeVendeur(v) {
   const base = typeof v === "string" ? { nom: v, site: "" } : v;
   return { role: "Vendeur", permOverrides: {}, email: "", ...base };
@@ -3525,6 +3528,22 @@ export default function App() {
     if (e.includes("steven.beaumont")) return "BEAUMONT Steven";
     const match = vendeursList.find((v) => (v.email || "").toLowerCase() === e);
     return match ? match.nom : "";
+  }, [authEmail, vendeursList]);
+
+  useEffect(() => {
+    if (!authEmail || vendeursList.length === 0) return;
+    const e = authEmail.toLowerCase();
+    const alreadyLinked = vendeursList.some((v) => (v.email || "").toLowerCase() === e);
+    if (alreadyLinked) return;
+    const localPart = e.split("@")[0];
+    const parts = stripAccents(localPart).split(".").filter(Boolean);
+    if (parts.length < 2) return;
+    const match = vendeursList.find((v) => {
+      const n = stripAccents(v.nom.toLowerCase());
+      return parts.every((p) => n.includes(p)) && !v.email;
+    });
+    if (match) handleUpdateVendeurEmail(match.nom, authEmail);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authEmail, vendeursList]);
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
 
