@@ -23,7 +23,7 @@ const RESERVATION_STATUSES = ["Réservé", "Réservation annulée"];
 const FORD_SITES = ["Ford Caen", "Ford Lisieux", "Ford Bernay", "Ford Pont-Audemer", "Ford St-Lô", "Ford Cherbourg", "Multi site"];
 function normalizeVendeur(v) {
   const base = typeof v === "string" ? { nom: v, site: "" } : v;
-  return { role: "Vendeur", permOverrides: {}, ...base };
+  return { role: "Vendeur", permOverrides: {}, email: "", ...base };
 }
 const STORE_KEYS = {
   orders: "dsr:orders",
@@ -42,7 +42,6 @@ const STORE_KEYS = {
   alertSettings: "dsr:alert-settings",
   activityLog: "dsr:activity-log",
 };
-const ACCESS_CODE_KEY = "dsr:access-code-hash";
 
 // ---------------------------------------------------------------------------
 // Supabase (shared/collaborative data) — personal settings use localStorage
@@ -99,22 +98,6 @@ async function sSet(key, value, shared) {
     return !error;
   } catch (e) {
     console.error("supabase set failed", key, e);
-    return false;
-  }
-}
-
-async function sha256Hex(text) {
-  const enc = new TextEncoder().encode(text);
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-async function checkAccessCode(code) {
-  try {
-    const hash = await sha256Hex(code);
-    const { data, error } = await supabase.from(TABLE).select("value").eq("key", ACCESS_CODE_KEY).maybeSingle();
-    if (error || !data) return false;
-    return data.value === hash;
-  } catch (e) {
     return false;
   }
 }
@@ -724,7 +707,8 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport, canManage, onOpenSettings }) {
+function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport, canManage, onOpenSettings }) {
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
   return (
     <div className={`sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-t-2xl border-b px-4 py-3 md:px-6 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -786,9 +770,30 @@ function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, 
       <button onClick={() => setDark(!dark)} className={`w-9 ${btnCls}`} title={dark ? "Mode clair" : "Mode sombre"}>
         {dark ? <Sun size={16} /> : <Moon size={16} />}
       </button>
-      <button onClick={onOpenVendor} className={`gap-2 px-3 text-sm font-medium ${btnCls}`}>
-        <User size={14} /> {vendorName || "Définir mon nom"}
-      </button>
+      <div className="relative">
+        <button onClick={() => setUserMenuOpen((o) => !o)} className={`gap-2 px-3 text-sm font-medium ${btnCls}`}>
+          <User size={14} /> {vendorName || "Compte non relié"}
+        </button>
+        {userMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
+            <div className={`absolute right-0 z-40 mt-1 w-56 rounded-xl border p-1.5 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+              <button
+                onClick={() => { setUserMenuOpen(false); onOpenPasswordModal(); }}
+                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors ${dark ? "text-zinc-300 hover:bg-zinc-800" : "text-stone-700 hover:bg-stone-100"}`}
+              >
+                <Lock size={14} /> Changer mon mot de passe
+              </button>
+              <button
+                onClick={() => { setUserMenuOpen(false); onLogout(); }}
+                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors ${dark ? "text-rose-400 hover:bg-zinc-800" : "text-rose-600 hover:bg-stone-100"}`}
+              >
+                <X size={14} /> Se déconnecter
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -2196,34 +2201,38 @@ function ImportGate({ dark, onImport, onImportDossiers }) {
   );
 }
 
-function VendorPrompt({ dark, vendeursList, onSave, onClose }) {
-  const [name, setName] = useState("");
+function PasswordChangeModal({ dark, onClose, showToast }) {
+  const [pw1, setPw1] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (pw1.length < 6) { setError("6 caractères minimum."); return; }
+    if (pw1 !== pw2) { setError("Les deux mots de passe ne correspondent pas."); return; }
+    setBusy(true);
+    setError("");
+    const { error: err } = await supabase.auth.updateUser({ password: pw1 });
+    setBusy(false);
+    if (err) setError("Échec de la mise à jour — réessayez.");
+    else {
+      showToast("Mot de passe mis à jour");
+      onClose();
+    }
+  }
+
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
   return (
-    <Modal dark={dark} title="Qui êtes-vous ?" onClose={onClose}>
-      <p className={`mb-3 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Ce nom sera associé à vos réservations et à l'historique des modifications.</p>
-      {vendeursList.length > 0 ? (
-        <select
-          autoFocus
-          className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        >
-          <option value="">— Choisissez votre nom —</option>
-          {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
-            <option key={v.nom} value={v.nom}>{v.nom}{v.site ? ` — ${v.site}` : ""}</option>
-          ))}
-        </select>
-      ) : (
-        <input
-          autoFocus
-          className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-          placeholder="Nom du vendeur"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && name.trim() && onSave(name.trim())}
-        />
-      )}
-      <button onClick={() => name.trim() && onSave(name.trim())} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400">Continuer</button>
+    <Modal dark={dark} title="Changer mon mot de passe" onClose={onClose}>
+      <div className="space-y-2.5">
+        <input type="password" autoFocus className={inputCls} placeholder="Nouveau mot de passe" value={pw1} onChange={(e) => setPw1(e.target.value)} />
+        <input type="password" className={inputCls} placeholder="Confirmer le mot de passe" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        {error && <div className="text-xs font-semibold text-rose-500">{error}</div>}
+        <button onClick={submit} disabled={busy} className="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+          {busy ? "Mise à jour…" : "Valider"}
+        </button>
+      </div>
     </Modal>
   );
 }
@@ -2238,7 +2247,7 @@ const PERMISSION_LABELS = {
   reset: "Réinitialiser toutes les données",
 };
 
-function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename }) {
+function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail }) {
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
   const [siteFilter, setSiteFilter] = useState("all");
@@ -2361,6 +2370,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
                 onUpdatePermission={onUpdatePermission}
                 onRemove={onRemove}
                 onRename={onRename}
+                onUpdateEmail={onUpdateEmail}
               />
             ))}
           </ul>
@@ -2370,10 +2380,12 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
   );
 }
 
-function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRole, onUpdatePermission, onRemove, onRename }) {
+function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRole, onUpdatePermission, onRemove, onRename, onUpdateEmail }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(v.nom);
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [emailValue, setEmailValue] = useState(v.email || "");
   const role = v.role || "Vendeur";
   const overrides = v.permOverrides || {};
   const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
@@ -2384,6 +2396,10 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
   function confirmRename() {
     if (newName.trim() && newName.trim() !== v.nom) onRename(v.nom, newName.trim());
     setRenaming(false);
+  }
+  function confirmEmail() {
+    onUpdateEmail(v.nom, emailValue);
+    setEmailEditing(false);
   }
 
   return (
@@ -2435,6 +2451,26 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
         <button onClick={() => onRemove(v.nom)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
           <Trash2 size={15} />
         </button>
+      </div>
+      <div className={`flex items-center gap-2 px-4 pb-3 pl-14 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        <Lock size={11} className="shrink-0" />
+        <span className="shrink-0">Email de connexion :</span>
+        {emailEditing ? (
+          <input
+            autoFocus
+            type="email"
+            value={emailValue}
+            onChange={(e) => setEmailValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") confirmEmail(); if (e.key === "Escape") setEmailEditing(false); }}
+            onBlur={confirmEmail}
+            placeholder="prenom.nom@groupe-legrand.fr"
+            className={`h-7 min-w-[200px] flex-1 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          />
+        ) : (
+          <button onClick={() => { setEmailValue(v.email || ""); setEmailEditing(true); }} className={`truncate text-left hover:underline ${v.email ? (dark ? "text-zinc-300" : "text-stone-600") : "italic"}`}>
+            {v.email || "non renseigné — cliquer pour ajouter"}
+          </button>
+        )}
       </div>
       {open && !superAdmin && (
         <div className={`grid gap-2 border-t px-4 py-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
@@ -2588,7 +2624,7 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
   );
 }
 
-function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateSites, onUpdateAlertSettings, onExportBackup }) {
+function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onExportBackup }) {
   const [settingsTab, setSettingsTab] = useState("vendeurs");
   const items = [
     { id: "vendeurs", label: "Vendeurs" },
@@ -2624,6 +2660,7 @@ function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSet
           onUpdateRole={onUpdateRole}
           onUpdatePermission={onUpdatePermission}
           onRename={onRename}
+          onUpdateEmail={onUpdateEmail}
         />
       ) : settingsTab === "sites" ? (
         <SitesManager dark={dark} sitesList={sitesList} onUpdate={onUpdateSites} />
@@ -2740,29 +2777,20 @@ function Toast({ dark, toast, onDismiss }) {
   );
 }
 
-function AccessGate({ dark, vendorName, vendeursList, onUnlock }) {
-  const [step, setStep] = useState("code");
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
-  const [error, setError] = useState(false);
+function LoginScreen({ dark, onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
 
-  async function submitCode() {
-    if (!code.trim() || checking) return;
+  async function submit() {
+    if (!email.trim() || !password || checking) return;
     setChecking(true);
-    const ok = await checkAccessCode(code);
+    setError("");
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     setChecking(false);
-    if (ok) {
-      if (vendorName) onUnlock();
-      else setStep("name");
-    } else {
-      setError(true);
-      setTimeout(() => setError(false), 1600);
-    }
-  }
-  function submitName() {
-    if (!name.trim()) return;
-    onUnlock(name.trim());
+    if (err) setError("Email ou mot de passe incorrect.");
+    else onLogin();
   }
 
   return (
@@ -2770,69 +2798,43 @@ function AccessGate({ dark, vendorName, vendeursList, onUnlock }) {
       <div className={`w-full max-w-sm rounded-2xl border p-6 text-center shadow-sm ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
         <div className="mb-4 flex justify-center">
           <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
-            {step === "code" ? <Lock size={20} /> : <User size={20} />}
+            <Lock size={20} />
           </span>
         </div>
         <div className={`font-display text-lg font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>
-            Parc<span className={dark ? "text-amber-400" : "text-amber-600"}>Live</span>
+          Parc<span className={dark ? "text-amber-400" : "text-amber-600"}>Live</span>
         </div>
-        {step === "code" ? (
-          <>
-            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Accès réservé à l'équipe — entrez le code pour continuer.</p>
-            <input
-              type="password"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitCode()}
-              placeholder="Code d'accès"
-              autoFocus
-              className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
-                error
-                  ? "border-rose-500 focus:ring-rose-500/30"
-                  : dark
-                  ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30"
-                  : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
-              }`}
-            />
-            {error && <div className="mt-2 text-xs font-semibold text-rose-500">Code incorrect, réessayez.</div>}
-            <button onClick={submitCode} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
-              {checking ? "Vérification…" : "Continuer"}
-            </button>
-          </>
-        ) : (
-          <>
-            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Dernière étape — quel est votre nom ? Il sera associé à vos réservations.</p>
-            {vendeursList.length > 0 ? (
-              <select
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-                className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
-                  dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
-                }`}
-              >
-                <option value="">— Choisissez votre nom —</option>
-                {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
-                  <option key={v.nom} value={v.nom}>{v.nom}{v.site ? ` — ${v.site}` : ""}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitName()}
-                placeholder="Nom du vendeur"
-                autoFocus
-                className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
-                  dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
-                }`}
-              />
-            )}
-            <button onClick={submitName} disabled={!name.trim()} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
-              Entrer dans l'application
-            </button>
-          </>
-        )}
+        <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Connectez-vous avec votre adresse professionnelle.</p>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="prenom.nom@groupe-legrand.fr"
+          autoFocus
+          autoCapitalize="off"
+          className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
+            dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
+          }`}
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Mot de passe"
+          className={`mt-2 w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
+            error
+              ? "border-rose-500 focus:ring-rose-500/30"
+              : dark
+              ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30"
+              : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
+          }`}
+        />
+        {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
+        <button onClick={submit} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+          {checking ? "Connexion…" : "Se connecter"}
+        </button>
       </div>
     </div>
   );
@@ -2890,8 +2892,8 @@ export default function App() {
   const [dark, setDark] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [dbStatus, setDbStatus] = useState("checking");
-  const [vendorName, setVendorName] = useState("");
-  const [showVendorPrompt, setShowVendorPrompt] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [ordersData, setOrdersData] = useState([]);
@@ -3001,11 +3003,11 @@ export default function App() {
       const t = await sGet(STORE_KEYS.theme, false);
       if (t) setDark(t === "dark");
       sGet(STORE_KEYS.vendeurs, true).then((v) => v && setVendeursList(JSON.parse(v).map(normalizeVendeur)));
-      const acc = await sGet(STORE_KEYS.access, false);
-      if (acc === "true") {
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email) {
+        setAuthEmail(session.user.email);
         setUnlocked(true);
-        const vn = await sGet(STORE_KEYS.vendor, false);
-        if (vn) setVendorName(vn);
 
         const [o, s, ov, meta] = await Promise.all([
           sGet(STORE_KEYS.orders, true),
@@ -3041,6 +3043,17 @@ export default function App() {
         setLoading(false);
       }
     })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        setUnlocked(false);
+        setAuthEmail("");
+      } else if (session?.user?.email) {
+        setAuthEmail(session.user.email);
+        setUnlocked(true);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
   }, [refreshAll]);
 
   useEffect(() => {
@@ -3060,14 +3073,10 @@ export default function App() {
     })();
   }, []);
 
-  async function handleUnlock(name) {
-    setUnlocked(true);
-    await sSet(STORE_KEYS.access, "true", false);
-    if (name) {
-      setVendorName(name);
-      await sSet(STORE_KEYS.vendor, name, false);
-    }
-    await refreshAll(false);
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setUnlocked(false);
+    setAuthEmail("");
   }
 
   useEffect(() => { sSet(STORE_KEYS.theme, dark ? "dark" : "light", false); }, [dark]);
@@ -3077,12 +3086,6 @@ export default function App() {
     const id = setTimeout(() => setResetConfirm(false), 4000);
     return () => clearTimeout(id);
   }, [resetConfirm]);
-
-  async function handleSetVendor(name) {
-    setVendorName(name);
-    setShowVendorPrompt(false);
-    await sSet(STORE_KEYS.vendor, name, false);
-  }
 
   async function handleImport({ ordersRows, stockRows, ordersFileName, stockFileName }) {
     const orders = ordersRows.map(toOrderRecord).filter((o) => o.orderNumber);
@@ -3198,6 +3201,16 @@ export default function App() {
     const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
     const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
     const next = fresh.map((v) => (v.nom === name ? { ...v, site } : v));
+    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+    setVendeursList(next);
+    localWriteVersionRef.current++;
+    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleUpdateVendeurEmail(name, email) {
+    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
+    const next = fresh.map((v) => (v.nom === name ? { ...v, email: email.trim().toLowerCase() } : v));
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
     localWriteVersionRef.current++;
@@ -3506,6 +3519,13 @@ export default function App() {
   }, [vehicles, filters, sortBy]);
 
   const totalAlerts = useMemo(() => vehicles.reduce((n, v) => n + v.alerts.length, 0), [vehicles]);
+  const vendorName = useMemo(() => {
+    const e = (authEmail || "").toLowerCase();
+    if (!e) return "";
+    if (e.includes("steven.beaumont")) return "BEAUMONT Steven";
+    const match = vendeursList.find((v) => (v.email || "").toLowerCase() === e);
+    return match ? match.nom : "";
+  }, [authEmail, vendeursList]);
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
 
   const mySiteScope = useMemo(() => {
@@ -3586,14 +3606,32 @@ export default function App() {
         ))}
       </datalist>
       {!unlocked ? (
-        <AccessGate dark={dark} vendorName={vendorName} vendeursList={vendeursList} onUnlock={handleUnlock} />
+        <LoginScreen dark={dark} onLogin={() => {}} />
+      ) : !vendorName ? (
+        <div className="flex min-h-[520px] items-center justify-center p-6">
+          <div className={`w-full max-w-sm rounded-2xl border p-6 text-center shadow-sm ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+            <div className="mb-4 flex justify-center">
+              <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-rose-500/10 text-rose-400 ring-rose-500/20" : "bg-rose-50 text-rose-700 ring-rose-200"}`}>
+                <User size={20} />
+              </span>
+            </div>
+            <div className={`font-display text-lg font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>Compte non relié</div>
+            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+              Votre compte ({authEmail}) n'est relié à aucun profil vendeur. Demandez à un administrateur de renseigner votre email dans l'onglet Vendeurs.
+            </p>
+            <button onClick={handleLogout} className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+              Se déconnecter
+            </button>
+          </div>
+        </div>
       ) : (
         <>
       <TopBar
         dark={dark}
         setDark={setDark}
         vendorName={vendorName}
-        onOpenVendor={() => setShowVendorPrompt(true)}
+        onOpenPasswordModal={() => setShowPasswordModal(true)}
+        onLogout={handleLogout}
         onImport={() => setImportOpen(true)}
         onRefresh={() => refreshAll(true)}
         lastSync={lastSync}
@@ -3770,7 +3808,7 @@ export default function App() {
           />
         </Modal>
       )}
-      {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} vendeursList={vendeursList} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
+      {showPasswordModal && <PasswordChangeModal dark={dark} onClose={() => setShowPasswordModal(false)} showToast={showToast} />}
       {settingsOpen && (
         <Modal dark={dark} title="Réglages" onClose={() => setSettingsOpen(false)} size="xl">
           <SettingsPanel
@@ -3787,6 +3825,7 @@ export default function App() {
             onUpdateRole={handleUpdateVendeurRole}
             onUpdatePermission={handleUpdateVendeurPermission}
             onRename={handleRenameVendeur}
+            onUpdateEmail={handleUpdateVendeurEmail}
             onUpdateSites={handleUpdateSites}
             onUpdateAlertSettings={handleUpdateAlertSettings}
             onExportBackup={() => exportFullBackup(vehicles, dossiers, vendeursList)}
