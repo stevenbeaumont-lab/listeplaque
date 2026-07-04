@@ -2786,10 +2786,12 @@ function Toast({ dark, toast, onDismiss }) {
 }
 
 function LoginScreen({ dark, onLogin }) {
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   async function submit() {
     if (!email.trim() || !password || checking) return;
@@ -2800,6 +2802,19 @@ function LoginScreen({ dark, onLogin }) {
     if (err) setError("Email ou mot de passe incorrect.");
     else onLogin();
   }
+
+  async function submitReset() {
+    if (!email.trim() || checking) return;
+    setChecking(true);
+    setError("");
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo });
+    setChecking(false);
+    if (err) setError("Échec de l'envoi — vérifiez l'adresse email.");
+    else setResetSent(true);
+  }
+
+  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
 
   return (
     <div className="flex min-h-[520px] items-center justify-center p-6">
@@ -2812,36 +2827,112 @@ function LoginScreen({ dark, onLogin }) {
         <div className={`font-display text-lg font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>
           Parc<span className={dark ? "text-amber-400" : "text-amber-600"}>Live</span>
         </div>
-        <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Connectez-vous avec votre adresse professionnelle.</p>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="prenom.nom@groupe-legrand.fr"
-          autoFocus
-          autoCapitalize="off"
-          className={`w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
-            dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
-          }`}
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Mot de passe"
-          className={`mt-2 w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${
-            error
-              ? "border-rose-500 focus:ring-rose-500/30"
-              : dark
-              ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30"
-              : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"
-          }`}
-        />
+        {mode === "login" ? (
+          <>
+            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Connectez-vous avec votre adresse professionnelle.</p>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              placeholder="prenom.nom@groupe-legrand.fr"
+              autoFocus
+              autoCapitalize="off"
+              className={inputCls}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              placeholder="Mot de passe"
+              className={`mt-2 ${inputCls} ${error ? "border-rose-500 focus:ring-rose-500/30" : ""}`}
+            />
+            {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
+            <button onClick={submit} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+              {checking ? "Connexion…" : "Se connecter"}
+            </button>
+            <button
+              onClick={() => { setMode("reset"); setError(""); setResetSent(false); }}
+              className={`mt-3 text-xs underline-offset-2 hover:underline ${dark ? "text-zinc-500" : "text-stone-400"}`}
+            >
+              Mot de passe oublié ?
+            </button>
+          </>
+        ) : (
+          <>
+            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+              Saisissez votre email, nous vous envoyons un lien pour réinitialiser votre mot de passe.
+            </p>
+            {resetSent ? (
+              <div className={`rounded-lg border px-3 py-3 text-sm ${dark ? "border-emerald-800 bg-emerald-500/10 text-emerald-300" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                Email envoyé — vérifiez votre boîte de réception (et vos spams).
+              </div>
+            ) : (
+              <>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitReset()}
+                  placeholder="prenom.nom@groupe-legrand.fr"
+                  autoFocus
+                  autoCapitalize="off"
+                  className={inputCls}
+                />
+                {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
+                <button onClick={submitReset} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+                  {checking ? "Envoi…" : "Envoyer le lien"}
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => { setMode("login"); setError(""); }}
+              className={`mt-3 text-xs underline-offset-2 hover:underline ${dark ? "text-zinc-500" : "text-stone-400"}`}
+            >
+              Retour à la connexion
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SetNewPasswordScreen({ dark, onDone }) {
+  const [pw1, setPw1] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (pw1.length < 6) { setError("6 caractères minimum."); return; }
+    if (pw1 !== pw2) { setError("Les deux mots de passe ne correspondent pas."); return; }
+    setBusy(true);
+    setError("");
+    const { error: err } = await supabase.auth.updateUser({ password: pw1 });
+    setBusy(false);
+    if (err) setError("Échec de la mise à jour — réessayez ou redemandez un lien.");
+    else onDone();
+  }
+
+  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  return (
+    <div className="flex min-h-[520px] items-center justify-center p-6">
+      <div className={`w-full max-w-sm rounded-2xl border p-6 text-center shadow-sm ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <div className="mb-4 flex justify-center">
+          <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+            <Lock size={20} />
+          </span>
+        </div>
+        <div className={`font-display text-lg font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>Nouveau mot de passe</div>
+        <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Choisissez votre nouveau mot de passe.</p>
+        <input type="password" autoFocus className={inputCls} placeholder="Nouveau mot de passe" value={pw1} onChange={(e) => setPw1(e.target.value)} />
+        <input type="password" className={`mt-2 ${inputCls}`} placeholder="Confirmer" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
-        <button onClick={submit} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
-          {checking ? "Connexion…" : "Se connecter"}
+        <button onClick={submit} disabled={busy} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+          {busy ? "Mise à jour…" : "Valider"}
         </button>
       </div>
     </div>
@@ -2901,6 +2992,7 @@ export default function App() {
   const [unlocked, setUnlocked] = useState(false);
   const [dbStatus, setDbStatus] = useState("checking");
   const [authEmail, setAuthEmail] = useState("");
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -3053,7 +3145,9 @@ export default function App() {
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_OUT") {
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecovery(true);
+      } else if (event === "SIGNED_OUT") {
         setUnlocked(false);
         setAuthEmail("");
       } else if (session?.user?.email) {
@@ -3636,7 +3730,9 @@ export default function App() {
           <option key={v.nom} value={v.nom} />
         ))}
       </datalist>
-      {!unlocked ? (
+      {passwordRecovery ? (
+        <SetNewPasswordScreen dark={dark} onDone={() => { setPasswordRecovery(false); showToast("Mot de passe mis à jour"); }} />
+      ) : !unlocked ? (
         <LoginScreen dark={dark} onLogin={() => {}} />
       ) : !vendorName ? (
         <div className="flex min-h-[520px] items-center justify-center p-6">
