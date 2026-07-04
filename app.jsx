@@ -1723,7 +1723,7 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
   );
 }
 
-function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle }) {
+function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, simpleMode }) {
   const [query, setQuery] = useState("");
   const [contremarqueFilter, setContremarqueFilter] = useState("all");
   const [concessionFilter, setConcessionFilter] = useState("all");
@@ -1775,6 +1775,8 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle }
           <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Commande, VIN, modèle, type de vente…" className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`} />
         </div>
+        {!simpleMode && (
+          <>
         <div className="flex items-center gap-1.5">
           <button onClick={() => setContremarqueFilter("all")} className={chipCls(contremarqueFilter === "all")}>Tous</button>
           <button onClick={() => setContremarqueFilter("oui")} className={chipCls(contremarqueFilter === "oui")}>Contremarqué</button>
@@ -1798,6 +1800,8 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle }
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
+          </>
+        )}
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <LogisticsGroup
@@ -3701,7 +3705,7 @@ export default function App() {
             <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
-            <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} />
+            <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
