@@ -608,8 +608,6 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
     { id: "logistique", label: "Logistique" },
     { id: "dashboard", label: "Tableau de bord" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
-    permissions.vendeurs && { id: "vendeurs", label: "Vendeurs" },
-    permissions.vendeurs && { id: "permissions", label: "Permissions" },
     permissions.accidentes && { id: "accidentes", label: "Accidentés" },
   ].filter(Boolean);
   return (
@@ -645,8 +643,6 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
     { id: "logistique", label: "Logistique" },
     { id: "dashboard", label: "Tableau de bord" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
-    permissions.vendeurs && { id: "vendeurs", label: "Vendeurs" },
-    permissions.vendeurs && { id: "permissions", label: "Permissions" },
     permissions.accidentes && { id: "accidentes", label: "Accidentés" },
   ].filter(Boolean);
   return (
@@ -675,7 +671,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport, vendeursList, canManage, settingsOpen, setSettingsOpen, onGoToPermissions }) {
+function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport, canManage, onOpenSettings }) {
   const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
   return (
     <div className={`sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-t-2xl border-b px-4 py-3 md:px-6 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -730,48 +726,9 @@ function TopBar({ dark, setDark, vendorName, onOpenVendor, onImport, onRefresh, 
         )}
       </div>
       {canManage && (
-        <div className="relative">
-          <button onClick={() => setSettingsOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Personnes et attributions">
-            <Settings size={16} />
-          </button>
-          {settingsOpen && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={() => setSettingsOpen(false)} />
-              <div className={`absolute right-0 z-40 mt-1 w-80 rounded-xl border p-3 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
-                <div className={`mb-2 flex items-center justify-between text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-                  <span>Personnes & attributions</span>
-                  <span className={dark ? "text-zinc-600" : "text-stone-400"}>{vendeursList.length}</span>
-                </div>
-                {vendeursList.length === 0 ? (
-                  <div className={`py-4 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucun vendeur enregistré.</div>
-                ) : (
-                  <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-                    {[...vendeursList].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => {
-                      const custom = Object.keys(v.permOverrides || {}).length > 0;
-                      const superAdmin = isSuperAdmin(v.nom);
-                      return (
-                        <li key={v.nom} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${dark ? "hover:bg-zinc-800/70" : "hover:bg-stone-100"}`}>
-                          <span className={`min-w-0 flex-1 truncate font-medium ${dark ? "text-zinc-200" : "text-stone-800"}`}>{v.nom}</span>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
-                            {superAdmin ? "Accès complet" : v.role || "Vendeur"}
-                          </span>
-                          {v.site && <span className={`shrink-0 truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.site}</span>}
-                          {custom && !superAdmin && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} title="Permissions personnalisées" />}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-                <button
-                  onClick={onGoToPermissions}
-                  className={`mt-2 w-full rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${dark ? "bg-zinc-800 text-zinc-200 hover:bg-zinc-700" : "bg-stone-100 text-stone-700 hover:bg-stone-200"}`}
-                >
-                  Gérer les rôles et permissions
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        <button onClick={onOpenSettings} className={`w-9 ${btnCls}`} title="Vendeurs, sites, rôles & permissions">
+          <Settings size={16} />
+        </button>
       )}
       <button onClick={() => setDark(!dark)} className={`w-9 ${btnCls}`} title={dark ? "Mode clair" : "Mode sombre"}>
         {dark ? <Sun size={16} /> : <Moon size={16} />}
@@ -1242,7 +1199,7 @@ function VendeurPerformanceTable({ dark, vehicles, vendeursList, dossiers }) {
   if (rows.length === 0) {
     return (
       <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-        Aucun vendeur enregistré — ajoutez-en dans l'onglet Vendeurs.
+        Aucun vendeur enregistré — ajoutez-en depuis l'icône réglages en haut.
       </div>
     );
   }
@@ -1636,11 +1593,11 @@ function AlertsDrawer({ dark, vehicles, onClose, onSelect }) {
   );
 }
 
-function Modal({ dark, title, onClose, children }) {
+function Modal({ dark, title, onClose, children, size }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative w-full max-w-md rounded-2xl border p-5 ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <div className={`relative max-h-[85vh] w-full overflow-y-auto rounded-2xl border p-5 ${size === "xl" ? "max-w-3xl" : "max-w-md"} ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
         <div className="mb-4 flex items-center justify-between">
           <div className={`text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{title}</div>
           {onClose && (
@@ -2228,91 +2185,7 @@ const PERMISSION_LABELS = {
   reset: "Réinitialiser toutes les données",
 };
 
-function PermissionRow({ dark, v, onUpdateRole, onUpdatePermission }) {
-  const [open, setOpen] = useState(false);
-  const role = v.role || "Vendeur";
-  const overrides = v.permOverrides || {};
-  const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
-  const hasOverrides = Object.keys(overrides).length > 0;
-  const superAdmin = isSuperAdmin(v.nom);
-  const selectCls = `h-9 rounded-lg border px-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
-
-  return (
-    <li className={`${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-        <span className={`min-w-[140px] flex-1 truncate font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v.nom}</span>
-        {superAdmin ? (
-          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Accès complet permanent</span>
-        ) : (
-          <>
-            <select value={role} onChange={(e) => onUpdateRole(v.nom, e.target.value)} className={selectCls}>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-            <button
-              onClick={() => setOpen((o) => !o)}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
-            >
-              {hasOverrides && <span className={`h-1.5 w-1.5 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} />}
-              Personnaliser
-              <ChevronRight size={13} className={`transition-transform ${open ? "rotate-90" : ""}`} />
-            </button>
-          </>
-        )}
-      </div>
-      {open && !superAdmin && (
-        <div className={`grid gap-2 border-t px-4 py-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
-          {PERMISSION_KEYS.map((key) => (
-            <div key={key} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={!!effective[key]}
-                onChange={(e) => onUpdatePermission(v.nom, key, e.target.checked)}
-                className="accent-amber-500"
-              />
-              <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{PERMISSION_LABELS[key]}</span>
-              {overrides[key] !== undefined && (
-                <button onClick={() => onUpdatePermission(v.nom, key, null)} className={`text-xs underline-offset-2 hover:underline ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-                  défaut
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </li>
-  );
-}
-
-function PermissionsManager({ dark, vendeurs, onUpdateRole, onUpdatePermission }) {
-  return (
-    <div className="space-y-4">
-      <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-        <Lock size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
-        Permissions par personne
-      </div>
-      <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-        Chaque rôle a des permissions par défaut. Cliquez "Personnaliser" pour ajuster individuellement une personne — l'ajustement prend le pas sur son rôle.
-      </p>
-      {vendeurs.length === 0 ? (
-        <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-          Aucun vendeur enregistré — ajoutez-en dans l'onglet Vendeurs.
-        </div>
-      ) : (
-        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-          <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
-            {[...vendeurs].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
-              <PermissionRow key={v.nom} dark={dark} v={v} onUpdateRole={onUpdateRole} onUpdatePermission={onUpdatePermission} />
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, onUpdateSite }) {
+function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission }) {
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
   const [siteFilter, setSiteFilter] = useState("all");
@@ -2424,31 +2297,86 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
             {[...filtered].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
-              <li key={v.nom} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
-                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
-                  <User size={14} />
-                </span>
-                <span className={`flex-1 font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v.nom}</span>
-                <select
-                  value={v.site || ""}
-                  onChange={(e) => onUpdateSite(v.nom, e.target.value)}
-                  className={`h-8 rounded-lg border px-2 text-xs outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`}
-                >
-                  <option value="">Site non défini</option>
-                  {FORD_SITES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <span className={`text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage[v.nom] || 0} dossier{(usage[v.nom] || 0) > 1 ? "s" : ""}</span>
-                <button onClick={() => onRemove(v.nom)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
-                  <Trash2 size={15} />
-                </button>
-              </li>
+              <VendeurManageRow
+                key={v.nom}
+                dark={dark}
+                v={v}
+                usage={usage[v.nom] || 0}
+                onUpdateSite={onUpdateSite}
+                onUpdateRole={onUpdateRole}
+                onUpdatePermission={onUpdatePermission}
+                onRemove={onRemove}
+              />
             ))}
           </ul>
         </div>
       )}
     </div>
+  );
+}
+
+function VendeurManageRow({ dark, v, usage, onUpdateSite, onUpdateRole, onUpdatePermission, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const role = v.role || "Vendeur";
+  const overrides = v.permOverrides || {};
+  const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
+  const hasOverrides = Object.keys(overrides).length > 0;
+  const superAdmin = isSuperAdmin(v.nom);
+  const selectCls = `h-8 rounded-lg border px-2 text-xs outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`;
+
+  return (
+    <li className={dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+          <User size={14} />
+        </span>
+        <span className={`min-w-[120px] flex-1 truncate font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v.nom}</span>
+        <select value={v.site || ""} onChange={(e) => onUpdateSite(v.nom, e.target.value)} className={selectCls}>
+          <option value="">Site non défini</option>
+          {FORD_SITES.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        {superAdmin ? (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Accès complet permanent</span>
+        ) : (
+          <>
+            <select value={role} onChange={(e) => onUpdateRole(v.nom, e.target.value)} className={selectCls}>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setOpen((o) => !o)}
+              className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+            >
+              {hasOverrides && <span className={`h-1.5 w-1.5 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} />}
+              Personnaliser
+              <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+            </button>
+          </>
+        )}
+        <span className={`text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage} dossier{usage > 1 ? "s" : ""}</span>
+        <button onClick={() => onRemove(v.nom)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+          <Trash2 size={15} />
+        </button>
+      </div>
+      {open && !superAdmin && (
+        <div className={`grid gap-2 border-t px-4 py-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
+          {PERMISSION_KEYS.map((key) => (
+            <div key={key} className="flex items-center gap-2">
+              <input type="checkbox" checked={!!effective[key]} onChange={(e) => onUpdatePermission(v.nom, key, e.target.checked)} className="accent-amber-500" />
+              <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{PERMISSION_LABELS[key]}</span>
+              {overrides[key] !== undefined && (
+                <button onClick={() => onUpdatePermission(v.nom, key, null)} className={`text-xs underline-offset-2 hover:underline ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                  défaut
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -3252,7 +3180,8 @@ export default function App() {
 
   const dashboardStats = useMemo(() => computeStats(visibleVehicles), [visibleVehicles]);
   useEffect(() => {
-    const gated = { dossiers: permissions.dossiers, vendeurs: permissions.vendeurs, permissions: permissions.vendeurs, accidentes: permissions.accidentes };
+    if (tab === "vendeurs" || tab === "permissions") { setTab("vehicules"); return; }
+    const gated = { dossiers: permissions.dossiers, accidentes: permissions.accidentes };
     if (tab in gated && !gated[tab]) setTab("vehicules");
   }, [tab, permissions]);
 
@@ -3322,11 +3251,8 @@ export default function App() {
         legendOpen={legendOpen}
         setLegendOpen={setLegendOpen}
         canImport={permissions.import}
-        vendeursList={vendeursList}
         canManage={permissions.vendeurs}
-        settingsOpen={settingsOpen}
-        setSettingsOpen={setSettingsOpen}
-        onGoToPermissions={() => { setTab("permissions"); setSettingsOpen(false); }}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
@@ -3437,10 +3363,6 @@ export default function App() {
               </div>
               <ManualSalesSection dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
             </div>
-          ) : tab === "vendeurs" ? (
-            <VendeursManager dark={dark} vendeurs={vendeursList} vehicles={vehicles} dossiers={dossiers} onAdd={handleAddVendeur} onRemove={handleRemoveVendeur} onUpdateSite={handleUpdateVendeurSite} />
-          ) : tab === "permissions" ? (
-            <PermissionsManager dark={dark} vendeurs={vendeursList} onUpdateRole={handleUpdateVendeurRole} onUpdatePermission={handleUpdateVendeurPermission} />
           ) : (
             <>
               <FilterBar
@@ -3497,6 +3419,21 @@ export default function App() {
         </Modal>
       )}
       {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} vendeursList={vendeursList} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
+      {settingsOpen && (
+        <Modal dark={dark} title="Vendeurs, sites, rôles & permissions" onClose={() => setSettingsOpen(false)} size="xl">
+          <VendeursManager
+            dark={dark}
+            vendeurs={vendeursList}
+            vehicles={vehicles}
+            dossiers={dossiers}
+            onAdd={handleAddVendeur}
+            onRemove={handleRemoveVendeur}
+            onUpdateSite={handleUpdateVendeurSite}
+            onUpdateRole={handleUpdateVendeurRole}
+            onUpdatePermission={handleUpdateVendeurPermission}
+          />
+        </Modal>
+      )}
         </>
       )}
       <Toast dark={dark} toast={toast} onDismiss={() => setToast(null)} />
