@@ -38,6 +38,9 @@ const STORE_KEYS = {
   dossiersMeta: "dsr:dossiers-meta",
   vendeurs: "dsr:vendeurs-list",
   manualSales: "dsr:manual-sales",
+  sites: "dsr:sites-list",
+  alertSettings: "dsr:alert-settings",
+  activityLog: "dsr:activity-log",
 };
 const ACCESS_CODE_KEY = "dsr:access-code-hash";
 
@@ -363,6 +366,54 @@ function exportDossiersToExcel(dossiers) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-dossiers-${stamp}.xlsx`);
 }
+function exportFullBackup(vehicles, dossiers, vendeursList) {
+  const wb = XLSX.utils.book_new();
+
+  const vRows = vehicles.map((v) => ({
+    "N° commande": v.orderNumber,
+    "Véhicule": displayModel(v),
+    "VIN": v.vin || "",
+    "Concession": v.concession || "",
+    "Statut": STATUS_META[v.baseStatus]?.label || v.baseStatus,
+    "Réservé par": activeReservationVendeur(v),
+    "Vendu par": v.venduPar || "",
+    "Client": v.clientLabel || v.reservation?.client || "",
+    "Type de vente": v.typeVente || "",
+  }));
+  if (vRows.length > 0) {
+    const wsV = XLSX.utils.json_to_sheet(vRows);
+    wsV["!cols"] = Object.keys(vRows[0]).map((k) => ({ wch: Math.max(k.length, 14) }));
+    XLSX.utils.book_append_sheet(wb, wsV, "Véhicules");
+  }
+
+  const dRows = dossiers.map((d) => ({
+    "N° usine": d.numeroUsine || "",
+    "Vendeur": d.vendeur || "",
+    "Client": d.societe || [d.prenom, d.nom].filter(Boolean).join(" ") || "",
+    "Modèle": d.vehicle ? displayModelBase(d.vehicle) : d.modele || "",
+    "Localisation": d.localisation || "",
+    "Statut livraison": d.statutLivraison || "",
+  }));
+  if (dRows.length > 0) {
+    const wsD = XLSX.utils.json_to_sheet(dRows);
+    wsD["!cols"] = Object.keys(dRows[0]).map((k) => ({ wch: Math.max(k.length, 14) }));
+    XLSX.utils.book_append_sheet(wb, wsD, "Dossiers");
+  }
+
+  const vdRows = vendeursList.map((v) => ({
+    "Nom": v.nom,
+    "Site": v.site || "",
+    "Rôle": v.role || "Vendeur",
+  }));
+  if (vdRows.length > 0) {
+    const wsVd = XLSX.utils.json_to_sheet(vdRows);
+    wsVd["!cols"] = Object.keys(vdRows[0]).map((k) => ({ wch: Math.max(k.length, 14) }));
+    XLSX.utils.book_append_sheet(wb, wsVd, "Vendeurs");
+  }
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `parclive-sauvegarde-complete-${stamp}.xlsx`);
+}
 const ROLES = ["Directeur de plaque", "Chef des ventes", "Responsable de site", "Vendeur", "Secrétariat"];
 const PERMISSION_KEYS = ["reserve", "reserveForOthers", "import", "dossiers", "accidentes", "vendeurs", "reset"];
 const ROLE_PERMISSIONS = {
@@ -427,7 +478,8 @@ function clientLine(v) {
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
-function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale) {
+const DEFAULT_ALERT_SETTINGS = { arriveeRecente: 3, resaExpireBientot: 2, resaLongue: 21 };
+function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, alertSettings) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
   const inStock = !!stock;
@@ -463,8 +515,9 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale) 
 
   const estRange = parseDeliveryRange(order.deliveryEstimate);
   const today = new Date();
+  const AS = alertSettings || DEFAULT_ALERT_SETTINGS;
   const alerts = [];
-  if (inStock && stock.joursStock <= 3) alerts.push({ type: "arrivee", label: "Arrivée récente" });
+  if (inStock && stock.joursStock <= AS.arriveeRecente) alerts.push({ type: "arrivee", label: "Arrivée récente" });
   if (!inStock && !deliveredToClient && estRange?.end && estRange.end < today)
     alerts.push({ type: "retard", label: "Délai de livraison dépassé" });
   if (activeReservation && reservation.dateFin) {
@@ -472,14 +525,14 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale) 
     if (!isNaN(fin)) {
       const diffDays = (fin - today) / 86400000;
       if (diffDays < 0) alerts.push({ type: "resa_expiree", label: "Réservation expirée" });
-      else if (diffDays <= 2) alerts.push({ type: "resa_bientot", label: "Réservation expire bientôt" });
+      else if (diffDays <= AS.resaExpireBientot) alerts.push({ type: "resa_bientot", label: "Réservation expire bientôt" });
     }
   }
   if (activeReservation && reservation.dateDebut) {
     const debut = new Date(reservation.dateDebut);
     if (!isNaN(debut)) {
       const diffDays = (today - debut) / 86400000;
-      if (diffDays > 21) alerts.push({ type: "resa_longue", label: "Réservé depuis longtemps" });
+      if (diffDays > AS.resaLongue) alerts.push({ type: "resa_longue", label: "Réservé depuis longtemps" });
     }
   }
 
@@ -1662,7 +1715,7 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
   );
 }
 
-function LogisticsTab({ dark, vehicles, vendeursList, onOpenVehicle }) {
+function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle }) {
   const [query, setQuery] = useState("");
   const [contremarqueFilter, setContremarqueFilter] = useState("all");
   const [concessionFilter, setConcessionFilter] = useState("all");
@@ -1733,7 +1786,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, onOpenVehicle }) {
         </select>
         <select value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)} className={inputCls}>
           <option value="all">Tous sites</option>
-          {FORD_SITES.map((s) => (
+          {sitesList.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
@@ -2185,7 +2238,7 @@ const PERMISSION_LABELS = {
   reset: "Réinitialiser toutes les données",
 };
 
-function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission }) {
+function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename }) {
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
   const [siteFilter, setSiteFilter] = useState("all");
@@ -2240,7 +2293,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
         />
         <select value={site} onChange={(e) => setSite(e.target.value)} className={inputCls}>
           <option value="">— Site (optionnel) —</option>
-          {FORD_SITES.map((s) => (
+          {sitesList.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
@@ -2265,7 +2318,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
           <div className="flex flex-wrap items-center gap-2">
             <select value={bulkSite} onChange={(e) => setBulkSite(e.target.value)} className={inputCls}>
               <option value="">— Site pour tous (optionnel) —</option>
-              {FORD_SITES.map((s) => (
+              {sitesList.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -2281,7 +2334,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
           <button onClick={() => setSiteFilter("all")} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === "all" ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
             Tous les sites
           </button>
-          {FORD_SITES.map((s) => (
+          {sitesList.map((s) => (
             <button key={s} onClick={() => setSiteFilter(s)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === s ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
               {s}
             </button>
@@ -2302,10 +2355,12 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
                 dark={dark}
                 v={v}
                 usage={usage[v.nom] || 0}
+                sitesList={sitesList}
                 onUpdateSite={onUpdateSite}
                 onUpdateRole={onUpdateRole}
                 onUpdatePermission={onUpdatePermission}
                 onRemove={onRemove}
+                onRename={onRename}
               />
             ))}
           </ul>
@@ -2315,8 +2370,10 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, onAdd, onRemove, 
   );
 }
 
-function VendeurManageRow({ dark, v, usage, onUpdateSite, onUpdateRole, onUpdatePermission, onRemove }) {
+function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRole, onUpdatePermission, onRemove, onRename }) {
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState(v.nom);
   const role = v.role || "Vendeur";
   const overrides = v.permOverrides || {};
   const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
@@ -2324,16 +2381,34 @@ function VendeurManageRow({ dark, v, usage, onUpdateSite, onUpdateRole, onUpdate
   const superAdmin = isSuperAdmin(v.nom);
   const selectCls = `h-8 rounded-lg border px-2 text-xs outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`;
 
+  function confirmRename() {
+    if (newName.trim() && newName.trim() !== v.nom) onRename(v.nom, newName.trim());
+    setRenaming(false);
+  }
+
   return (
     <li className={dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}>
       <div className="flex flex-wrap items-center gap-2 px-4 py-3">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
           <User size={14} />
         </span>
-        <span className={`min-w-[120px] flex-1 truncate font-medium ${dark ? "text-zinc-100" : "text-stone-900"}`}>{v.nom}</span>
+        {renaming ? (
+          <input
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); if (e.key === "Escape") setRenaming(false); }}
+            onBlur={confirmRename}
+            className={`h-8 min-w-[120px] flex-1 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          />
+        ) : (
+          <button onClick={() => { setNewName(v.nom); setRenaming(true); }} className={`min-w-[120px] flex-1 truncate text-left font-medium hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
+            {v.nom}
+          </button>
+        )}
         <select value={v.site || ""} onChange={(e) => onUpdateSite(v.nom, e.target.value)} className={selectCls}>
           <option value="">Site non défini</option>
-          {FORD_SITES.map((s) => (
+          {sitesList.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
@@ -2377,6 +2452,187 @@ function VendeurManageRow({ dark, v, usage, onUpdateSite, onUpdateRole, onUpdate
         </div>
       )}
     </li>
+  );
+}
+
+function SitesManager({ dark, sitesList, onUpdate }) {
+  const [name, setName] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editValue, setEditValue] = useState("");
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  function add() {
+    const clean = name.trim();
+    if (!clean || sitesList.includes(clean)) return;
+    onUpdate([...sitesList, clean]);
+    setName("");
+  }
+  function remove(s) {
+    onUpdate(sitesList.filter((x) => x !== s));
+  }
+  function confirmEdit() {
+    const clean = editValue.trim();
+    if (clean && clean !== editing) {
+      onUpdate(sitesList.map((s) => (s === editing ? clean : s)));
+    }
+    setEditing(null);
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        Ces sites sont proposés partout où un site est attribué à un vendeur (filtres, listes déroulantes).
+      </p>
+      <div className={`flex items-center gap-2 rounded-2xl border p-3.5 shadow-sm ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="Nom du site (ex. Ford Argentan)"
+          className={`${inputCls} min-w-[220px] flex-1`}
+        />
+        <button onClick={add} disabled={!name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+          <Plus size={15} /> Ajouter
+        </button>
+      </div>
+      <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+        <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+          {sitesList.map((s) => (
+            <li key={s} className={`flex items-center gap-2 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+              {editing === s ? (
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditing(null); }}
+                  onBlur={confirmEdit}
+                  className={`h-8 flex-1 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+                />
+              ) : (
+                <button onClick={() => { setEditing(s); setEditValue(s); }} className={`flex-1 truncate text-left text-sm font-medium hover:underline ${dark ? "text-zinc-200" : "text-stone-800"}`}>
+                  {s}
+                </button>
+              )}
+              <button onClick={() => remove(s)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+                <Trash2 size={15} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function AlertSettingsPanel({ dark, alertSettings, onUpdate }) {
+  const [values, setValues] = useState(alertSettings);
+  const inputCls = `h-9 w-20 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const rows = [
+    { key: "arriveeRecente", label: "Arrivée récente (véhicule en stock depuis moins de X jours)" },
+    { key: "resaExpireBientot", label: "Réservation qui expire bientôt (dans moins de X jours)" },
+    { key: "resaLongue", label: "Réservé depuis longtemps (plus de X jours)" },
+  ];
+  return (
+    <div className="space-y-4">
+      <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Ajustez les seuils qui déclenchent les alertes dans l'application.</p>
+      <div className={`space-y-3 rounded-2xl border p-4 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
+        {rows.map((r) => (
+          <div key={r.key} className="flex items-center gap-3">
+            <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{r.label}</span>
+            <input
+              type="number"
+              min={0}
+              value={values[r.key]}
+              onChange={(e) => setValues((v) => ({ ...v, [r.key]: Number(e.target.value) }))}
+              className={inputCls}
+            />
+          </div>
+        ))}
+      </div>
+      <button onClick={() => onUpdate(values)} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+        Enregistrer les seuils
+      </button>
+    </div>
+  );
+}
+
+function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Sauvegarde</div>
+        <button onClick={onExportBackup} className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
+          <Download size={15} /> Exporter une sauvegarde complète (Excel)
+        </button>
+      </div>
+      <div>
+        <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Journal d'activité récente</div>
+        {activityLog.length === 0 ? (
+          <div className={`rounded-2xl border p-6 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+            Aucune action enregistrée pour l'instant.
+          </div>
+        ) : (
+          <ul className={`max-h-72 space-y-1.5 overflow-y-auto rounded-2xl border p-2 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+            {activityLog.map((entry, i) => (
+              <li key={i} className={`flex items-start gap-2 rounded-lg px-2 py-1.5 text-sm ${dark ? "hover:bg-zinc-800/50" : "hover:bg-stone-50"}`}>
+                <span className={`shrink-0 text-xs tabular-nums ${dark ? "text-zinc-600" : "text-stone-400"}`}>{entry.date} {entry.heure}</span>
+                <span className={`min-w-0 flex-1 ${dark ? "text-zinc-300" : "text-stone-600"}`}>
+                  <span className="font-medium">{entry.utilisateur}</span> — {entry.action}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateSites, onUpdateAlertSettings, onExportBackup }) {
+  const [settingsTab, setSettingsTab] = useState("vendeurs");
+  const items = [
+    { id: "vendeurs", label: "Vendeurs" },
+    { id: "sites", label: "Sites" },
+    { id: "alertes", label: "Alertes" },
+    { id: "general", label: "Général" },
+  ];
+  return (
+    <div className="space-y-4">
+      <div className={`inline-flex gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        {items.map((it) => (
+          <button
+            key={it.id}
+            onClick={() => setSettingsTab(it.id)}
+            className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
+              settingsTab === it.id ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+            }`}
+          >
+            {it.label}
+          </button>
+        ))}
+      </div>
+      {settingsTab === "vendeurs" ? (
+        <VendeursManager
+          dark={dark}
+          vendeurs={vendeurs}
+          vehicles={vehicles}
+          dossiers={dossiers}
+          sitesList={sitesList}
+          onAdd={onAdd}
+          onRemove={onRemove}
+          onUpdateSite={onUpdateSite}
+          onUpdateRole={onUpdateRole}
+          onUpdatePermission={onUpdatePermission}
+          onRename={onRename}
+        />
+      ) : settingsTab === "sites" ? (
+        <SitesManager dark={dark} sitesList={sitesList} onUpdate={onUpdateSites} />
+      ) : settingsTab === "alertes" ? (
+        <AlertSettingsPanel dark={dark} alertSettings={alertSettings} onUpdate={onUpdateAlertSettings} />
+      ) : (
+        <GeneralSettingsPanel dark={dark} activityLog={activityLog} onExportBackup={onExportBackup} />
+      )}
+    </div>
   );
 }
 
@@ -2646,6 +2902,9 @@ export default function App() {
   const [dossiersData, setDossiersData] = useState([]);
   const [vendeursList, setVendeursList] = useState([]);
   const [manualSales, setManualSales] = useState({});
+  const [sitesList, setSitesList] = useState(FORD_SITES);
+  const [alertSettings, setAlertSettings] = useState(DEFAULT_ALERT_SETTINGS);
+  const [activityLog, setActivityLog] = useState([]);
   const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -2702,7 +2961,7 @@ export default function App() {
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
     const versionBefore = localWriteVersionRef.current;
-    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
@@ -2712,11 +2971,17 @@ export default function App() {
       sGet(STORE_KEYS.dossiersMeta, true),
       sGet(STORE_KEYS.vendeurs, true),
       sGet(STORE_KEYS.manualSales, true),
+      sGet(STORE_KEYS.sites, true),
+      sGet(STORE_KEYS.alertSettings, true),
+      sGet(STORE_KEYS.activityLog, true),
     ]);
     if (o) setOrdersData(JSON.parse(o));
     if (s) setStockData(JSON.parse(s));
     if (meta) setImportMeta(JSON.parse(meta));
     if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
+    if (sites) setSitesList(JSON.parse(sites));
+    if (alertCfg) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
+    if (log) setActivityLog(JSON.parse(log));
     // Skip overwriting locally-edited stores if a save happened while this fetch was in flight —
     // the fetch may have captured data from just before that save committed. The next poll (8s later)
     // will pick up the now-committed version.
@@ -2755,11 +3020,22 @@ export default function App() {
         setLastSync(new Date());
         setLoading(false);
 
-        Promise.all([sGet(STORE_KEYS.accidents, true), sGet(STORE_KEYS.dossiers, true), sGet(STORE_KEYS.dossiersMeta, true), sGet(STORE_KEYS.manualSales, true)]).then(([acc2, doss, dossMeta, manual]) => {
+        Promise.all([
+          sGet(STORE_KEYS.accidents, true),
+          sGet(STORE_KEYS.dossiers, true),
+          sGet(STORE_KEYS.dossiersMeta, true),
+          sGet(STORE_KEYS.manualSales, true),
+          sGet(STORE_KEYS.sites, true),
+          sGet(STORE_KEYS.alertSettings, true),
+          sGet(STORE_KEYS.activityLog, true),
+        ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log]) => {
           setAccidents(acc2 ? JSON.parse(acc2) : []);
           setDossiersData(doss ? JSON.parse(doss) : []);
           if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
           setManualSales(manual ? JSON.parse(manual) : {});
+          if (sites) setSitesList(JSON.parse(sites));
+          if (alertCfg) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
+          if (log) setActivityLog(JSON.parse(log));
         });
       } else {
         setLoading(false);
@@ -2824,6 +3100,7 @@ export default function App() {
       setImportMeta(meta);
       setImportOpen(false);
       showToast(`Import réussi — ${orders.length} commandes, ${stock.length} en stock`);
+      logActivity(`Import véhicules — ${orders.length} commandes, ${stock.length} en stock`);
     }
     return ok;
   }
@@ -2860,6 +3137,8 @@ export default function App() {
     await sSet(STORE_KEYS.overlays, JSON.stringify(next), true);
     setOverlays(next);
     localWriteVersionRef.current++;
+    if (form.statut === "Réservation annulée") logActivity(`Annulation réservation — commande ${orderNumber}`);
+    else if (!old.statut) logActivity(`Nouvelle réservation — commande ${orderNumber} pour ${form.client || "client inconnu"}`);
   }
 
 
@@ -2875,6 +3154,7 @@ export default function App() {
       setDossiersData(dossiers);
       setDossiersMeta(meta);
       showToast(`Import réussi — ${dossiers.length} dossiers`);
+      logActivity(`Import dossiers MyAna — ${dossiers.length} dossiers`);
 
       const foundNames = [...new Set(dossiers.map((d) => d.vendeur).filter(Boolean))];
       const freshVendeursRaw = await sGet(STORE_KEYS.vendeurs, true);
@@ -2884,7 +3164,7 @@ export default function App() {
       if (newNames.length > 0) {
         const newOnes = newNames.map((n) => {
           const localisation = dossiers.find((d) => d.vendeur === n)?.localisation || "";
-          const matchedSite = FORD_SITES.find((s) => localisation && s.toLowerCase().includes(localisation.toLowerCase()));
+          const matchedSite = sitesList.find((s) => localisation && s.toLowerCase().includes(localisation.toLowerCase()));
           return { nom: n, site: matchedSite || "" };
         });
         const merged = [...freshVendeurs, ...newOnes];
@@ -2931,7 +3211,8 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
     localWriteVersionRef.current++;
-    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+    if (ok) logActivity(`Rôle de ${name} changé en ${role}`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateVendeurPermission(name, key, value) {
@@ -2948,6 +3229,76 @@ export default function App() {
     setVendeursList(next);
     localWriteVersionRef.current++;
     if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function logActivity(action) {
+    const entry = {
+      date: new Date().toLocaleDateString("fr-FR"),
+      heure: new Date().toLocaleTimeString("fr-FR"),
+      utilisateur: vendorName || "—",
+      action,
+    };
+    const freshRaw = await sGet(STORE_KEYS.activityLog, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const next = [entry, ...fresh].slice(0, 200);
+    await sSet(STORE_KEYS.activityLog, JSON.stringify(next), true);
+    setActivityLog(next);
+    localWriteVersionRef.current++;
+  }
+
+  async function handleUpdateSites(newList) {
+    const ok = await sSet(STORE_KEYS.sites, JSON.stringify(newList), true);
+    setSitesList(newList);
+    localWriteVersionRef.current++;
+    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleUpdateAlertSettings(newSettings) {
+    const merged = { ...DEFAULT_ALERT_SETTINGS, ...newSettings };
+    const ok = await sSet(STORE_KEYS.alertSettings, JSON.stringify(merged), true);
+    setAlertSettings(merged);
+    localWriteVersionRef.current++;
+    if (ok) showToast("Seuils d'alerte enregistrés");
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleRenameVendeur(oldName, newName) {
+    const clean = newName.trim();
+    if (!clean || clean === oldName) return;
+    const freshVendeursRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const freshVendeurs = freshVendeursRaw ? JSON.parse(freshVendeursRaw).map(normalizeVendeur) : [];
+    if (freshVendeurs.some((v) => v.nom.toLowerCase() === clean.toLowerCase())) {
+      showToast(`${clean} existe déjà dans la liste`, { type: "error" });
+      return;
+    }
+    const nextVendeurs = freshVendeurs.map((v) => (v.nom === oldName ? { ...v, nom: clean } : v));
+    const okV = await sSet(STORE_KEYS.vendeurs, JSON.stringify(nextVendeurs), true);
+    setVendeursList(nextVendeurs);
+
+    const freshOverlaysRaw = await sGet(STORE_KEYS.overlays, true);
+    const freshOverlays = freshOverlaysRaw ? JSON.parse(freshOverlaysRaw) : {};
+    const nextOverlays = {};
+    Object.entries(freshOverlays).forEach(([orderNumber, ov]) => {
+      const nov = { ...ov };
+      if (nov.reservation?.vendeur === oldName) nov.reservation = { ...nov.reservation, vendeur: clean };
+      nextOverlays[orderNumber] = nov;
+    });
+    await sSet(STORE_KEYS.overlays, JSON.stringify(nextOverlays), true);
+    setOverlays(nextOverlays);
+
+    const freshManualRaw = await sGet(STORE_KEYS.manualSales, true);
+    const freshManual = freshManualRaw ? JSON.parse(freshManualRaw) : {};
+    const nextManual = {};
+    Object.entries(freshManual).forEach(([orderNumber, ms]) => {
+      const m = typeof ms === "string" ? { vendeur: ms, client: "" } : ms;
+      nextManual[orderNumber] = m.vendeur === oldName ? { ...m, vendeur: clean } : m;
+    });
+    await sSet(STORE_KEYS.manualSales, JSON.stringify(nextManual), true);
+    setManualSales(nextManual);
+
+    localWriteVersionRef.current++;
+    if (okV) showToast(`${oldName} renommé en ${clean}`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleAssignManualSale(orderNumber, patch) {
@@ -3018,7 +3369,7 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
     setAccidents(next);
     localWriteVersionRef.current++;
-    if (ok) showToast(`Véhicule ${orderNumber} ajouté aux accidentés`);
+    if (ok) { showToast(`Véhicule ${orderNumber} ajouté aux accidentés`); logActivity(`Véhicule accidenté ajouté — commande ${orderNumber}`); }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
@@ -3080,11 +3431,12 @@ export default function App() {
           overlays[o.orderNumber] || null,
           dossierByOrder.get(normalizeOrderNum(o.orderNumber)) || null,
           accidentedOrders.has(normalizeOrderNum(o.orderNumber)),
-          manualSales[normalizeOrderNum(o.orderNumber)] || null
+          manualSales[normalizeOrderNum(o.orderNumber)] || null,
+          alertSettings
         )
       )
       .filter((v) => v.baseStatus !== "livre_client");
-  }, [ordersData, stockData, overlays, dossiersData, accidents, manualSales]);
+  }, [ordersData, stockData, overlays, dossiersData, accidents, manualSales, alertSettings]);
 
   const dossiers = useMemo(() => {
     const vehicleByOrder = new Map(vehicles.map((v) => [normalizeOrderNum(v.orderNumber), v]));
@@ -3285,7 +3637,7 @@ export default function App() {
             <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
-            <LogisticsTab dark={dark} vehicles={visibleVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} onOpenVehicle={openInVehicules} />
+            <LogisticsTab dark={dark} vehicles={visibleVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
@@ -3420,17 +3772,24 @@ export default function App() {
       )}
       {(showVendorPrompt || (unlocked && !vendorName)) && <VendorPrompt dark={dark} vendeursList={vendeursList} onSave={handleSetVendor} onClose={() => setShowVendorPrompt(false)} />}
       {settingsOpen && (
-        <Modal dark={dark} title="Vendeurs, sites, rôles & permissions" onClose={() => setSettingsOpen(false)} size="xl">
-          <VendeursManager
+        <Modal dark={dark} title="Réglages" onClose={() => setSettingsOpen(false)} size="xl">
+          <SettingsPanel
             dark={dark}
             vendeurs={vendeursList}
             vehicles={vehicles}
             dossiers={dossiers}
+            sitesList={sitesList}
+            alertSettings={alertSettings}
+            activityLog={activityLog}
             onAdd={handleAddVendeur}
             onRemove={handleRemoveVendeur}
             onUpdateSite={handleUpdateVendeurSite}
             onUpdateRole={handleUpdateVendeurRole}
             onUpdatePermission={handleUpdateVendeurPermission}
+            onRename={handleRenameVendeur}
+            onUpdateSites={handleUpdateSites}
+            onUpdateAlertSettings={handleUpdateAlertSettings}
+            onExportBackup={() => exportFullBackup(vehicles, dossiers, vendeursList)}
           />
         </Modal>
       )}
