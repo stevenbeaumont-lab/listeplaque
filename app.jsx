@@ -3569,6 +3569,13 @@ export default function App() {
     });
   }, [vehicles, vendeursList, mySiteScope]);
 
+  const myRole = useMemo(() => findVendeur(vendeursList, vendorName)?.role || "Vendeur", [vendeursList, vendorName]);
+  const logisticsVehicles = useMemo(() => {
+    if (!mySiteScope) return visibleVehicles;
+    if (myRole !== "Vendeur") return visibleVehicles;
+    return visibleVehicles.filter((v) => v.venduPar === vendorName || activeReservationVendeur(v) === vendorName);
+  }, [visibleVehicles, mySiteScope, myRole, vendorName]);
+
   const dashboardStats = useMemo(() => computeStats(visibleVehicles), [visibleVehicles]);
   useEffect(() => {
     if (tab === "vendeurs" || tab === "permissions") { setTab("vehicules"); return; }
@@ -3694,7 +3701,7 @@ export default function App() {
             <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
-            <LogisticsTab dark={dark} vehicles={visibleVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} />
+            <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
