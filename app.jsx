@@ -582,7 +582,7 @@ function StatusBadge({ vehicle, dark }) {
   const meta = STATUS_META[vehicle.baseStatus];
   const label = vehicle.baseStatus === "reserve" && vehicle.reservation?.statut ? vehicle.reservation.statut : meta.label;
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? meta.bgDark + " " + meta.textDark : meta.bg + " " + meta.text}`}>
+    <span title={label} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? meta.bgDark + " " + meta.textDark : meta.bg + " " + meta.text}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
       {label}
     </span>
@@ -745,13 +745,13 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
         </button>
       )}
       <div className="relative">
-        <button onClick={() => setLegendOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Légende des statuts">
+        <button onClick={() => setLegendOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Légende & aide">
           <Info size={16} />
         </button>
         {legendOpen && (
           <>
             <div className="fixed inset-0 z-30" onClick={() => setLegendOpen(false)} />
-            <div className={`absolute right-0 z-40 mt-1 w-64 space-y-1.5 rounded-xl border p-3 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+            <div className={`absolute right-0 z-40 mt-1 w-72 space-y-1.5 rounded-xl border p-3 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
               <div className={`mb-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Statuts</div>
               {Object.entries(STATUS_META)
                 .filter(([key]) => key !== "livre_client")
@@ -761,6 +761,14 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
                     <span className={dark ? "text-zinc-200" : "text-stone-700"}>{meta.label}</span>
                   </div>
                 ))}
+              <div className={`mb-1.5 mt-3 border-t pt-2.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "border-zinc-800 text-zinc-400" : "border-stone-200 text-stone-500"}`}>Onglets</div>
+              <ul className={`space-y-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Véhicules</span> — parc complet, recherche, réservation</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Logistique</span> — en stock, en transit, non sérialisés</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Tableau de bord</span> — statistiques et tendances</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers</span> — import MyAna, attribution des ventes</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Accidentés</span> — véhicules signalés HS</li>
+              </ul>
             </div>
           </>
         )}
@@ -2423,10 +2431,10 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); if (e.key === "Escape") setRenaming(false); }}
             onBlur={confirmRename}
-            className={`h-8 min-w-[120px] flex-1 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+            className={`h-8 min-w-[80px] flex-1 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
           />
         ) : (
-          <button onClick={() => { setNewName(v.nom); setRenaming(true); }} className={`min-w-[120px] flex-1 truncate text-left font-medium hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
+          <button onClick={() => { setNewName(v.nom); setRenaming(true); }} className={`min-w-[80px] flex-1 truncate text-left font-medium hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
             {v.nom}
           </button>
         )}
@@ -3012,6 +3020,7 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(() => !loadLocal("dsr:welcome-seen", false));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
     const saved = loadLocal("dsr:ui-selected", null);
@@ -3306,7 +3315,8 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
     localWriteVersionRef.current++;
-    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+    if (ok) showToast(site ? `${name} rattaché à ${site}` : `Site retiré pour ${name}`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateVendeurEmail(name, email) {
@@ -3316,7 +3326,8 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
     localWriteVersionRef.current++;
-    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+    if (ok) showToast(email.trim() ? `Email relié pour ${name}` : `Email retiré pour ${name}`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateVendeurRole(name, role) {
@@ -3326,7 +3337,7 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
     localWriteVersionRef.current++;
-    if (ok) logActivity(`Rôle de ${name} changé en ${role}`);
+    if (ok) { showToast(`Rôle de ${name} : ${role}`); logActivity(`Rôle de ${name} changé en ${role}`); }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
@@ -3343,7 +3354,8 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
     setVendeursList(next);
     localWriteVersionRef.current++;
-    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+    if (ok) showToast(value === null ? `Permission "${PERMISSION_LABELS[key]}" remise au réglage du rôle` : `Permission "${PERMISSION_LABELS[key]}" mise à jour pour ${name}`);
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function logActivity(action) {
@@ -3365,7 +3377,8 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.sites, JSON.stringify(newList), true);
     setSitesList(newList);
     localWriteVersionRef.current++;
-    if (!ok) showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+    if (ok) showToast("Liste des sites mise à jour");
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateAlertSettings(newSettings) {
@@ -3774,6 +3787,18 @@ export default function App() {
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
           <AlertTriangle size={13} /> Connexion à la base de données impossible — vérifiez que la table Supabase existe (voir README) et que la clé API est correcte. Rien ne sera sauvegardé tant que ce n'est pas résolu.
+        </div>
+      )}
+      {showWelcome && vendorName && (
+        <div className={`flex flex-wrap items-center gap-2 px-4 py-2 text-xs font-medium md:px-6 ${dark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-800"}`}>
+          <Info size={13} className="shrink-0" />
+          <span>
+            Bienvenue {vendorName} — vous êtes connecté avec le rôle <span className="font-semibold">{isSuperAdmin(vendorName) ? "Accès complet" : (findVendeur(vendeursList, vendorName)?.role || "Vendeur")}</span>.
+            {" "}Certaines fonctionnalités sont réservées aux rôles de gestion.
+          </span>
+          <button onClick={() => { setShowWelcome(false); saveLocal("dsr:welcome-seen", true); }} className="ml-auto shrink-0 underline-offset-2 hover:underline">
+            Ne plus afficher
+          </button>
         </div>
       )}
 
