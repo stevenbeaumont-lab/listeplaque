@@ -401,13 +401,13 @@ function exportFullBackup(vehicles, dossiers, vendeursList) {
   XLSX.writeFile(wb, `parclive-sauvegarde-complete-${stamp}.xlsx`);
 }
 const ROLES = ["Directeur de plaque", "Chef des ventes", "Responsable de site", "Vendeur", "Secrétariat"];
-const PERMISSION_KEYS = ["reserve", "reserveForOthers", "import", "dossiers", "accidentes", "vendeurs", "reset"];
+const PERMISSION_KEYS = ["reserve", "reserveForOthers", "dashboard", "import", "dossiers", "accidentes", "vendeurs", "reset"];
 const ROLE_PERMISSIONS = {
-  "Directeur de plaque": { reserve: true, reserveForOthers: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
-  "Chef des ventes": { reserve: true, reserveForOthers: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
-  "Responsable de site": { reserve: true, reserveForOthers: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
-  "Vendeur": { reserve: true, reserveForOthers: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
-  "Secrétariat": { reserve: false, reserveForOthers: false, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
+  "Directeur de plaque": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
+  "Chef des ventes": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
+  "Responsable de site": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
+  "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
+  "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
 };
 const DEFAULT_PERMISSIONS = ROLE_PERMISSIONS["Vendeur"];
 function isSuperAdmin(name) {
@@ -645,7 +645,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   const items = [
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
-    { id: "dashboard", label: "Tableau de bord" },
+    permissions.dashboard && { id: "dashboard", label: "Tableau de bord" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     permissions.accidentes && { id: "accidentes", label: "Accidentés" },
   ].filter(Boolean);
@@ -680,7 +680,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
   const items = [
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
-    { id: "dashboard", label: "Tableau de bord" },
+    permissions.dashboard && { id: "dashboard", label: "Tableau de bord" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     permissions.accidentes && { id: "accidentes", label: "Accidentés" },
   ].filter(Boolean);
@@ -2247,6 +2247,7 @@ function PasswordChangeModal({ dark, onClose, showToast }) {
 const PERMISSION_LABELS = {
   reserve: "Réserver des véhicules",
   reserveForOthers: "Réserver au nom de n'importe qui",
+  dashboard: "Onglet Tableau de bord",
   import: "Importer (commandes / stock / dossiers MyAna)",
   dossiers: "Onglet Dossiers (attribution manuelle des ventes)",
   accidentes: "Onglet Accidentés",
@@ -3583,7 +3584,7 @@ export default function App() {
   const dashboardStats = useMemo(() => computeStats(visibleVehicles), [visibleVehicles]);
   useEffect(() => {
     if (tab === "vendeurs" || tab === "permissions") { setTab("vehicules"); return; }
-    const gated = { dossiers: permissions.dossiers, accidentes: permissions.accidentes };
+    const gated = { dossiers: permissions.dossiers, accidentes: permissions.accidentes, dashboard: permissions.dashboard };
     if (tab in gated && !gated[tab]) setTab("vehicules");
   }, [tab, permissions]);
 
