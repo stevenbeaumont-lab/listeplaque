@@ -656,14 +656,17 @@ const NAV_ICONS = {
   permissions: Lock,
   accidentes: AlertTriangle,
 };
-function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
-  const items = [
+function buildNavItems(permissions, dossierUnmatchedCount) {
+  return [
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     permissions.accidentes && { id: "accidentes", label: "Accidentés" },
   ].filter(Boolean);
+}
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount);
   return (
     <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
       {items.map((it) => {
@@ -692,13 +695,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
 }
 
 function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
-  const items = [
-    { id: "vehicules", label: "Véhicules" },
-    { id: "logistique", label: "Logistique" },
-    permissions.dashboard && { id: "dashboard", label: "Tableau de bord" },
-    permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
-    permissions.accidentes && { id: "accidentes", label: "Accidentés" },
-  ].filter(Boolean);
+  const items = buildNavItems(permissions, dossierUnmatchedCount);
   return (
     <div className={`flex max-w-full gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
       {items.map((it) => (
@@ -3129,6 +3126,7 @@ export default function App() {
   }, [importOpen, alertsOpen, selected, legendOpen]);
 
   const localWriteVersionRef = useRef(0);
+  const lastRawRef = useRef({});
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
     const versionBefore = localWriteVersionRef.current;
@@ -3146,22 +3144,28 @@ export default function App() {
       sGet(STORE_KEYS.alertSettings, true),
       sGet(STORE_KEYS.activityLog, true),
     ]);
-    if (o) setOrdersData(JSON.parse(o));
-    if (s) setStockData(JSON.parse(s));
-    if (meta) setImportMeta(JSON.parse(meta));
-    if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
-    if (sites) setSitesList(JSON.parse(sites));
-    if (alertCfg) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
-    if (log) setActivityLog(JSON.parse(log));
+    const raw = lastRawRef.current;
+    const changed = (key, value) => {
+      if (raw[key] === value) return false;
+      raw[key] = value;
+      return true;
+    };
+    if (o && changed("orders", o)) setOrdersData(JSON.parse(o));
+    if (s && changed("stock", s)) setStockData(JSON.parse(s));
+    if (meta && changed("meta", meta)) setImportMeta(JSON.parse(meta));
+    if (dossMeta && changed("dossMeta", dossMeta)) setDossiersMeta(JSON.parse(dossMeta));
+    if (sites && changed("sites", sites)) setSitesList(JSON.parse(sites));
+    if (alertCfg && changed("alertCfg", alertCfg)) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
+    if (log && changed("log", log)) setActivityLog(JSON.parse(log));
     // Skip overwriting locally-edited stores if a save happened while this fetch was in flight —
     // the fetch may have captured data from just before that save committed. The next poll (8s later)
     // will pick up the now-committed version.
     if (versionBefore === localWriteVersionRef.current) {
-      setOverlays(ov ? JSON.parse(ov) : {});
-      setAccidents(acc ? JSON.parse(acc) : []);
-      setDossiersData(doss ? JSON.parse(doss) : []);
-      if (vends) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
-      setManualSales(manual ? JSON.parse(manual) : {});
+      if (changed("overlays", ov || "")) setOverlays(ov ? JSON.parse(ov) : {});
+      if (changed("accidents", acc || "")) setAccidents(acc ? JSON.parse(acc) : []);
+      if (changed("dossiers", doss || "")) setDossiersData(doss ? JSON.parse(doss) : []);
+      if (vends && changed("vendeurs", vends)) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
+      if (changed("manualSales", manual || "")) setManualSales(manual ? JSON.parse(manual) : {});
     }
     setLastSync(new Date());
     if (indicate) setSyncing(false);
@@ -3353,6 +3357,16 @@ export default function App() {
   const pendingAccidentDeleteRef = useRef(null);
   const pendingVendeurDeleteRef = useRef(null);
 
+  async function patchVendeursList(updater) {
+    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
+    const next = updater(fresh);
+    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+    setVendeursList(next);
+    localWriteVersionRef.current++;
+    return ok;
+  }
+
   async function handleAddVendeur(name, site) {
     const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
     const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
@@ -3360,60 +3374,40 @@ export default function App() {
       showToast(`${name} est déjà dans la liste`, { type: "error" });
       return;
     }
-    const next = [...fresh, { nom: name, site: site || "" }];
-    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
-    setVendeursList(next);
-    localWriteVersionRef.current++;
+    const ok = await patchVendeursList(() => [...fresh, { nom: name, site: site || "" }]);
     if (ok) showToast(`${name} ajouté à la liste des vendeurs`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateVendeurSite(name, site) {
-    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
-    const next = fresh.map((v) => (v.nom === name ? { ...v, site } : v));
-    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
-    setVendeursList(next);
-    localWriteVersionRef.current++;
+    const ok = await patchVendeursList((fresh) => fresh.map((v) => (v.nom === name ? { ...v, site } : v)));
     if (ok) showToast(site ? `${name} rattaché à ${site}` : `Site retiré pour ${name}`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateVendeurEmail(name, email) {
-    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
-    const next = fresh.map((v) => (v.nom === name ? { ...v, email: email.trim().toLowerCase() } : v));
-    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
-    setVendeursList(next);
-    localWriteVersionRef.current++;
-    if (ok) showToast(email.trim() ? `Email relié pour ${name}` : `Email retiré pour ${name}`);
+    const clean = email.trim().toLowerCase();
+    const ok = await patchVendeursList((fresh) => fresh.map((v) => (v.nom === name ? { ...v, email: clean } : v)));
+    if (ok) showToast(clean ? `Email relié pour ${name}` : `Email retiré pour ${name}`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateVendeurRole(name, role) {
-    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
-    const next = fresh.map((v) => (v.nom === name ? { ...v, role } : v));
-    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
-    setVendeursList(next);
-    localWriteVersionRef.current++;
+    const ok = await patchVendeursList((fresh) => fresh.map((v) => (v.nom === name ? { ...v, role } : v)));
     if (ok) { showToast(`Rôle de ${name} : ${role}`); logActivity(`Rôle de ${name} changé en ${role}`); }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleUpdateVendeurPermission(name, key, value) {
-    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
-    const next = fresh.map((v) => {
-      if (v.nom !== name) return v;
-      const overrides = { ...(v.permOverrides || {}) };
-      if (value === null) delete overrides[key];
-      else overrides[key] = value;
-      return { ...v, permOverrides: overrides };
-    });
-    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
-    setVendeursList(next);
-    localWriteVersionRef.current++;
+    const ok = await patchVendeursList((fresh) =>
+      fresh.map((v) => {
+        if (v.nom !== name) return v;
+        const overrides = { ...(v.permOverrides || {}) };
+        if (value === null) delete overrides[key];
+        else overrides[key] = value;
+        return { ...v, permOverrides: overrides };
+      })
+    );
     if (ok) showToast(value === null ? `Permission "${PERMISSION_LABELS[key]}" remise au réglage du rôle` : `Permission "${PERMISSION_LABELS[key]}" mise à jour pour ${name}`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
@@ -3628,15 +3622,25 @@ export default function App() {
 
   const dossiers = useMemo(() => {
     const vehicleByOrder = new Map(vehicles.map((v) => [normalizeOrderNum(v.orderNumber), v]));
-    const allVehicleByOrder = new Map(
-      ordersData.map((o) => [normalizeOrderNum(o.orderNumber), buildVehicle(o, new Map(stockData.map((s) => [s.orderNumber, s])).get(o.orderNumber) || null, overlays[o.orderNumber] || null)])
+    const filteredDossiers = dossiersData.filter((d) => (d.categorie || "").toUpperCase().trim() !== "VD");
+    // Most dossiers match a vehicle already in `vehicles`. The rare exception is an order filtered
+    // out there (e.g. already delivered to the client) — only rebuild those specific orders, not all of them.
+    const missingKeys = new Set(
+      filteredDossiers.map((d) => normalizeOrderNum(d.numeroUsine)).filter((key) => key && !vehicleByOrder.has(key))
     );
-    return dossiersData
-      .filter((d) => (d.categorie || "").toUpperCase().trim() !== "VD")
-      .map((d) => {
-        const key = normalizeOrderNum(d.numeroUsine);
-        return { ...d, vehicle: vehicleByOrder.get(key) || allVehicleByOrder.get(key) || null };
-      });
+    let fallbackByOrder = new Map();
+    if (missingKeys.size > 0) {
+      const stockByOrder = new Map(stockData.map((s) => [s.orderNumber, s]));
+      fallbackByOrder = new Map(
+        ordersData
+          .filter((o) => missingKeys.has(normalizeOrderNum(o.orderNumber)))
+          .map((o) => [normalizeOrderNum(o.orderNumber), buildVehicle(o, stockByOrder.get(o.orderNumber) || null, overlays[o.orderNumber] || null)])
+      );
+    }
+    return filteredDossiers.map((d) => {
+      const key = normalizeOrderNum(d.numeroUsine);
+      return { ...d, vehicle: vehicleByOrder.get(key) || fallbackByOrder.get(key) || null };
+    });
   }, [dossiersData, vehicles, ordersData, stockData, overlays]);
 
   const expandedOrder = selected?.orderNumber ?? null;
