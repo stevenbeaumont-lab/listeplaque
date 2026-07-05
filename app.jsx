@@ -353,6 +353,20 @@ function exportDossiersToExcel(dossiers) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-dossiers-${stamp}.xlsx`);
 }
+function exportVendeursToExcel(vendeursList) {
+  const rows = vendeursList.map((v) => ({
+    "Nom": v.nom,
+    "Email": v.email || "",
+    "Site": v.site || "",
+    "Rôle": v.role || "Vendeur",
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = Object.keys(rows[0] || {}).map((k) => ({ wch: Math.max(k.length, 20) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Vendeurs");
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `parclive-vendeurs-${stamp}.xlsx`);
+}
 function exportFullBackup(vehicles, dossiers, vendeursList) {
   const wb = XLSX.utils.book_new();
 
@@ -2268,6 +2282,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
   const [siteFilter, setSiteFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkSite, setBulkSite] = useState("");
@@ -2276,13 +2291,12 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
   const usage = useMemo(() => {
     const counts = {};
     vehicles.forEach((v) => {
-      if (v.baseStatus === "reserve" && v.reservation?.vendeur) counts[v.reservation.vendeur] = (counts[v.reservation.vendeur] || 0) + 1;
-    });
-    dossiers.forEach((d) => {
-      if (d.vendeur) counts[d.vendeur] = (counts[d.vendeur] || 0) + 1;
+      if (v.vendu && v.venduPar) counts[v.venduPar] = (counts[v.venduPar] || 0) + 1;
+      const resaVendeur = activeReservationVendeur(v);
+      if (resaVendeur) counts[resaVendeur] = (counts[resaVendeur] || 0) + 1;
     });
     return counts;
-  }, [vehicles, dossiers]);
+  }, [vehicles]);
 
   function submit() {
     if (!name.trim()) return;
@@ -2305,7 +2319,9 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
 
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
 
-  const filtered = siteFilter === "all" ? vendeurs : vendeurs.filter((v) => v.site === siteFilter);
+  const filtered = (siteFilter === "all" ? vendeurs : vendeurs.filter((v) => v.site === siteFilter)).filter(
+    (v) => !query.trim() || v.nom.toLowerCase().includes(query.trim().toLowerCase())
+  );
 
   return (
     <div className="space-y-4">
@@ -2325,6 +2341,13 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
         </select>
         <button onClick={submit} disabled={!name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
           <Plus size={15} /> Ajouter
+        </button>
+        <button
+          onClick={() => exportVendeursToExcel(vendeurs)}
+          disabled={vendeurs.length === 0}
+          className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-colors disabled:opacity-40 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+        >
+          <Download size={14} /> Exporter
         </button>
         <button onClick={() => setBulkOpen((o) => !o)} className={`text-xs font-semibold underline-offset-2 hover:underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>
           {bulkOpen ? "Annuler l'ajout groupé" : "Ajouter plusieurs à la fois"}
@@ -2355,6 +2378,17 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
         </div>
       )}
 
+      {vendeurs.length > 0 && (
+        <div className={`flex h-9 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
+          <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Rechercher un vendeur…"
+            className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
+          />
+        </div>
+      )}
       {vendeurs.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <button onClick={() => setSiteFilter("all")} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === "all" ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
@@ -2495,7 +2529,7 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
             <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         )}
-        <span className={`ml-auto text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage} dossier{usage > 1 ? "s" : ""}</span>
+        <span className={`ml-auto text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage} vente{usage > 1 ? "s" : ""}/résa.</span>
       </div>
 
       {open && !superAdmin && (
@@ -2517,11 +2551,16 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
   );
 }
 
-function SitesManager({ dark, sitesList, onUpdate }) {
+function SitesManager({ dark, sitesList, vendeurs, onUpdate }) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(null);
   const [editValue, setEditValue] = useState("");
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const countBySite = useMemo(() => {
+    const c = {};
+    vendeurs.forEach((v) => { if (v.site) c[v.site] = (c[v.site] || 0) + 1; });
+    return c;
+  }, [vendeurs]);
 
   function add() {
     const clean = name.trim();
@@ -2535,7 +2574,7 @@ function SitesManager({ dark, sitesList, onUpdate }) {
   function confirmEdit() {
     const clean = editValue.trim();
     if (clean && clean !== editing) {
-      onUpdate(sitesList.map((s) => (s === editing ? clean : s)));
+      onUpdate(sitesList.map((x) => (x === editing ? clean : x)));
     }
     setEditing(null);
   }
@@ -2557,10 +2596,17 @@ function SitesManager({ dark, sitesList, onUpdate }) {
           <Plus size={15} /> Ajouter
         </button>
       </div>
-      <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-        <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+      {sitesList.length === 0 ? (
+        <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+          Aucun site enregistré pour l'instant.
+        </div>
+      ) : (
+        <ul className="space-y-2.5">
           {sitesList.map((s) => (
-            <li key={s} className={`flex items-center gap-2 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+            <li key={s} className={`flex items-center gap-3 rounded-2xl border p-4 ${dark ? "bg-zinc-900/40 border-zinc-800" : "bg-white border-stone-200"}`}>
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-1 ${dark ? "bg-sky-500/10 text-sky-400 ring-sky-500/20" : "bg-sky-50 text-sky-700 ring-sky-200"}`}>
+                <Truck size={16} />
+              </span>
               {editing === s ? (
                 <input
                   autoFocus
@@ -2568,20 +2614,23 @@ function SitesManager({ dark, sitesList, onUpdate }) {
                   onChange={(e) => setEditValue(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditing(null); }}
                   onBlur={confirmEdit}
-                  className={`h-8 flex-1 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+                  className={`h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
                 />
               ) : (
-                <button onClick={() => { setEditing(s); setEditValue(s); }} className={`flex-1 truncate text-left text-sm font-medium hover:underline ${dark ? "text-zinc-200" : "text-stone-800"}`}>
+                <button onClick={() => { setEditing(s); setEditValue(s); }} className={`min-w-0 flex-1 truncate text-left text-sm font-semibold hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
                   {s}
                 </button>
               )}
-              <button onClick={() => remove(s)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
+                {countBySite[s] || 0} vendeur{(countBySite[s] || 0) > 1 ? "s" : ""}
+              </span>
+              <button onClick={() => remove(s)} className={`shrink-0 rounded-lg p-2 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
                 <Trash2 size={15} />
               </button>
             </li>
           ))}
         </ul>
-      </div>
+      )}
     </div>
   );
 }
@@ -2690,7 +2739,7 @@ function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSet
           onUpdateEmail={onUpdateEmail}
         />
       ) : settingsTab === "sites" ? (
-        <SitesManager dark={dark} sitesList={sitesList} onUpdate={onUpdateSites} />
+        <SitesManager dark={dark} sitesList={sitesList} vendeurs={vendeurs} onUpdate={onUpdateSites} />
       ) : settingsTab === "alertes" ? (
         <AlertSettingsPanel dark={dark} alertSettings={alertSettings} onUpdate={onUpdateAlertSettings} />
       ) : (
