@@ -53,6 +53,16 @@ const SUPABASE_URL = "https://zdzpmlkzujzvjigcdwmf.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpkenBtbGt6dWp6dmppZ2Nkd21mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MTAxNTUsImV4cCI6MjA5ODQ4NjE1NX0.v2RZnooxZEWSAv1bXaW2aHUYcJPZlHAjWhi4FkDXwGs";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+async function createUserAccount(email, password) {
+  const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const { data, error } = await tempClient.auth.signUp({ email: email.trim().toLowerCase(), password });
+  if (error) return { ok: false, message: error.message };
+  if (data?.user && !data.user.identities?.length) return { ok: false, message: "Un compte existe déjà avec cet email." };
+  return { ok: true };
+}
 const TABLE = "parclive_data";
 
 function loadLocal(key, fallback) {
@@ -2372,25 +2382,23 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
           {vendeurs.length === 0 ? "Aucun vendeur enregistré pour l'instant." : "Aucun vendeur sur ce site."}
         </div>
       ) : (
-        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-          <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
-            {[...filtered].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
-              <VendeurManageRow
-                key={v.nom}
-                dark={dark}
-                v={v}
-                usage={usage[v.nom] || 0}
-                sitesList={sitesList}
-                onUpdateSite={onUpdateSite}
-                onUpdateRole={onUpdateRole}
-                onUpdatePermission={onUpdatePermission}
-                onRemove={onRemove}
-                onRename={onRename}
-                onUpdateEmail={onUpdateEmail}
-              />
-            ))}
-          </ul>
-        </div>
+        <ul className="space-y-2.5">
+          {[...filtered].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
+            <VendeurManageRow
+              key={v.nom}
+              dark={dark}
+              v={v}
+              usage={usage[v.nom] || 0}
+              sitesList={sitesList}
+              onUpdateSite={onUpdateSite}
+              onUpdateRole={onUpdateRole}
+              onUpdatePermission={onUpdatePermission}
+              onRemove={onRemove}
+              onRename={onRename}
+              onUpdateEmail={onUpdateEmail}
+            />
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -2402,12 +2410,17 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
   const [newName, setNewName] = useState(v.nom);
   const [emailEditing, setEmailEditing] = useState(false);
   const [emailValue, setEmailValue] = useState(v.email || "");
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountMsg, setAccountMsg] = useState("");
   const role = v.role || "Vendeur";
   const overrides = v.permOverrides || {};
   const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
   const hasOverrides = Object.keys(overrides).length > 0;
   const superAdmin = isSuperAdmin(v.nom);
-  const selectCls = `h-8 rounded-lg border px-2 text-xs outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`;
+  const selectCls = `h-9 rounded-lg border px-2.5 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`;
+  const initials = v.nom.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 
   function confirmRename() {
     if (newName.trim() && newName.trim() !== v.nom) onRename(v.nom, newName.trim());
@@ -2417,79 +2430,122 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
     onUpdateEmail(v.nom, emailValue);
     setEmailEditing(false);
   }
+  async function submitCreateAccount() {
+    if (!v.email) { setAccountMsg("Renseignez d'abord un email."); return; }
+    if (newPassword.length < 6) { setAccountMsg("6 caractères minimum."); return; }
+    setAccountBusy(true);
+    setAccountMsg("");
+    const res = await createUserAccount(v.email, newPassword);
+    setAccountBusy(false);
+    if (res.ok) { setAccountMsg("Compte créé avec succès."); setNewPassword(""); setTimeout(() => setCreatingAccount(false), 1500); }
+    else setAccountMsg(res.message || "Échec de la création.");
+  }
 
   return (
-    <li className={dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}>
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
-          <User size={14} />
+    <li className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/40 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <div className="flex flex-wrap items-start gap-3">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+          {initials}
         </span>
-        {renaming ? (
-          <input
-            autoFocus
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); if (e.key === "Escape") setRenaming(false); }}
-            onBlur={confirmRename}
-            className={`h-8 min-w-[80px] flex-1 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-          />
-        ) : (
-          <button onClick={() => { setNewName(v.nom); setRenaming(true); }} className={`min-w-[80px] flex-1 truncate text-left font-medium hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
-            {v.nom}
-          </button>
-        )}
-        <select value={v.site || ""} onChange={(e) => onUpdateSite(v.nom, e.target.value)} className={selectCls}>
-          <option value="">Site non défini</option>
-          {sitesList.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        {superAdmin ? (
-          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Accès complet permanent</span>
-        ) : (
-          <>
-            <select value={role} onChange={(e) => onUpdateRole(v.nom, e.target.value)} className={selectCls}>
+
+        <div className="min-w-[160px] flex-1 space-y-1">
+          {renaming ? (
+            <input
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); if (e.key === "Escape") setRenaming(false); }}
+              onBlur={confirmRename}
+              className={`h-8 w-full rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+            />
+          ) : (
+            <button onClick={() => { setNewName(v.nom); setRenaming(true); }} className={`truncate text-left text-sm font-semibold hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
+              {v.nom}
+            </button>
+          )}
+          <div className="flex items-center gap-1.5">
+            <Lock size={11} className={`shrink-0 ${dark ? "text-zinc-600" : "text-stone-400"}`} />
+            {emailEditing ? (
+              <input
+                autoFocus
+                type="email"
+                value={emailValue}
+                onChange={(e) => setEmailValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmEmail(); if (e.key === "Escape") setEmailEditing(false); }}
+                onBlur={confirmEmail}
+                placeholder="prenom.nom@groupe-legrand.fr"
+                className={`h-7 min-w-[200px] flex-1 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+              />
+            ) : (
+              <button onClick={() => { setEmailValue(v.email || ""); setEmailEditing(true); }} className={`truncate text-left text-xs hover:underline ${v.email ? (dark ? "text-zinc-400" : "text-stone-500") : "italic text-amber-500"}`}>
+                {v.email || "email non renseigné — cliquer pour ajouter"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <select value={v.site || ""} onChange={(e) => onUpdateSite(v.nom, e.target.value)} className={selectCls} title="Site">
+            <option value="">Site non défini</option>
+            {sitesList.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          {superAdmin ? (
+            <span className={`rounded-full px-2.5 py-1.5 text-xs font-bold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Accès complet</span>
+          ) : (
+            <select value={role} onChange={(e) => onUpdateRole(v.nom, e.target.value)} className={selectCls} title="Rôle">
               {ROLES.map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
-            <button
-              onClick={() => setOpen((o) => !o)}
-              className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
-            >
-              {hasOverrides && <span className={`h-1.5 w-1.5 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} />}
-              Personnaliser
-              <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
-            </button>
-          </>
-        )}
-        <span className={`text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage} dossier{usage > 1 ? "s" : ""}</span>
-        <button onClick={() => onRemove(v.nom)} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+          )}
+        </div>
+
+        <button onClick={() => onRemove(v.nom)} className={`shrink-0 rounded-lg p-2 transition-colors ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
           <Trash2 size={15} />
         </button>
       </div>
-      <div className={`flex items-center gap-2 px-4 pb-3 pl-14 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-        <Lock size={11} className="shrink-0" />
-        <span className="shrink-0">Email de connexion :</span>
-        {emailEditing ? (
-          <input
-            autoFocus
-            type="email"
-            value={emailValue}
-            onChange={(e) => setEmailValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") confirmEmail(); if (e.key === "Escape") setEmailEditing(false); }}
-            onBlur={confirmEmail}
-            placeholder="prenom.nom@groupe-legrand.fr"
-            className={`h-7 min-w-[200px] flex-1 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-          />
-        ) : (
-          <button onClick={() => { setEmailValue(v.email || ""); setEmailEditing(true); }} className={`truncate text-left hover:underline ${v.email ? (dark ? "text-zinc-300" : "text-stone-600") : "italic"}`}>
-            {v.email || "non renseigné — cliquer pour ajouter"}
+
+      <div className={`mt-3 flex flex-wrap items-center gap-2 border-t pt-3 ${dark ? "border-zinc-800" : "border-stone-100"}`}>
+        {!superAdmin && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+          >
+            {hasOverrides && <span className={`h-1.5 w-1.5 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} />}
+            <Lock size={12} /> Personnaliser les permissions
+            <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         )}
+        <button
+          onClick={() => { setCreatingAccount((o) => !o); setAccountMsg(""); }}
+          className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+        >
+          <User size={12} /> Créer un accès
+        </button>
+        <span className={`ml-auto text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage} dossier{usage > 1 ? "s" : ""}</span>
       </div>
+
+      {creatingAccount && (
+        <div className={`mt-3 flex flex-wrap items-center gap-2 rounded-xl border p-3 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitCreateAccount()}
+            placeholder="Mot de passe initial"
+            className={`h-9 min-w-[160px] flex-1 rounded-lg border px-2.5 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          />
+          <button onClick={submitCreateAccount} disabled={accountBusy} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+            {accountBusy ? "Création…" : "Créer le compte"}
+          </button>
+          {accountMsg && <div className={`w-full text-xs font-semibold ${accountMsg.includes("succès") ? "text-emerald-500" : "text-rose-500"}`}>{accountMsg}</div>}
+        </div>
+      )}
+
       {open && !superAdmin && (
-        <div className={`grid gap-2 border-t px-4 py-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
+        <div className={`mt-3 grid gap-2 rounded-xl border p-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
           {PERMISSION_KEYS.map((key) => (
             <div key={key} className="flex items-center gap-2">
               <input type="checkbox" checked={!!effective[key]} onChange={(e) => onUpdatePermission(v.nom, key, e.target.checked)} className="accent-amber-500" />
@@ -2643,10 +2699,10 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
 function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onExportBackup }) {
   const [settingsTab, setSettingsTab] = useState("vendeurs");
   const items = [
-    { id: "vendeurs", label: "Vendeurs" },
-    { id: "sites", label: "Sites" },
-    { id: "alertes", label: "Alertes" },
-    { id: "general", label: "Général" },
+    { id: "vendeurs", label: "Vendeurs", icon: Users },
+    { id: "sites", label: "Sites", icon: Truck },
+    { id: "alertes", label: "Alertes", icon: AlertTriangle },
+    { id: "general", label: "Général", icon: Settings },
   ];
   return (
     <div className="space-y-4">
@@ -2655,10 +2711,11 @@ function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSet
           <button
             key={it.id}
             onClick={() => setSettingsTab(it.id)}
-            className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
               settingsTab === it.id ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
             }`}
           >
+            <it.icon size={14} />
             {it.label}
           </button>
         ))}
