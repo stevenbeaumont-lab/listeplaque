@@ -54,15 +54,6 @@ const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpkenBtbGt6dWp6dmppZ2Nkd21mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MTAxNTUsImV4cCI6MjA5ODQ4NjE1NX0.v2RZnooxZEWSAv1bXaW2aHUYcJPZlHAjWhi4FkDXwGs";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-async function createUserAccount(email, password) {
-  const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-  const { data, error } = await tempClient.auth.signUp({ email: email.trim().toLowerCase(), password });
-  if (error) return { ok: false, message: error.message };
-  if (data?.user && !data.user.identities?.length) return { ok: false, message: "Un compte existe déjà avec cet email." };
-  return { ok: true };
-}
 const TABLE = "parclive_data";
 
 function loadLocal(key, fallback) {
@@ -2410,10 +2401,6 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
   const [newName, setNewName] = useState(v.nom);
   const [emailEditing, setEmailEditing] = useState(false);
   const [emailValue, setEmailValue] = useState(v.email || "");
-  const [creatingAccount, setCreatingAccount] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [accountMsg, setAccountMsg] = useState("");
   const role = v.role || "Vendeur";
   const overrides = v.permOverrides || {};
   const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
@@ -2429,16 +2416,6 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
   function confirmEmail() {
     onUpdateEmail(v.nom, emailValue);
     setEmailEditing(false);
-  }
-  async function submitCreateAccount() {
-    if (!v.email) { setAccountMsg("Renseignez d'abord un email."); return; }
-    if (newPassword.length < 6) { setAccountMsg("6 caractères minimum."); return; }
-    setAccountBusy(true);
-    setAccountMsg("");
-    const res = await createUserAccount(v.email, newPassword);
-    setAccountBusy(false);
-    if (res.ok) { setAccountMsg("Compte créé avec succès."); setNewPassword(""); setTimeout(() => setCreatingAccount(false), 1500); }
-    else setAccountMsg(res.message || "Échec de la création.");
   }
 
   return (
@@ -2518,31 +2495,8 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
             <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         )}
-        <button
-          onClick={() => { setCreatingAccount((o) => !o); setAccountMsg(""); }}
-          className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
-        >
-          <User size={12} /> Créer un accès
-        </button>
         <span className={`ml-auto text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage} dossier{usage > 1 ? "s" : ""}</span>
       </div>
-
-      {creatingAccount && (
-        <div className={`mt-3 flex flex-wrap items-center gap-2 rounded-xl border p-3 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submitCreateAccount()}
-            placeholder="Mot de passe initial"
-            className={`h-9 min-w-[160px] flex-1 rounded-lg border px-2.5 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-          />
-          <button onClick={submitCreateAccount} disabled={accountBusy} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
-            {accountBusy ? "Création…" : "Créer le compte"}
-          </button>
-          {accountMsg && <div className={`w-full text-xs font-semibold ${accountMsg.includes("succès") ? "text-emerald-500" : "text-rose-500"}`}>{accountMsg}</div>}
-        </div>
-      )}
 
       {open && !superAdmin && (
         <div className={`mt-3 grid gap-2 rounded-xl border p-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
