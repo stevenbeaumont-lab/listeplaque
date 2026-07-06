@@ -445,6 +445,11 @@ function getPermissions(vendorName, vendeursList) {
 function activeReservationVendeur(v) {
   return v.baseStatus === "reserve" ? (v.reservation?.vendeur || "") : "";
 }
+function vehicleEffectiveSite(v, siteByVendeur) {
+  if (v.siteLocation) return v.siteLocation;
+  const nom = v.venduPar || activeReservationVendeur(v);
+  return nom ? siteByVendeur.get(nom) || "" : "";
+}
 function normalizeOrderNum(s) {
   return String(s || "").trim().replace(/^0+(?=\d)/, "");
 }
@@ -494,6 +499,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, 
   const venduPar = dossier?.vendeur || manualVendeur || "";
   const venduAttribManuelle = !dossier && (!!manualVendeur || !!manualClient);
   const clientLabel = dossier ? (dossier.societe || [dossier.prenom, dossier.nom].filter(Boolean).join(" ")) : manualClient;
+  const siteLocation = overlay?.siteLocation || "";
 
   let baseStatus;
   if (deliveredToClient) baseStatus = "livre_client";
@@ -543,6 +549,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, 
     modelYear,
     bodyType,
     bodyCode: bodyCodeOf(model, bodyType),
+    siteLocation,
     transmission: transmissionType(energy, gearbox),
     trim,
     color,
@@ -589,6 +596,9 @@ const STATUS_ACCENT = {
   non_serialise: "#6366F1",
   livre_client: "#71717A",
 };
+const STATUS_LABEL_COLORS = Object.fromEntries(
+  Object.entries(STATUS_META).map(([key, meta]) => [meta.label, STATUS_ACCENT[key]])
+);
 
 // ---------------------------------------------------------------------------
 // Small presentational components
@@ -1039,7 +1049,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
 
 
 
-function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList }) {
+function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite }) {
   const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
   return (
     <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
@@ -1070,7 +1080,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
                   {isOpen && (
                     <tr>
                       <td colSpan={5} className="p-0">
-                        <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} />
+                        <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} />
                       </td>
                     </tr>
                   )}
@@ -1156,7 +1166,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
   );
 }
 
-function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList }) {
+function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite }) {
   if (vehicles.length === 0) {
     return (
       <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
@@ -1173,7 +1183,7 @@ function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vend
             <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} />
             {isOpen && (
               <div className={`overflow-hidden rounded-b-xl border border-t-0 ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
-                <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} />
+                <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} />
               </div>
             )}
           </div>
@@ -1187,7 +1197,8 @@ const DONUT_COLORS_LIGHT = ["#D97706", "#0284C7", "#059669", "#DB2777", "#7C3AED
 const DONUT_COLORS_DARK = ["#FBBF24", "#38BDF8", "#34D399", "#F472B6", "#A78BFA", "#94A3B8"];
 
 function DonutCard({ dark, title, data }) {
-  const colors = dark ? DONUT_COLORS_DARK : DONUT_COLORS_LIGHT;
+  const palette = dark ? DONUT_COLORS_DARK : DONUT_COLORS_LIGHT;
+  const colorFor = (d, i) => STATUS_LABEL_COLORS[d.name] || palette[i % palette.length];
   const gridColor = dark ? "#27272A" : "#E7E5E4";
   const total = data.reduce((n, d) => n + d.count, 0);
   return (
@@ -1201,7 +1212,7 @@ function DonutCard({ dark, title, data }) {
             <PieChart>
               <Pie data={data} dataKey="count" nameKey="name" innerRadius={38} outerRadius={68} paddingAngle={2} strokeWidth={0}>
                 {data.map((_, i) => (
-                  <Cell key={i} fill={colors[i % colors.length]} />
+                  <Cell key={i} fill={colorFor(data[i], i)} />
                 ))}
               </Pie>
               <Tooltip contentStyle={{ background: dark ? "#18181B" : "#fff", border: `1px solid ${gridColor}`, borderRadius: 10, fontSize: 12 }} />
@@ -1210,7 +1221,7 @@ function DonutCard({ dark, title, data }) {
           <ul className="min-w-0 flex-1 space-y-1.5">
             {data.map((d, i) => (
               <li key={d.name} className="flex items-center gap-2 text-xs">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colors[i % colors.length] }} />
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorFor(d, i) }} />
                 <span className={`min-w-0 flex-1 truncate ${dark ? "text-zinc-300" : "text-stone-600"}`}>{d.name}</span>
                 <span className={`shrink-0 font-semibold tabular-nums ${dark ? "text-zinc-100" : "text-stone-800"}`}>{d.count}</span>
               </li>
@@ -1431,7 +1442,7 @@ function TrendChart({ dark }) {
   );
 }
 
-function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList }) {
+function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite }) {
   const myPermissions = getPermissions(vendorName, vendeursList);
   const canReserveForOthers = myPermissions.reserveForOthers;
   const canReserve = myPermissions.reserve;
@@ -1533,6 +1544,21 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList }) 
           <div className={`rounded-lg border p-3 text-xs leading-relaxed ${dark ? "border-zinc-800 bg-zinc-950 text-zinc-300" : "border-stone-200 bg-stone-50 text-stone-600"}`}>{v.description}</div>
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-sm">
             <div><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>VIN</dt><dd className={`font-mono font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{v.vin || "—"}</dd></div>
+            <div>
+              <dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Site (localisation stock)</dt>
+              <dd>
+                <select
+                  value={v.siteLocation || ""}
+                  onChange={(e) => onUpdateVehicleSite(v.orderNumber, e.target.value)}
+                  className={`mt-0.5 h-7 rounded-lg border px-1.5 text-xs font-medium outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-100 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-800 focus:ring-amber-500/20"}`}
+                >
+                  <option value="">Non renseigné</option>
+                  {sitesList.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </dd>
+            </div>
             {clientLine(v) && (
               <div className="col-span-2"><dt className={`text-[11px] font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>Client</dt><dd className={`break-words font-medium ${dark ? "text-zinc-100" : "text-stone-800"}`}>{clientLine(v)}</dd></div>
             )}
@@ -1724,6 +1750,11 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
                       <title>{v.energy}</title>
                     </Zap>
                   )}
+                  {v.siteLocation && (
+                    <span className={`shrink-0 truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-700"}`}>
+                      {v.siteLocation}
+                    </span>
+                  )}
                 </div>
                 <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
                   {v.orderNumber}{clientLine(v) ? ` - ${clientLine(v)}` : v.vin ? ` - ${v.vin}` : ""}
@@ -1758,7 +1789,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
     if (contremarqueFilter === "non" && v.vendu) return false;
     if (concessionFilter !== "all" && v.concession !== concessionFilter) return false;
     if (vendeurFilter !== "all" && vendorOf(v) !== vendeurFilter) return false;
-    if (siteFilter !== "all" && (vendeurSiteMap.get(vendorOf(v)) || "") !== siteFilter) return false;
+    if (siteFilter !== "all" && vehicleEffectiveSite(v, vendeurSiteMap) !== siteFilter) return false;
     if (!q) return true;
     return `${v.orderNumber} ${v.vin} ${v.model} ${v.typeVente} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase().includes(q);
   };
@@ -3283,6 +3314,18 @@ export default function App() {
     return ok;
   }
 
+  async function handleUpdateVehicleSite(orderNumber, site) {
+    const freshRaw = await sGet(STORE_KEYS.overlays, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : {};
+    const current = fresh[orderNumber] || {};
+    const next = { ...fresh, [orderNumber]: { ...current, siteLocation: site } };
+    const ok = await sSet(STORE_KEYS.overlays, JSON.stringify(next), true);
+    setOverlays(next);
+    localWriteVersionRef.current++;
+    if (ok) showToast(site ? `Site rattaché : ${site}` : "Site retiré");
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
   async function handleReservationSave(orderNumber, form) {
     const now = new Date();
     const freshRaw = await sGet(STORE_KEYS.overlays, true);
@@ -3735,12 +3778,8 @@ export default function App() {
   const visibleVehicles = useMemo(() => {
     if (!mySiteScope) return vehicles;
     const siteByVendeur = new Map(vendeursList.map((v) => [v.nom, v.site]));
-    const vehicleSite = (v) => {
-      const nom = v.venduPar || activeReservationVendeur(v);
-      return nom ? siteByVendeur.get(nom) : null;
-    };
     return vehicles.filter((v) => {
-      const site = vehicleSite(v);
+      const site = vehicleEffectiveSite(v, siteByVendeur);
       return !site || site === mySiteScope;
     });
   }, [vehicles, vendeursList, mySiteScope]);
@@ -3983,10 +4022,10 @@ export default function App() {
                 onExport={() => exportVehiclesToExcel(filtered)}
               />
               <div className="hidden lg:block">
-                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} />
+                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} />
               </div>
               <div className="lg:hidden">
-                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} />
+                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} />
               </div>
             </>
           )}
