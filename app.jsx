@@ -3202,6 +3202,41 @@ export default function App() {
     if (indicate) setSyncing(false);
   }, []);
 
+  const dataLoadedRef = useRef(false);
+  async function loadInitialData() {
+    const [o, s, ov, meta] = await Promise.all([
+      sGet(STORE_KEYS.orders, true),
+      sGet(STORE_KEYS.stock, true),
+      sGet(STORE_KEYS.overlays, true),
+      sGet(STORE_KEYS.meta, true),
+    ]);
+    if (o) setOrdersData(JSON.parse(o));
+    if (s) setStockData(JSON.parse(s));
+    setOverlays(ov ? JSON.parse(ov) : {});
+    if (meta) setImportMeta(JSON.parse(meta));
+    setLastSync(new Date());
+    setLoading(false);
+    dataLoadedRef.current = true;
+
+    Promise.all([
+      sGet(STORE_KEYS.accidents, true),
+      sGet(STORE_KEYS.dossiers, true),
+      sGet(STORE_KEYS.dossiersMeta, true),
+      sGet(STORE_KEYS.manualSales, true),
+      sGet(STORE_KEYS.sites, true),
+      sGet(STORE_KEYS.alertSettings, true),
+      sGet(STORE_KEYS.activityLog, true),
+    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log]) => {
+      setAccidents(acc2 ? JSON.parse(acc2) : []);
+      setDossiersData(doss ? JSON.parse(doss) : []);
+      if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
+      setManualSales(manual ? JSON.parse(manual) : {});
+      if (sites) setSitesList(JSON.parse(sites));
+      if (alertCfg) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
+      if (log) setActivityLog(JSON.parse(log));
+    });
+  }
+
   useEffect(() => {
     (async () => {
       const t = await sGet(STORE_KEYS.theme, false);
@@ -3212,37 +3247,7 @@ export default function App() {
       if (session?.user?.email) {
         setAuthEmail(session.user.email);
         setUnlocked(true);
-
-        const [o, s, ov, meta] = await Promise.all([
-          sGet(STORE_KEYS.orders, true),
-          sGet(STORE_KEYS.stock, true),
-          sGet(STORE_KEYS.overlays, true),
-          sGet(STORE_KEYS.meta, true),
-        ]);
-        if (o) setOrdersData(JSON.parse(o));
-        if (s) setStockData(JSON.parse(s));
-        setOverlays(ov ? JSON.parse(ov) : {});
-        if (meta) setImportMeta(JSON.parse(meta));
-        setLastSync(new Date());
-        setLoading(false);
-
-        Promise.all([
-          sGet(STORE_KEYS.accidents, true),
-          sGet(STORE_KEYS.dossiers, true),
-          sGet(STORE_KEYS.dossiersMeta, true),
-          sGet(STORE_KEYS.manualSales, true),
-          sGet(STORE_KEYS.sites, true),
-          sGet(STORE_KEYS.alertSettings, true),
-          sGet(STORE_KEYS.activityLog, true),
-        ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log]) => {
-          setAccidents(acc2 ? JSON.parse(acc2) : []);
-          setDossiersData(doss ? JSON.parse(doss) : []);
-          if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
-          setManualSales(manual ? JSON.parse(manual) : {});
-          if (sites) setSitesList(JSON.parse(sites));
-          if (alertCfg) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
-          if (log) setActivityLog(JSON.parse(log));
-        });
+        await loadInitialData();
       } else {
         setLoading(false);
       }
@@ -3254,9 +3259,17 @@ export default function App() {
       } else if (event === "SIGNED_OUT") {
         setUnlocked(false);
         setAuthEmail("");
+        dataLoadedRef.current = false;
       } else if (session?.user?.email) {
         setAuthEmail(session.user.email);
         setUnlocked(true);
+        if (!dataLoadedRef.current) {
+          // A fresh login happening after mount (not caught by the getSession() check above) —
+          // load the data now instead of waiting up to 8s for the next background poll, which
+          // would otherwise show the import screen briefly since ordersData is still empty.
+          setLoading(true);
+          loadInitialData();
+        }
       }
     });
     return () => sub.subscription.unsubscribe();
