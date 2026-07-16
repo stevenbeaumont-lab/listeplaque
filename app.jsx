@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -44,6 +44,7 @@ const STORE_KEYS = {
   sites: "dsr:sites-list",
   alertSettings: "dsr:alert-settings",
   activityLog: "dsr:activity-log",
+  convoyages: "dsr:convoyages",
 };
 
 // ---------------------------------------------------------------------------
@@ -660,6 +661,7 @@ function DashboardSection({ dark, icon: Icon, title, children }) {
 const NAV_ICONS = {
   vehicules: Car,
   logistique: Truck,
+  convoyage: ArrowRightLeft,
   dashboard: TrendingUp,
   dossiers: FileText,
   vendeurs: Users,
@@ -670,6 +672,7 @@ function buildNavItems(permissions, dossierUnmatchedCount) {
   return [
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
+    { id: "convoyage", label: "Convoyage" },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     permissions.accidentes && { id: "accidentes", label: "Accidentés" },
@@ -1769,6 +1772,265 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+function VehiclePicker({ dark, vehicles, value, onChange }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = vehicles.find((v) => v.orderNumber === value);
+  const q = query.trim().toLowerCase();
+  const results = q
+    ? vehicles.filter((v) => `${v.orderNumber} ${v.vin} ${displayModelBase(v)}`.toLowerCase().includes(q)).slice(0, 30)
+    : [];
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  if (selected && !open) {
+    return (
+      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-700"}`}>
+        <Car size={14} className="shrink-0" />
+        <span className="min-w-0 flex-1 truncate font-medium">{displayModelBase(selected)} — {selected.orderNumber}</span>
+        <button onClick={() => { onChange(""); setQuery(""); setOpen(true); }} className={dark ? "text-zinc-500 hover:text-zinc-300" : "text-stone-400 hover:text-stone-600"}>
+          <X size={14} />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="relative">
+      <input
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Commande, VIN, modèle…"
+        className={inputCls}
+      />
+      {open && q && (
+        <div className={`absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+          {results.length === 0 ? (
+            <div className={`p-3 text-center text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucun véhicule trouvé.</div>
+          ) : (
+            results.map((v) => (
+              <button
+                key={v.orderNumber}
+                onClick={() => { onChange(v.orderNumber); setQuery(""); setOpen(false); }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${dark ? "hover:bg-zinc-800 text-zinc-200" : "hover:bg-stone-100 text-stone-700"}`}
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{displayModelBase(v)}</span>
+                <span className={`shrink-0 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.orderNumber}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CONVOYAGE_STATUTS = ["Demandé", "En route", "Arrivé"];
+
+function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCreateConvoyage, onUpdateConvoyageStatut, onDeleteConvoyage, onUpdateVehicleSite, onOpenVehicle }) {
+  const eligibleVehicles = useMemo(() => vehicles.filter((v) => v.baseStatus !== "vendu" && v.baseStatus !== "hs"), [vehicles]);
+  const sansLocalisation = useMemo(() => eligibleVehicles.filter((v) => !v.siteLocation), [eligibleVehicles]);
+  const [showSansLoc, setShowSansLoc] = useState(false);
+  const [showHistorique, setShowHistorique] = useState(false);
+  const [formOrder, setFormOrder] = useState("");
+  const [siteDepart, setSiteDepart] = useState("");
+  const [siteArrivee, setSiteArrivee] = useState("");
+  const [dateSouhaitee, setDateSouhaitee] = useState("");
+  const [commentaire, setCommentaire] = useState("");
+  const vehicleByOrder = useMemo(() => new Map(vehicles.map((v) => [v.orderNumber, v])), [vehicles]);
+
+  useEffect(() => {
+    if (formOrder) {
+      const v = vehicleByOrder.get(formOrder);
+      setSiteDepart(v?.siteLocation || "");
+    }
+  }, [formOrder]);
+
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const labelCls = `mb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
+
+  function submit() {
+    if (!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee) return;
+    onCreateConvoyage({ orderNumber: formOrder, siteDepart, siteArrivee, dateSouhaitee, commentaire });
+    setFormOrder("");
+    setSiteDepart("");
+    setSiteArrivee("");
+    setDateSouhaitee("");
+    setCommentaire("");
+  }
+
+  const enCours = convoyages.filter((c) => c.statut !== "Arrivé").sort((a, b) => (b.demandeLe || "").localeCompare(a.demandeLe || ""));
+  const historique = convoyages.filter((c) => c.statut === "Arrivé").sort((a, b) => (b.demandeLe || "").localeCompare(a.demandeLe || ""));
+
+  function ConvoyageRow({ c }) {
+    const v = vehicleByOrder.get(c.orderNumber);
+    const statutIdx = CONVOYAGE_STATUTS.indexOf(c.statut);
+    return (
+      <li className={`rounded-2xl border p-3.5 ${dark ? "bg-zinc-900/40 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => v && onOpenVehicle(v)} className={`min-w-0 flex-1 truncate text-left text-sm font-semibold hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+            {v ? displayModelBase(v) : c.orderNumber} <span className={`font-normal ${dark ? "text-zinc-500" : "text-stone-400"}`}>— {c.orderNumber}</span>
+          </button>
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>
+            {c.statut}
+          </span>
+        </div>
+        <div className={`mt-1.5 flex flex-wrap items-center gap-1.5 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+          <span className="font-medium">{c.siteDepart}</span>
+          <ArrowRightLeft size={12} className={dark ? "text-zinc-600" : "text-stone-400"} />
+          <span className="font-medium">{c.siteArrivee}</span>
+          {c.dateSouhaitee && <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>· souhaité pour le {c.dateSouhaitee}</span>}
+        </div>
+        {c.commentaire && <div className={`mt-1 text-xs italic ${dark ? "text-zinc-500" : "text-stone-400"}`}>{c.commentaire}</div>}
+        <div className={`mt-1 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Demandé par {c.demandePar} le {c.demandeLe}</div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {statutIdx < CONVOYAGE_STATUTS.length - 1 && (
+            <button
+              onClick={() => onUpdateConvoyageStatut(c.id, CONVOYAGE_STATUTS[statutIdx + 1])}
+              className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+            >
+              Marquer "{CONVOYAGE_STATUTS[statutIdx + 1]}"
+            </button>
+          )}
+          <button
+            onClick={() => onDeleteConvoyage(c.id)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-400 hover:bg-zinc-800" : "border-stone-300 text-stone-500 hover:bg-stone-100"}`}
+          >
+            {c.statut === "Arrivé" ? "Supprimer" : "Annuler"}
+          </button>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          <ArrowRightLeft size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+          Convoyage entre sites
+        </div>
+        <p className={`mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+          Ouvert à tous les collaborateurs — demandez le transfert d'un véhicule d'un site à un autre, et gardez la localisation du stock à jour.
+        </p>
+      </div>
+
+      {sansLocalisation.length > 0 && (
+        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          <button
+            onClick={() => setShowSansLoc((o) => !o)}
+            className={`flex w-full items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-widest transition-colors ${dark ? "bg-amber-500/10 text-amber-300 hover:bg-amber-500/15" : "bg-amber-50 text-amber-800 hover:bg-amber-100"}`}
+          >
+            <span className="flex items-center gap-2"><AlertTriangle size={13} /> {sansLocalisation.length} véhicule{sansLocalisation.length > 1 ? "s" : ""} sans localisation connue</span>
+            <ChevronRight size={14} className={`transition-transform ${showSansLoc ? "rotate-90" : ""}`} />
+          </button>
+          {showSansLoc && (
+            <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+              {sansLocalisation.map((v) => (
+                <li key={v.orderNumber} className={`flex flex-wrap items-center gap-2 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+                  <span className={`min-w-[160px] flex-1 truncate text-sm ${dark ? "text-zinc-200" : "text-stone-700"}`}>
+                    {displayModelBase(v)} <span className={dark ? "text-zinc-500" : "text-stone-400"}>— {v.orderNumber}</span>
+                  </span>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => e.target.value && onUpdateVehicleSite(v.orderNumber, e.target.value)}
+                    className={`h-8 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`}
+                  >
+                    <option value="">Où est-il ? —</option>
+                    {sitesList.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className={`space-y-3 rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <div className={`text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Nouvelle demande</div>
+        <div>
+          <div className={labelCls}>Véhicule</div>
+          <VehiclePicker dark={dark} vehicles={eligibleVehicles} value={formOrder} onChange={setFormOrder} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <div className={labelCls}>Site de départ (où est-il actuellement)</div>
+            <select value={siteDepart} onChange={(e) => setSiteDepart(e.target.value)} className={inputCls}>
+              <option value="">— Choisir —</option>
+              {sitesList.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className={labelCls}>Site d'arrivée souhaité</div>
+            <select value={siteArrivee} onChange={(e) => setSiteArrivee(e.target.value)} className={inputCls}>
+              <option value="">— Choisir —</option>
+              {sitesList.filter((s) => s !== siteDepart).map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <div className={labelCls}>Date souhaitée (optionnel)</div>
+            <input type="date" value={dateSouhaitee} onChange={(e) => setDateSouhaitee(e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <div className={labelCls}>Commentaire (optionnel)</div>
+            <input value={commentaire} onChange={(e) => setCommentaire(e.target.value)} placeholder="Ex. client en attente" className={inputCls} />
+          </div>
+        </div>
+        <button
+          onClick={submit}
+          disabled={!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee}
+          className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40"
+        >
+          Demander le convoyage
+        </button>
+      </div>
+
+      <div>
+        <div className={`mb-3 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          Convoyages en cours ({enCours.length})
+        </div>
+        {enCours.length === 0 ? (
+          <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+            Aucun convoyage en cours.
+          </div>
+        ) : (
+          <ul className="space-y-2.5">
+            {enCours.map((c) => (
+              <ConvoyageRow key={c.id} c={c} />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {historique.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowHistorique((o) => !o)}
+            className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
+          >
+            Historique ({historique.length})
+            <ChevronRight size={13} className={`transition-transform ${showHistorique ? "rotate-90" : ""}`} />
+          </button>
+          {showHistorique && (
+            <ul className="mt-3 space-y-2.5">
+              {historique.map((c) => (
+                <ConvoyageRow key={c.id} c={c} />
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );
@@ -3103,6 +3365,7 @@ export default function App() {
   const [sitesList, setSitesList] = useState(FORD_SITES);
   const [alertSettings, setAlertSettings] = useState(DEFAULT_ALERT_SETTINGS);
   const [activityLog, setActivityLog] = useState([]);
+  const [convoyages, setConvoyages] = useState([]);
   const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -3161,7 +3424,7 @@ export default function App() {
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
     const versionBefore = localWriteVersionRef.current;
-    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
@@ -3174,6 +3437,7 @@ export default function App() {
       sGet(STORE_KEYS.sites, true),
       sGet(STORE_KEYS.alertSettings, true),
       sGet(STORE_KEYS.activityLog, true),
+      sGet(STORE_KEYS.convoyages, true),
     ]);
     const raw = lastRawRef.current;
     const changed = (key, value) => {
@@ -3197,6 +3461,7 @@ export default function App() {
       if (changed("dossiers", doss || "")) setDossiersData(doss ? JSON.parse(doss) : []);
       if (vends && changed("vendeurs", vends)) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
       if (changed("manualSales", manual || "")) setManualSales(manual ? JSON.parse(manual) : {});
+      if (changed("convoyages", conv || "")) setConvoyages(conv ? JSON.parse(conv) : []);
     }
     setLastSync(new Date());
     if (indicate) setSyncing(false);
@@ -3226,7 +3491,8 @@ export default function App() {
       sGet(STORE_KEYS.sites, true),
       sGet(STORE_KEYS.alertSettings, true),
       sGet(STORE_KEYS.activityLog, true),
-    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log]) => {
+      sGet(STORE_KEYS.convoyages, true),
+    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log, conv]) => {
       setAccidents(acc2 ? JSON.parse(acc2) : []);
       setDossiersData(doss ? JSON.parse(doss) : []);
       if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
@@ -3234,6 +3500,7 @@ export default function App() {
       if (sites) setSitesList(JSON.parse(sites));
       if (alertCfg) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
       if (log) setActivityLog(JSON.parse(log));
+      if (conv) setConvoyages(JSON.parse(conv));
     });
   }
 
@@ -3336,6 +3603,54 @@ export default function App() {
     setOverlays(next);
     localWriteVersionRef.current++;
     if (ok) showToast(site ? `Site rattaché : ${site}` : "Site retiré");
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleCreateConvoyage({ orderNumber, siteDepart, siteArrivee, dateSouhaitee, commentaire }) {
+    const freshRaw = await sGet(STORE_KEYS.convoyages, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      orderNumber,
+      siteDepart,
+      siteArrivee,
+      dateSouhaitee,
+      commentaire,
+      statut: "Demandé",
+      demandePar: vendorName,
+      demandeLe: new Date().toLocaleDateString("fr-FR"),
+    };
+    const next = [entry, ...fresh];
+    const ok = await sSet(STORE_KEYS.convoyages, JSON.stringify(next), true);
+    setConvoyages(next);
+    localWriteVersionRef.current++;
+    // Recording the departure site also confirms/corrects the vehicle's current known location.
+    await handleUpdateVehicleSite(orderNumber, siteDepart);
+    if (ok) { showToast(`Convoyage demandé : ${siteDepart} → ${siteArrivee}`); logActivity(`Convoyage demandé — commande ${orderNumber} (${siteDepart} → ${siteArrivee})`); }
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleUpdateConvoyageStatut(id, statut) {
+    const freshRaw = await sGet(STORE_KEYS.convoyages, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const entry = fresh.find((c) => c.id === id);
+    const next = fresh.map((c) => (c.id === id ? { ...c, statut } : c));
+    const ok = await sSet(STORE_KEYS.convoyages, JSON.stringify(next), true);
+    setConvoyages(next);
+    localWriteVersionRef.current++;
+    if (statut === "Arrivé" && entry) await handleUpdateVehicleSite(entry.orderNumber, entry.siteArrivee);
+    if (ok) { showToast(`Convoyage : ${statut}`); if (entry) logActivity(`Convoyage "${statut}" — commande ${entry.orderNumber}`); }
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleDeleteConvoyage(id) {
+    const freshRaw = await sGet(STORE_KEYS.convoyages, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const next = fresh.filter((c) => c.id !== id);
+    const ok = await sSet(STORE_KEYS.convoyages, JSON.stringify(next), true);
+    setConvoyages(next);
+    localWriteVersionRef.current++;
+    if (ok) showToast("Convoyage retiré");
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
@@ -3944,6 +4259,19 @@ export default function App() {
 
           {tab === "logistique" ? (
             <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} />
+          ) : tab === "convoyage" ? (
+            <ConvoyageTab
+              dark={dark}
+              vehicles={vehicles}
+              convoyages={convoyages}
+              sitesList={sitesList}
+              vendorName={vendorName}
+              onCreateConvoyage={handleCreateConvoyage}
+              onUpdateConvoyageStatut={handleUpdateConvoyageStatut}
+              onDeleteConvoyage={handleDeleteConvoyage}
+              onUpdateVehicleSite={handleUpdateVehicleSite}
+              onOpenVehicle={openInVehicules}
+            />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
