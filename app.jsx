@@ -1831,6 +1831,19 @@ function VehiclePicker({ dark, vehicles, value, onChange }) {
 
 const CONVOYAGE_STATUTS = ["Demandé", "En route", "Arrivé"];
 
+function addBusinessDays(date, days) {
+  const d = new Date(date);
+  let added = 0;
+  while (added < days) {
+    d.setDate(d.getDate() + 1);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) added++;
+  }
+  return d;
+}
+function toDateInputValue(date) {
+  return date.toISOString().slice(0, 10);
+}
 function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCreateConvoyage, onUpdateConvoyageStatut, onDeleteConvoyage, onUpdateVehicleSite, onOpenVehicle }) {
   const eligibleVehicles = useMemo(() => vehicles.filter((v) => v.baseStatus !== "vendu" && v.baseStatus !== "hs"), [vehicles]);
   const sansLocalisation = useMemo(() => eligibleVehicles.filter((v) => !v.siteLocation), [eligibleVehicles]);
@@ -1842,6 +1855,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
   const [dateSouhaitee, setDateSouhaitee] = useState("");
   const [commentaire, setCommentaire] = useState("");
   const vehicleByOrder = useMemo(() => new Map(vehicles.map((v) => [v.orderNumber, v])), [vehicles]);
+  const minDate = useMemo(() => toDateInputValue(addBusinessDays(new Date(), 3)), []);
 
   useEffect(() => {
     if (formOrder) {
@@ -1852,9 +1866,10 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
 
   const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
   const labelCls = `mb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
+  const dateTooSoon = dateSouhaitee && dateSouhaitee < minDate;
 
   function submit() {
-    if (!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee) return;
+    if (!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee || !dateSouhaitee || dateTooSoon) return;
     onCreateConvoyage({ orderNumber: formOrder, siteDepart, siteArrivee, dateSouhaitee, commentaire });
     setFormOrder("");
     setSiteDepart("");
@@ -1980,8 +1995,11 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <div className={labelCls}>Date souhaitée (optionnel)</div>
-            <input type="date" value={dateSouhaitee} onChange={(e) => setDateSouhaitee(e.target.value)} className={inputCls} />
+            <div className={labelCls}>Date souhaitée *</div>
+            <input type="date" min={minDate} value={dateSouhaitee} onChange={(e) => setDateSouhaitee(e.target.value)} className={`${inputCls} ${dateTooSoon ? "border-rose-500" : ""}`} />
+            <p className={`mt-1 text-xs ${dateTooSoon ? "font-semibold text-rose-500" : dark ? "text-zinc-600" : "text-stone-400"}`}>
+              {dateTooSoon ? "La date choisie est trop proche — 3 jours ouvrés minimum." : "Minimum 3 jours ouvrés à l'avance."}
+            </p>
           </div>
           <div>
             <div className={labelCls}>Commentaire (optionnel)</div>
@@ -1990,7 +2008,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
         </div>
         <button
           onClick={submit}
-          disabled={!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee}
+          disabled={!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee || !dateSouhaitee || dateTooSoon}
           className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40"
         >
           Demander le convoyage
