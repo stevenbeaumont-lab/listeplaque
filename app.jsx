@@ -1020,6 +1020,11 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
                 <title>{v.energy}</title>
               </Zap>
             )}
+            {v.siteLocation && (
+              <span className={`shrink-0 truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-700"}`} title={`Localisation : ${v.siteLocation}`}>
+                {v.siteLocation}
+              </span>
+            )}
           </div>
           <div className={`truncate text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={meta}>{meta}</div>
         </div>
@@ -1147,6 +1152,11 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className={`font-mono text-xs font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{v.orderNumber}</span>
         <StatusBadge vehicle={v} dark={dark} />
+        {v.siteLocation && (
+          <span className={`shrink-0 truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-700"}`}>
+            {v.siteLocation}
+          </span>
+        )}
         {v.baseStatus === "vendu" && (
           <span className={`flex items-center gap-1 text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>
             <User size={11} /> {venduLabel(v)}{clientLine(v) && ` · Client : ${clientLine(v)}`}
