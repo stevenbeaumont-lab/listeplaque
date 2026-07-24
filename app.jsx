@@ -834,12 +834,13 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
   );
 }
 
-function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, vendeurs }) {
+function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, vendeurs, models }) {
   const [open, setOpen] = useState(false);
   const selectCls = `h-9 w-full rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
   const labelCls = `mb-1.5 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
 
   const activeCount =
+    (filters.modele !== "all" ? 1 : 0) +
     (filters.concession !== "all" ? 1 : 0) +
     (filters.vu !== "all" ? 1 : 0) +
     (filters.statut !== "all" ? 1 : 0) +
@@ -857,7 +858,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
     setFilters((f) => ({ ...f, typeVente: f.typeVente.includes(code) ? f.typeVente.filter((c) => c !== code) : [...f.typeVente, code] }));
   }
   function reset() {
-    setFilters((f) => ({ ...f, concession: "all", vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", typeVente: [] }));
+    setFilters((f) => ({ ...f, modele: "all", concession: "all", vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", typeVente: [] }));
   }
 
   return (
@@ -875,6 +876,15 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className={`absolute right-0 z-20 mt-1 w-72 space-y-3 rounded-xl border p-3.5 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+            <div>
+              <div className={labelCls}>Véhicule (modèle)</div>
+              <select className={selectCls} value={filters.modele} onChange={(e) => setFilters((f) => ({ ...f, modele: e.target.value }))}>
+                <option value="all">Tous les modèles</option>
+                {models.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <div className={labelCls}>Concession</div>
               <select className={selectCls} value={filters.concession} onChange={(e) => setFilters((f) => ({ ...f, concession: e.target.value }))}>
@@ -948,7 +958,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
   );
 }
 
-function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeurs, sortBy, setSortBy, onExport }) {
+function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeurs, models, sortBy, setSortBy, onExport }) {
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30 focus:border-amber-500/40" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20 focus:border-amber-400"}`;
   return (
     <div className={`flex flex-wrap items-center gap-2 rounded-2xl border p-2.5 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -962,7 +972,7 @@ function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeur
           className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
         />
       </div>
-      <FiltersPopover dark={dark} filters={filters} setFilters={setFilters} concessions={concessions} typeVentes={typeVentes} vendeurs={vendeurs} />
+      <FiltersPopover dark={dark} filters={filters} setFilters={setFilters} concessions={concessions} typeVentes={typeVentes} vendeurs={vendeurs} models={models} />
       <select className={inputCls} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
         <option value="recent">Trier : arrivée récente</option>
         <option value="stock_asc">Trier : jours de stock (A→Z)</option>
@@ -3470,7 +3480,7 @@ export default function App() {
   const [resetConfirm, setResetConfirm] = useState(false);
   const [tab, setTab] = useState(() => loadLocal("dsr:ui-tab", "vehicules"));
   const [filters, setFilters] = useState(() =>
-    loadLocal("dsr:ui-filters", { concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "" })
+    loadLocal("dsr:ui-filters", { modele: "all", concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "" })
   );
   const [sortBy, setSortBy] = useState(() => loadLocal("dsr:ui-sort", "stock_desc"));
 
@@ -4119,7 +4129,7 @@ export default function App() {
   }
   function goToVehicles(patch) {
     setTab("vehicules");
-    setFilters((f) => ({ ...f, concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "", ...patch }));
+    setFilters((f) => ({ ...f, modele: "all", concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "", ...patch }));
   }
 
   const stats = useMemo(() => computeStats(vehicles), [vehicles]);
@@ -4127,6 +4137,7 @@ export default function App() {
   const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
   const typeVentes = useMemo(() => [...new Set(vehicles.map((v) => v.typeVente))].filter(Boolean).sort(), [vehicles]);
   const vendeurs = useMemo(() => [...new Set(vehicles.map((v) => activeReservationVendeur(v)).filter(Boolean))].sort(), [vehicles]);
+  const models = useMemo(() => [...new Set(vehicles.map((v) => v.model))].filter(Boolean).sort(), [vehicles]);
 
   const filtered = useMemo(() => {
     const terms = filters.query.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
@@ -4137,6 +4148,7 @@ export default function App() {
       if (filters.vu === "vu" && !v.vu) return false;
       if (filters.statut !== "all" && v.baseStatus !== filters.statut) return false;
       if (filters.vendeur !== "all" && activeReservationVendeur(v) !== filters.vendeur) return false;
+      if (filters.modele && filters.modele !== "all" && v.model !== filters.modele) return false;
       if (filters.carrosserie && filters.carrosserie !== "all" && v.bodyCode !== filters.carrosserie) return false;
       if (filters.boite && filters.boite !== "all" && v.transmission !== filters.boite) return false;
       if (terms.length > 0) {
@@ -4453,6 +4465,7 @@ export default function App() {
                 concessions={concessions}
                 typeVentes={typeVentes}
                 vendeurs={vendeurs}
+                models={models}
                 sortBy={sortBy}
                 setSortBy={setSortBy}
                 onExport={() => exportVehiclesToExcel(filtered)}
