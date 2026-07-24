@@ -1829,7 +1829,7 @@ function VehiclePicker({ dark, vehicles, value, onChange }) {
   );
 }
 
-const CONVOYAGE_STATUTS = ["Demandé", "En route", "Arrivé"];
+const CONVOYAGE_STATUTS = ["Demandé", "Fait"];
 
 function addBusinessDays(date, days) {
   const d = new Date(date);
@@ -1878,8 +1878,16 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
     setCommentaire("");
   }
 
-  const enCours = convoyages.filter((c) => c.statut !== "Arrivé").sort((a, b) => (b.demandeLe || "").localeCompare(a.demandeLe || ""));
-  const historique = convoyages.filter((c) => c.statut === "Arrivé").sort((a, b) => (b.demandeLe || "").localeCompare(a.demandeLe || ""));
+  const [listQuery, setListQuery] = useState("");
+  const lq = listQuery.trim().toLowerCase();
+  const matchesQuery = (c) => {
+    if (!lq) return true;
+    const v = vehicleByOrder.get(c.orderNumber);
+    const hay = `${c.orderNumber} ${v?.vin || ""} ${v ? displayModelBase(v) : ""}`.toLowerCase();
+    return hay.includes(lq);
+  };
+  const enCours = convoyages.filter((c) => c.statut !== "Fait" && matchesQuery(c)).sort((a, b) => (b.demandeLe || "").localeCompare(a.demandeLe || ""));
+  const historique = convoyages.filter((c) => c.statut === "Fait" && matchesQuery(c)).sort((a, b) => (b.demandeLe || "").localeCompare(a.demandeLe || ""));
 
   function ConvoyageRow({ c }) {
     const v = vehicleByOrder.get(c.orderNumber);
@@ -1915,7 +1923,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
             onClick={() => onDeleteConvoyage(c.id)}
             className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-400 hover:bg-zinc-800" : "border-stone-300 text-stone-500 hover:bg-stone-100"}`}
           >
-            {c.statut === "Arrivé" ? "Supprimer" : "Annuler"}
+            {c.statut === "Fait" ? "Supprimer" : "Annuler"}
           </button>
         </div>
       </li>
@@ -2015,6 +2023,16 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
         </button>
       </div>
 
+      <div className={`flex h-9 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
+        <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
+        <input
+          value={listQuery}
+          onChange={(e) => setListQuery(e.target.value)}
+          placeholder="Rechercher un véhicule (commande, VIN, modèle)…"
+          className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
+        />
+      </div>
+
       <div>
         <div className={`mb-3 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
           Convoyages en cours ({enCours.length})
@@ -2054,7 +2072,8 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
   );
 }
 
-function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, simpleMode }) {
+function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, simpleMode, onSave, vendorName, onUpdateVehicleSite }) {
+  const [popupVehicle, setPopupVehicle] = useState(null);
   const [query, setQuery] = useState("");
   const [contremarqueFilter, setContremarqueFilter] = useState("all");
   const [concessionFilter, setConcessionFilter] = useState("all");
@@ -2142,7 +2161,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
           iconColor={dark ? "text-emerald-400" : "text-emerald-600"}
           vehicles={enStock}
           emptyLabel="Aucun véhicule en stock."
-          onOpen={onOpenVehicle}
+          onOpen={setPopupVehicle}
           renderExtra={(v) => (
             <div className="flex shrink-0 flex-col items-end gap-1">
               <span className={`text-xs font-semibold tabular-nums ${dark ? "text-zinc-300" : "text-stone-600"}`}>{v.joursStock} j</span>
@@ -2157,7 +2176,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
           iconColor={dark ? "text-sky-400" : "text-sky-600"}
           vehicles={enTransit}
           emptyLabel="Aucun véhicule en transit."
-          onOpen={onOpenVehicle}
+          onOpen={setPopupVehicle}
           renderExtra={(v) => (
             <div className="flex shrink-0 flex-col items-end gap-1">
               <span className={`text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>{fmtRange(v.estRange) || "Date inconnue"}</span>
@@ -2172,7 +2191,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
           iconColor={dark ? "text-indigo-400" : "text-indigo-600"}
           vehicles={nonSerialises}
           emptyLabel="Aucun véhicule non sérialisé."
-          onOpen={onOpenVehicle}
+          onOpen={setPopupVehicle}
           renderExtra={(v) => (
             <div className="flex shrink-0 flex-col items-end gap-1">
               <span className={`text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>{v.typeVente || "—"}</span>
@@ -2181,6 +2200,23 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
           )}
         />
       </div>
+      {popupVehicle && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setPopupVehicle(null)} />
+          <div className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl shadow-xl">
+            <ExpandedDetail
+              v={popupVehicle}
+              dark={dark}
+              onClose={() => setPopupVehicle(null)}
+              onSave={onSave}
+              vendorName={vendorName}
+              vendeursList={vendeursList}
+              sitesList={sitesList}
+              onUpdateVehicleSite={onUpdateVehicleSite}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3318,6 +3354,42 @@ function SetNewPasswordScreen({ dark, onDone }) {
 // ---------------------------------------------------------------------------
 // Main app
 // ---------------------------------------------------------------------------
+function resolveConvoyageRecipients(orderNumber, siteDepart, siteArrivee, vehicles, vendeursList) {
+  const emails = new Set();
+  vendeursList.forEach((v) => {
+    if (!v.email) return;
+    if (v.role === "Directeur de plaque" || v.role === "Chef des ventes") emails.add(v.email);
+    else if (v.role === "Responsable de site" && (v.site === siteDepart || v.site === siteArrivee)) emails.add(v.email);
+  });
+  const vehicle = vehicles.find((v) => v.orderNumber === orderNumber);
+  if (vehicle) {
+    const concernedName = vehicle.venduPar || activeReservationVendeur(vehicle);
+    const concerned = concernedName && vendeursList.find((v) => v.nom === concernedName);
+    if (concerned?.email) emails.add(concerned.email);
+  }
+  return [...emails];
+}
+function openConvoyageMailDraft({ orderNumber, siteDepart, siteArrivee, dateSouhaitee, commentaire, demandePar, vehicles, vendeursList }) {
+  const recipients = resolveConvoyageRecipients(orderNumber, siteDepart, siteArrivee, vehicles, vendeursList);
+  const vehicle = vehicles.find((v) => v.orderNumber === orderNumber);
+  const vehicleLabel = vehicle ? displayModelBase(vehicle) : orderNumber;
+  const subject = `Demande de convoyage — ${vehicleLabel} (${orderNumber})`;
+  const body = [
+    "Une demande de convoyage a été enregistrée dans ParcLive :",
+    "",
+    `Véhicule : ${vehicleLabel} — commande ${orderNumber}`,
+    `Départ : ${siteDepart}`,
+    `Arrivée : ${siteArrivee}`,
+    `Date souhaitée : ${dateSouhaitee}`,
+    commentaire ? `Commentaire : ${commentaire}` : null,
+    `Demandé par : ${demandePar}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const mailto = `mailto:${recipients.join(",")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailto;
+  return recipients;
+}
 function computeStats(vehicles) {
   const inStockList = vehicles.filter((v) => v.inStock);
   const avgJoursStock = inStockList.length ? Math.round(inStockList.reduce((n, v) => n + v.joursStock, 0) / inStockList.length) : 0;
@@ -3644,7 +3716,12 @@ export default function App() {
     localWriteVersionRef.current++;
     // Recording the departure site also confirms/corrects the vehicle's current known location.
     await handleUpdateVehicleSite(orderNumber, siteDepart);
-    if (ok) { showToast(`Convoyage demandé : ${siteDepart} → ${siteArrivee}`); logActivity(`Convoyage demandé — commande ${orderNumber} (${siteDepart} → ${siteArrivee})`); }
+    if (ok) {
+      showToast(`Convoyage demandé : ${siteDepart} → ${siteArrivee}`);
+      logActivity(`Convoyage demandé — commande ${orderNumber} (${siteDepart} → ${siteArrivee})`);
+      const recipients = openConvoyageMailDraft({ orderNumber, siteDepart, siteArrivee, dateSouhaitee, commentaire, demandePar: vendorName, vehicles, vendeursList });
+      if (recipients.length === 0) showToast("Aucun destinataire trouvé — vérifiez que les emails sont renseignés dans Réglages", { type: "error" });
+    }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
@@ -3656,7 +3733,7 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.convoyages, JSON.stringify(next), true);
     setConvoyages(next);
     localWriteVersionRef.current++;
-    if (statut === "Arrivé" && entry) await handleUpdateVehicleSite(entry.orderNumber, entry.siteArrivee);
+    if (statut === "Fait" && entry) await handleUpdateVehicleSite(entry.orderNumber, entry.siteArrivee);
     if (ok) { showToast(`Convoyage : ${statut}`); if (entry) logActivity(`Convoyage "${statut}" — commande ${entry.orderNumber}`); }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
@@ -4276,7 +4353,7 @@ export default function App() {
             <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
-            <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} />
+            <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} onSave={handleReservationSave} vendorName={vendorName} onUpdateVehicleSite={handleUpdateVehicleSite} />
           ) : tab === "convoyage" ? (
             <ConvoyageTab
               dark={dark}
