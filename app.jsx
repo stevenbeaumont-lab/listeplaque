@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -485,7 +485,7 @@ function clientLine(v) {
 // ---------------------------------------------------------------------------
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
-const DEFAULT_ALERT_SETTINGS = { arriveeRecente: 3, resaExpireBientot: 2, resaLongue: 21 };
+const DEFAULT_ALERT_SETTINGS = { arriveeRecente: 3, resaExpireBientot: 2, resaLongue: 21, challengeSeuilJours: 45 };
 function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, alertSettings) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
@@ -662,6 +662,7 @@ const NAV_ICONS = {
   vehicules: Car,
   logistique: Truck,
   convoyage: ArrowRightLeft,
+  challenge: Trophy,
   dashboard: TrendingUp,
   dossiers: FileText,
   vendeurs: Users,
@@ -673,6 +674,7 @@ function buildNavItems(permissions, dossierUnmatchedCount) {
     { id: "vehicules", label: "Véhicules" },
     { id: "logistique", label: "Logistique" },
     { id: "convoyage", label: "Convoyage" },
+    { id: "challenge", label: "Challenge" },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
     permissions.accidentes && { id: "accidentes", label: "Accidentés" },
@@ -1864,6 +1866,100 @@ function addBusinessDays(date, days) {
 function toDateInputValue(date) {
   return date.toISOString().slice(0, 10);
 }
+function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, onOpenVehicle }) {
+  const stockAncien = useMemo(
+    () => vehicles.filter((v) => v.baseStatus === "disponible" && v.inStock && v.joursStock >= seuilJours).sort((a, b) => b.joursStock - a.joursStock),
+    [vehicles, seuilJours]
+  );
+
+  const classement = useMemo(() => {
+    const counts = {};
+    vehicles.forEach((v) => {
+      if (!v.inStock || v.joursStock == null || v.joursStock < seuilJours) return;
+      const nom = v.baseStatus === "vendu" ? v.venduPar : v.baseStatus === "reserve" ? activeReservationVendeur(v) : null;
+      if (nom) counts[nom] = (counts[nom] || 0) + 1;
+    });
+    const siteByVendeur = new Map(vendeursList.map((v) => [v.nom, v.site]));
+    return Object.entries(counts)
+      .map(([nom, count]) => ({ nom, count, site: siteByVendeur.get(nom) || "—" }))
+      .sort((a, b) => b.count - a.count);
+  }, [vehicles, vendeursList, seuilJours]);
+
+  const avgAge = stockAncien.length ? Math.round(stockAncien.reduce((n, v) => n + v.joursStock, 0) / stockAncien.length) : 0;
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          <Trophy size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+          Challenge stock ancien
+        </div>
+        <p className={`mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+          Les véhicules disponibles depuis plus de {seuilJours} jours, à écouler en priorité. Chaque vente ou réservation d'un véhicule ancien compte pour le classement — tous sites confondus.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <KPICard dark={dark} label="Véhicules à challenger" value={stockAncien.length} />
+        <KPICard dark={dark} label="Âge moyen" value={`${avgAge} j`} />
+        <KPICard dark={dark} label="Seuil actuel" value={`${seuilJours} j`} />
+      </div>
+
+      <div>
+        <div className={`mb-3 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          Classement — véhicules anciens vendus ou réservés
+        </div>
+        {classement.length === 0 ? (
+          <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+            Personne n'a encore challengé de stock ancien.
+          </div>
+        ) : (
+          <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+            <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+              {classement.map((r, i) => (
+                <li key={r.nom} className={`flex items-center gap-3 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/60" : "hover:bg-amber-50/40"}`}>
+                  <span className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+                    {i === 0 && "🥇 "}{i === 1 && "🥈 "}{i === 2 && "🥉 "}{r.nom}
+                  </span>
+                  <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{r.site}</span>
+                  <span className={`ml-auto font-bold tabular-nums ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.count}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className={`mb-3 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          Stock à challenger ({stockAncien.length})
+        </div>
+        {stockAncien.length === 0 ? (
+          <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+            Aucun véhicule au-delà du seuil actuellement — bravo !
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {stockAncien.map((v) => (
+              <li
+                key={v.orderNumber}
+                onClick={() => onOpenVehicle(v)}
+                className={`flex cursor-pointer flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 transition-colors ${dark ? "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/70" : "border-stone-200 bg-white hover:bg-amber-50/40"}`}
+              >
+                <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</span>
+                <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.orderNumber}{v.siteLocation ? ` · ${v.siteLocation}` : ""}</span>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
+                  {v.joursStock} j
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCreateConvoyage, onUpdateConvoyageStatut, onDeleteConvoyage, onUpdateVehicleSite, onOpenVehicle }) {
   const eligibleVehicles = useMemo(() => vehicles.filter((v) => v.baseStatus !== "vendu" && v.baseStatus !== "hs"), [vehicles]);
   const sansLocalisation = useMemo(() => eligibleVehicles.filter((v) => !v.siteLocation), [eligibleVehicles]);
@@ -3006,6 +3102,7 @@ function AlertSettingsPanel({ dark, alertSettings, onUpdate }) {
     { key: "arriveeRecente", label: "Arrivée récente (véhicule en stock depuis moins de X jours)" },
     { key: "resaExpireBientot", label: "Réservation qui expire bientôt (dans moins de X jours)" },
     { key: "resaLongue", label: "Réservé depuis longtemps (plus de X jours)" },
+    { key: "challengeSeuilJours", label: "Stock ancien à challenger (plus de X jours) — onglet Challenge" },
   ];
   return (
     <div className="space-y-4">
@@ -4182,6 +4279,8 @@ export default function App() {
         return aDate - bDate;
       });
     }
+    // HS vehicles always go last, whatever the chosen sort — they're not sellable stock.
+    list = [...list.filter((v) => v.baseStatus !== "hs"), ...list.filter((v) => v.baseStatus === "hs")];
     return list;
   }, [vehicles, filters, sortBy]);
 
@@ -4389,6 +4488,8 @@ export default function App() {
               onUpdateVehicleSite={handleUpdateVehicleSite}
               onOpenVehicle={openInVehicules}
             />
+          ) : tab === "challenge" ? (
+            <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
