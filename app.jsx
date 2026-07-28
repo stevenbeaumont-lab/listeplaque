@@ -45,6 +45,8 @@ const STORE_KEYS = {
   alertSettings: "dsr:alert-settings",
   activityLog: "dsr:activity-log",
   convoyages: "dsr:convoyages",
+  challengeConfig: "dsr:challenge-config",
+  challengeEntries: "dsr:challenge-entries",
 };
 
 // ---------------------------------------------------------------------------
@@ -486,6 +488,7 @@ function clientLine(v) {
 // Vehicle derivation (join order + stock + user overlay, compute status/alerts)
 // ---------------------------------------------------------------------------
 const DEFAULT_ALERT_SETTINGS = { arriveeRecente: 3, resaExpireBientot: 2, resaLongue: 21, challengeSeuilJours: 45 };
+const DEFAULT_CHALLENGE_CONFIG = { actif: false, montantParVehicule: 50, dateDebut: "", dateFin: "" };
 function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, alertSettings) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
@@ -1866,26 +1869,32 @@ function addBusinessDays(date, days) {
 function toDateInputValue(date) {
   return date.toISOString().slice(0, 10);
 }
-function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, onOpenVehicle }) {
+function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfig, challengeEntries, onOpenVehicle }) {
   const stockAncien = useMemo(
     () => vehicles.filter((v) => v.baseStatus === "disponible" && v.inStock && v.joursStock >= seuilJours).sort((a, b) => b.joursStock - a.joursStock),
     [vehicles, seuilJours]
   );
 
   const classement = useMemo(() => {
-    const counts = {};
-    vehicles.forEach((v) => {
-      if (!v.inStock || v.joursStock == null || v.joursStock < seuilJours) return;
-      const nom = v.baseStatus === "vendu" ? v.venduPar : v.baseStatus === "reserve" ? activeReservationVendeur(v) : null;
-      if (nom) counts[nom] = (counts[nom] || 0) + 1;
+    const totals = {};
+    challengeEntries.forEach((e) => {
+      if (!e.vendeur) return;
+      if (!totals[e.vendeur]) totals[e.vendeur] = { montant: 0, count: 0 };
+      totals[e.vendeur].montant += e.montant;
+      totals[e.vendeur].count += 1;
     });
     const siteByVendeur = new Map(vendeursList.map((v) => [v.nom, v.site]));
-    return Object.entries(counts)
-      .map(([nom, count]) => ({ nom, count, site: siteByVendeur.get(nom) || "—" }))
-      .sort((a, b) => b.count - a.count);
-  }, [vehicles, vendeursList, seuilJours]);
+    return Object.entries(totals)
+      .map(([nom, t]) => ({ nom, ...t, site: siteByVendeur.get(nom) || "—" }))
+      .sort((a, b) => b.montant - a.montant);
+  }, [challengeEntries, vendeursList]);
 
   const avgAge = stockAncien.length ? Math.round(stockAncien.reduce((n, v) => n + v.joursStock, 0) / stockAncien.length) : 0;
+  const cagnotteTotale = challengeEntries.reduce((n, e) => n + e.montant, 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const enPeriode = !challengeConfig.dateDebut || !challengeConfig.dateFin || (today >= challengeConfig.dateDebut && today <= challengeConfig.dateFin);
+  const challengeActif = challengeConfig.actif && enPeriode;
+  const joursRestants = challengeConfig.dateFin ? Math.ceil((new Date(challengeConfig.dateFin) - new Date(today)) / 86400000) : null;
 
   return (
     <div className="space-y-8">
@@ -1895,11 +1904,28 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, onOpenVehicle 
           Challenge stock ancien
         </div>
         <p className={`mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-          Les véhicules disponibles depuis plus de {seuilJours} jours, à écouler en priorité. Chaque vente ou réservation d'un véhicule ancien compte pour le classement — tous sites confondus.
+          Les véhicules disponibles depuis plus de {seuilJours} jours, à écouler en priorité.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {challengeActif ? (
+        <div className={`rounded-2xl border p-4 ${dark ? "border-amber-500/30 bg-amber-500/10" : "border-amber-200 bg-amber-50"}`}>
+          <div className={`text-sm font-bold ${dark ? "text-amber-300" : "text-amber-800"}`}>
+            Challenge en cours — {challengeConfig.montantParVehicule}€ par véhicule ancien vendu
+          </div>
+          <div className={`mt-1 text-xs ${dark ? "text-amber-300/80" : "text-amber-700"}`}>
+            {challengeConfig.dateDebut && challengeConfig.dateFin ? `Du ${challengeConfig.dateDebut} au ${challengeConfig.dateFin}` : "Sans date de fin définie"}
+            {joursRestants != null && joursRestants >= 0 && ` · ${joursRestants} jour${joursRestants > 1 ? "s" : ""} restant${joursRestants > 1 ? "s" : ""}`}
+          </div>
+        </div>
+      ) : (
+        <div className={`rounded-2xl border p-4 text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
+          Aucun challenge en cours actuellement.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KPICard dark={dark} label="Cagnotte distribuée" value={`${cagnotteTotale}€`} />
         <KPICard dark={dark} label="Véhicules à challenger" value={stockAncien.length} />
         <KPICard dark={dark} label="Âge moyen" value={`${avgAge} j`} />
         <KPICard dark={dark} label="Seuil actuel" value={`${seuilJours} j`} />
@@ -1907,7 +1933,7 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, onOpenVehicle 
 
       <div>
         <div className={`mb-3 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-          Classement — véhicules anciens vendus ou réservés
+          Classement
         </div>
         {classement.length === 0 ? (
           <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
@@ -1921,8 +1947,8 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, onOpenVehicle 
                   <span className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
                     {i === 0 && "🥇 "}{i === 1 && "🥈 "}{i === 2 && "🥉 "}{r.nom}
                   </span>
-                  <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{r.site}</span>
-                  <span className={`ml-auto font-bold tabular-nums ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.count}</span>
+                  <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{r.site} · {r.count} véhicule{r.count > 1 ? "s" : ""}</span>
+                  <span className={`ml-auto font-bold tabular-nums ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.montant}€</span>
                 </li>
               ))}
             </ul>
@@ -3128,6 +3154,58 @@ function AlertSettingsPanel({ dark, alertSettings, onUpdate }) {
   );
 }
 
+function ChallengeSettingsPanel({ dark, challengeConfig, entriesCount, onUpdate, onReset }) {
+  const [values, setValues] = useState(challengeConfig);
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+
+  return (
+    <div className="space-y-4">
+      <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        Motivez l'équipe à écouler le stock ancien avec une prime en euros par véhicule vendu, sur une période définie. Visible par tous dans l'onglet Challenge.
+      </p>
+      <div className={`space-y-3 rounded-2xl border p-4 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
+        <div className="flex items-center gap-3">
+          <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>Challenge actif</span>
+          <button
+            onClick={() => setValues((v) => ({ ...v, actif: !v.actif }))}
+            className={`h-6 w-11 rounded-full transition-colors ${values.actif ? "bg-amber-500" : dark ? "bg-zinc-700" : "bg-stone-300"}`}
+          >
+            <span className={`block h-5 w-5 translate-x-0.5 rounded-full bg-white transition-transform ${values.actif ? "translate-x-[22px]" : ""}`} />
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>Prime par véhicule vendu (€)</span>
+          <input type="number" min={0} value={values.montantParVehicule} onChange={(e) => setValues((v) => ({ ...v, montantParVehicule: Number(e.target.value) }))} className={`${inputCls} w-24`} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <div className={`mb-1 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Date de début</div>
+            <input type="date" value={values.dateDebut} onChange={(e) => setValues((v) => ({ ...v, dateDebut: e.target.value }))} className={`${inputCls} w-full`} />
+          </div>
+          <div>
+            <div className={`mb-1 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Date de fin</div>
+            <input type="date" value={values.dateFin} onChange={(e) => setValues((v) => ({ ...v, dateFin: e.target.value }))} className={`${inputCls} w-full`} />
+          </div>
+        </div>
+      </div>
+      <button onClick={() => onUpdate(values)} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+        Enregistrer le challenge
+      </button>
+      <div className={`rounded-2xl border p-4 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
+        <div className={`text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{entriesCount} vente{entriesCount > 1 ? "s" : ""} comptabilisée{entriesCount > 1 ? "s" : ""} depuis le dernier début de challenge.</div>
+        <button
+          onClick={() => (resetConfirm ? onReset() : setResetConfirm(true))}
+          onBlur={() => setResetConfirm(false)}
+          className={`mt-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${resetConfirm ? "border-rose-500 text-rose-500" : dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+        >
+          {resetConfirm ? "Confirmer la réinitialisation" : "Réinitialiser les compteurs (nouvelle période)"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
   return (
     <div className="space-y-4">
@@ -3160,12 +3238,13 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
   );
 }
 
-function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onExportBackup }) {
+function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, challengeConfig, challengeEntries, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onUpdateChallengeConfig, onResetChallengeEntries, onExportBackup }) {
   const [settingsTab, setSettingsTab] = useState("vendeurs");
   const items = [
     { id: "vendeurs", label: "Vendeurs", icon: Users },
     { id: "sites", label: "Sites", icon: Truck },
     { id: "alertes", label: "Alertes", icon: AlertTriangle },
+    { id: "challenge", label: "Challenge", icon: Trophy },
     { id: "general", label: "Général", icon: Settings },
   ];
   return (
@@ -3203,6 +3282,8 @@ function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSet
         <SitesManager dark={dark} sitesList={sitesList} vendeurs={vendeurs} onUpdate={onUpdateSites} />
       ) : settingsTab === "alertes" ? (
         <AlertSettingsPanel dark={dark} alertSettings={alertSettings} onUpdate={onUpdateAlertSettings} />
+      ) : settingsTab === "challenge" ? (
+        <ChallengeSettingsPanel dark={dark} challengeConfig={challengeConfig} entriesCount={challengeEntries.length} onUpdate={onUpdateChallengeConfig} onReset={onResetChallengeEntries} />
       ) : (
         <GeneralSettingsPanel dark={dark} activityLog={activityLog} onExportBackup={onExportBackup} />
       )}
@@ -3573,6 +3654,8 @@ export default function App() {
   const [alertSettings, setAlertSettings] = useState(DEFAULT_ALERT_SETTINGS);
   const [activityLog, setActivityLog] = useState([]);
   const [convoyages, setConvoyages] = useState([]);
+  const [challengeConfig, setChallengeConfig] = useState(DEFAULT_CHALLENGE_CONFIG);
+  const [challengeEntries, setChallengeEntries] = useState([]);
   const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -3631,7 +3714,7 @@ export default function App() {
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
     const versionBefore = localWriteVersionRef.current;
-    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv, chalCfg, chalEntries] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
@@ -3645,6 +3728,8 @@ export default function App() {
       sGet(STORE_KEYS.alertSettings, true),
       sGet(STORE_KEYS.activityLog, true),
       sGet(STORE_KEYS.convoyages, true),
+      sGet(STORE_KEYS.challengeConfig, true),
+      sGet(STORE_KEYS.challengeEntries, true),
     ]);
     const raw = lastRawRef.current;
     const changed = (key, value) => {
@@ -3659,6 +3744,7 @@ export default function App() {
     if (sites && changed("sites", sites)) setSitesList(JSON.parse(sites));
     if (alertCfg && changed("alertCfg", alertCfg)) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
     if (log && changed("log", log)) setActivityLog(JSON.parse(log));
+    if (chalCfg && changed("chalCfg", chalCfg)) setChallengeConfig({ ...DEFAULT_CHALLENGE_CONFIG, ...JSON.parse(chalCfg) });
     // Skip overwriting locally-edited stores if a save happened while this fetch was in flight —
     // the fetch may have captured data from just before that save committed. The next poll (8s later)
     // will pick up the now-committed version.
@@ -3669,6 +3755,7 @@ export default function App() {
       if (vends && changed("vendeurs", vends)) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
       if (changed("manualSales", manual || "")) setManualSales(manual ? JSON.parse(manual) : {});
       if (changed("convoyages", conv || "")) setConvoyages(conv ? JSON.parse(conv) : []);
+      if (changed("challengeEntries", chalEntries || "")) setChallengeEntries(chalEntries ? JSON.parse(chalEntries) : []);
     }
     setLastSync(new Date());
     if (indicate) setSyncing(false);
@@ -3699,7 +3786,9 @@ export default function App() {
       sGet(STORE_KEYS.alertSettings, true),
       sGet(STORE_KEYS.activityLog, true),
       sGet(STORE_KEYS.convoyages, true),
-    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log, conv]) => {
+      sGet(STORE_KEYS.challengeConfig, true),
+      sGet(STORE_KEYS.challengeEntries, true),
+    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log, conv, chalCfg, chalEntries]) => {
       setAccidents(acc2 ? JSON.parse(acc2) : []);
       setDossiersData(doss ? JSON.parse(doss) : []);
       if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
@@ -3708,6 +3797,8 @@ export default function App() {
       if (alertCfg) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
       if (log) setActivityLog(JSON.parse(log));
       if (conv) setConvoyages(JSON.parse(conv));
+      if (chalCfg) setChallengeConfig({ ...DEFAULT_CHALLENGE_CONFIG, ...JSON.parse(chalCfg) });
+      if (chalEntries) setChallengeEntries(JSON.parse(chalEntries));
     });
   }
 
@@ -4027,6 +4118,45 @@ export default function App() {
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
+  async function handleUpdateChallengeConfig(newConfig) {
+    const merged = { ...DEFAULT_CHALLENGE_CONFIG, ...newConfig };
+    const ok = await sSet(STORE_KEYS.challengeConfig, JSON.stringify(merged), true);
+    setChallengeConfig(merged);
+    localWriteVersionRef.current++;
+    if (ok) { showToast("Challenge enregistré"); logActivity(`Challenge mis à jour — ${merged.montantParVehicule}€/véhicule, ${merged.dateDebut || "?"} → ${merged.dateFin || "?"}, ${merged.actif ? "actif" : "inactif"}`); }
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleResetChallengeEntries() {
+    const ok = await sSet(STORE_KEYS.challengeEntries, JSON.stringify([]), true);
+    setChallengeEntries([]);
+    localWriteVersionRef.current++;
+    if (ok) { showToast("Compteurs du challenge réinitialisés"); logActivity("Challenge : compteurs réinitialisés"); }
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function detectNewChallengeEntries(candidates) {
+    if (candidates.length === 0) return;
+    const freshRaw = await sGet(STORE_KEYS.challengeEntries, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const already = new Set(fresh.map((e) => e.orderNumber));
+    const additions = candidates
+      .filter((v) => !already.has(v.orderNumber))
+      .map((v) => ({
+        id: `${Date.now()}-${v.orderNumber}`,
+        orderNumber: v.orderNumber,
+        vendeur: v.venduPar,
+        montant: challengeConfig.montantParVehicule,
+        date: new Date().toLocaleDateString("fr-FR"),
+      }));
+    if (additions.length === 0) return;
+    const next = [...fresh, ...additions];
+    const ok = await sSet(STORE_KEYS.challengeEntries, JSON.stringify(next), true);
+    setChallengeEntries(next);
+    localWriteVersionRef.current++;
+    if (ok) additions.forEach((a) => logActivity(`Challenge : ${a.vendeur} débloque ${a.montant}€ — commande ${a.orderNumber}`));
+  }
+
   async function handleRenameVendeur(oldName, newName) {
     const clean = newName.trim();
     if (!clean || clean === oldName) return;
@@ -4336,6 +4466,17 @@ export default function App() {
   }, [visibleVehicles, mySiteScope, myRole, vendorName]);
 
   const dashboardStats = useMemo(() => computeStats(visibleVehicles), [visibleVehicles]);
+
+  useEffect(() => {
+    if (!challengeConfig.actif) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (challengeConfig.dateDebut && today < challengeConfig.dateDebut) return;
+    if (challengeConfig.dateFin && today > challengeConfig.dateFin) return;
+    const seuil = alertSettings.challengeSeuilJours;
+    const candidates = vehicles.filter((v) => v.baseStatus === "vendu" && v.venduPar && v.inStock && v.joursStock >= seuil);
+    detectNewChallengeEntries(candidates);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicles, challengeConfig, alertSettings.challengeSeuilJours]);
   useEffect(() => {
     if (tab === "vendeurs" || tab === "permissions") { setTab("vehicules"); return; }
     const gated = { dossiers: permissions.dossiers, accidentes: permissions.accidentes, dashboard: permissions.dashboard };
@@ -4489,7 +4630,7 @@ export default function App() {
               onOpenVehicle={openInVehicules}
             />
           ) : tab === "challenge" ? (
-            <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} onOpenVehicle={openInVehicules} />
+            <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} challengeConfig={challengeConfig} challengeEntries={challengeEntries} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
             <div className="space-y-8">
               <DashboardSection dark={dark} icon={Info} title="Vue d'ensemble">
@@ -4634,6 +4775,8 @@ export default function App() {
             sitesList={sitesList}
             alertSettings={alertSettings}
             activityLog={activityLog}
+            challengeConfig={challengeConfig}
+            challengeEntries={challengeEntries}
             onAdd={handleAddVendeur}
             onRemove={handleRemoveVendeur}
             onUpdateSite={handleUpdateVendeurSite}
@@ -4643,6 +4786,8 @@ export default function App() {
             onUpdateEmail={handleUpdateVendeurEmail}
             onUpdateSites={handleUpdateSites}
             onUpdateAlertSettings={handleUpdateAlertSettings}
+            onUpdateChallengeConfig={handleUpdateChallengeConfig}
+            onResetChallengeEntries={handleResetChallengeEntries}
             onExportBackup={() => exportFullBackup(vehicles, dossiers, vendeursList)}
           />
         </Modal>
