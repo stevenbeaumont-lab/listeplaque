@@ -446,7 +446,7 @@ function getPermissions(vendorName, vendeursList) {
   return { ...base, ...(vd?.permOverrides || {}) };
 }
 function activeReservationVendeur(v) {
-  return v.baseStatus === "reserve" ? (v.reservation?.vendeur || "") : "";
+  return v.reservation?.statut && v.reservation.statut !== "Réservation annulée" ? v.reservation.vendeur || "" : "";
 }
 function vehicleEffectiveSite(v, siteByVendeur) {
   if (v.siteLocation) return v.siteLocation;
@@ -1038,6 +1038,11 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
         <div className="flex flex-col items-start gap-1">
           <div className="flex items-center gap-1.5">
             <StatusBadge vehicle={v} dark={dark} />
+            {v.baseStatus !== "reserve" && v.baseStatus !== "vendu" && activeReservationVendeur(v) && (
+              <span title="Déjà réservé, en attente d'arrivée en stock" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Réservé
+              </span>
+            )}
             {hasAlert && <AlertTriangle size={13} className="shrink-0 text-rose-500" />}
           </div>
           {v.baseStatus === "vendu" && (
@@ -1050,7 +1055,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
               )}
             </>
           )}
-          {v.baseStatus === "reserve" && v.reservation?.vendeur && (
+          {v.baseStatus !== "vendu" && activeReservationVendeur(v) && (
             <>
               <div className={`flex items-center gap-1 truncate text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`} title={v.reservation.vendeur}>
                 <User size={10} className="shrink-0" /> <span className="truncate">{v.reservation.vendeur}</span>
@@ -1157,6 +1162,11 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className={`font-mono text-xs font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{v.orderNumber}</span>
         <StatusBadge vehicle={v} dark={dark} />
+        {v.baseStatus !== "reserve" && v.baseStatus !== "vendu" && activeReservationVendeur(v) && (
+          <span title="Déjà réservé, en attente d'arrivée en stock" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Réservé
+          </span>
+        )}
         {v.siteLocation && (
           <span className={`shrink-0 truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-700"}`}>
             {v.siteLocation}
@@ -1167,7 +1177,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
             <User size={11} /> {venduLabel(v)}{clientLine(v) && ` · Client : ${clientLine(v)}`}
           </span>
         )}
-        {v.baseStatus === "reserve" && v.reservation?.vendeur && (
+        {v.baseStatus !== "vendu" && activeReservationVendeur(v) && (
           <span className={`flex items-center gap-1 text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>
             <User size={11} /> {v.reservation.vendeur}{v.reservation.client && ` · Client : ${v.reservation.client}`}
           </span>
