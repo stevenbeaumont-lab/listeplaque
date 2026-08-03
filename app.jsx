@@ -2329,7 +2329,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
   };
 
   const enStock = useMemo(
-    () => vehicles.filter((v) => v.inStock && matches(v)).sort((a, b) => (a.joursStock ?? 0) - (b.joursStock ?? 0)),
+    () => vehicles.filter((v) => v.inStock && matches(v)).sort((a, b) => (b.joursStock ?? 0) - (a.joursStock ?? 0)),
     [vehicles, q, contremarqueFilter, concessionFilter, vendeurFilter, siteFilter]
   );
   const enTransit = useMemo(
