@@ -2299,7 +2299,16 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
 }
 
 function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, simpleMode, onSave, vendorName, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
-  const [popupVehicle, setPopupVehicle] = useState(null);
+  const [popupOrder, setPopupOrder] = useState(null);
+  const popupVehicle = popupOrder ? vehicles.find((v) => v.orderNumber === popupOrder) || null : null;
+  useEffect(() => {
+    if (!popupOrder) return;
+    function onKeyDown(e) {
+      if (e.key === "Escape") setPopupOrder(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [popupOrder]);
   const [query, setQuery] = useState("");
   const [contremarqueFilter, setContremarqueFilter] = useState("all");
   const [concessionFilter, setConcessionFilter] = useState("all");
@@ -2387,7 +2396,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
           iconColor={dark ? "text-emerald-400" : "text-emerald-600"}
           vehicles={enStock}
           emptyLabel="Aucun véhicule en stock."
-          onOpen={setPopupVehicle}
+          onOpen={(v) => setPopupOrder(v.orderNumber)}
           renderExtra={(v) => (
             <div className="flex shrink-0 flex-col items-end gap-1">
               <span className={`text-xs font-semibold tabular-nums ${dark ? "text-zinc-300" : "text-stone-600"}`}>{v.joursStock} j</span>
@@ -2402,7 +2411,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
           iconColor={dark ? "text-sky-400" : "text-sky-600"}
           vehicles={enTransit}
           emptyLabel="Aucun véhicule en transit."
-          onOpen={setPopupVehicle}
+          onOpen={(v) => setPopupOrder(v.orderNumber)}
           renderExtra={(v) => (
             <div className="flex shrink-0 flex-col items-end gap-1">
               <span className={`text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>{fmtRange(v.estRange) || "Date inconnue"}</span>
@@ -2417,7 +2426,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
           iconColor={dark ? "text-indigo-400" : "text-indigo-600"}
           vehicles={nonSerialises}
           emptyLabel="Aucun véhicule non sérialisé."
-          onOpen={setPopupVehicle}
+          onOpen={(v) => setPopupOrder(v.orderNumber)}
           renderExtra={(v) => (
             <div className="flex shrink-0 flex-col items-end gap-1">
               <span className={`text-xs font-medium ${dark ? "text-zinc-300" : "text-stone-600"}`}>{v.typeVente || "—"}</span>
@@ -2428,12 +2437,12 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
       </div>
       {popupVehicle && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setPopupVehicle(null)} />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setPopupOrder(null)} />
           <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-2xl shadow-xl">
             <ExpandedDetail
               v={popupVehicle}
               dark={dark}
-              onClose={() => setPopupVehicle(null)}
+              onClose={() => setPopupOrder(null)}
               onSave={onSave}
               vendorName={vendorName}
               vendeursList={vendeursList}
