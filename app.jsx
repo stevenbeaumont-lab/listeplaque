@@ -640,6 +640,20 @@ function VehicleTypeIcon({ vu, dark, size }) {
   );
 }
 
+function EmptyState({ dark, icon: Icon, title, subtitle, size }) {
+  const compact = size === "sm";
+  return (
+    <div className={`rounded-2xl border text-center ${compact ? "p-6" : "p-10"} ${dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white"}`}>
+      {Icon && (
+        <span className={`mx-auto mb-2.5 flex ${compact ? "h-9 w-9" : "h-11 w-11"} items-center justify-center rounded-full ${dark ? "bg-zinc-800 text-zinc-500" : "bg-stone-100 text-stone-400"}`}>
+          <Icon size={compact ? 16 : 20} />
+        </span>
+      )}
+      <div className={`font-medium ${compact ? "text-sm" : "text-sm"} ${dark ? "text-zinc-400" : "text-stone-500"}`}>{title}</div>
+      {subtitle && <div className={`mt-1 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>{subtitle}</div>}
+    </div>
+  );
+}
 function KPICard({ label, value, dark, onClick, size }) {
   const compact = size === "sm";
   const Tag = onClick ? "button" : "div";
@@ -648,7 +662,7 @@ function KPICard({ label, value, dark, onClick, size }) {
       onClick={onClick}
       className={`w-full rounded-2xl border text-left transition-colors ${compact ? "p-3" : "p-4"} ${
         dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"
-      } ${onClick ? (dark ? "hover:border-amber-500/50 hover:bg-zinc-900 cursor-pointer" : "hover:border-amber-400 hover:bg-amber-50/30 cursor-pointer") : ""}`}
+      } ${onClick ? `pl-interactive ${dark ? "hover:border-amber-500/50 hover:bg-zinc-900 cursor-pointer" : "hover:border-amber-400 hover:bg-amber-50/30 cursor-pointer"}` : ""}`}
       style={dark ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" } : { boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
     >
       <div className={`font-semibold uppercase tracking-widest ${compact ? "text-[10px]" : "text-[11px]"} ${dark ? "text-zinc-500" : "text-stone-400"}`}>{label}</div>
@@ -682,38 +696,45 @@ const NAV_ICONS = {
 };
 function buildNavItems(permissions, dossierUnmatchedCount) {
   return [
-    { id: "vehicules", label: "Véhicules" },
-    { id: "logistique", label: "Logistique" },
-    { id: "convoyage", label: "Convoyage" },
-    { id: "challenge", label: "Challenge" },
-    permissions.dashboard && { id: "dashboard", label: "Tableau de bord" },
-    permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount },
-    permissions.accidentes && { id: "accidentes", label: "Accidentés" },
+    { id: "vehicules", label: "Véhicules", group: "Stock" },
+    { id: "logistique", label: "Logistique", group: "Stock" },
+    { id: "convoyage", label: "Convoyage", group: "Stock" },
+    { id: "challenge", label: "Challenge", group: "Performance" },
+    permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Performance" },
+    permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
+    permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Gestion" },
   ].filter(Boolean);
 }
 function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
   const items = buildNavItems(permissions, dossierUnmatchedCount);
+  let lastGroup = null;
   return (
     <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
       {items.map((it) => {
         const Icon = NAV_ICONS[it.id];
         const active = tab === it.id;
+        const showGroupLabel = it.group !== lastGroup;
+        lastGroup = it.group;
         return (
-          <button
-            key={it.id}
-            onClick={() => setTab(it.id)}
-            className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-              active ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
-            }`}
-          >
-            <Icon size={16} className="shrink-0" />
-            <span className="flex-1 truncate text-left">{it.label}</span>
-            {!!it.count && (
-              <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-zinc-950/20 text-zinc-950" : "bg-rose-500 text-white"}`}>
-                {it.count}
-              </span>
+          <div key={it.id}>
+            {showGroupLabel && (
+              <div className={`px-3 pb-1 pt-2.5 text-[10px] font-bold uppercase tracking-widest first:pt-1 ${dark ? "text-zinc-600" : "text-stone-400"}`}>{it.group}</div>
             )}
-          </button>
+            <button
+              onClick={() => setTab(it.id)}
+              className={`pl-interactive flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${
+                active ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+              }`}
+            >
+              <Icon size={16} className="shrink-0" />
+              <span className="flex-1 truncate text-left">{it.label}</span>
+              {!!it.count && (
+                <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-zinc-950/20 text-zinc-950" : "bg-rose-500 text-white"}`}>
+                  {it.count}
+                </span>
+              )}
+            </button>
+          </div>
         );
       })}
     </nav>
@@ -722,28 +743,35 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
 
 function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
   const items = buildNavItems(permissions, dossierUnmatchedCount);
+  let lastGroup = null;
   return (
-    <div className={`flex max-w-full gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
-      {items.map((it) => (
-        <button
-          key={it.id}
-          onClick={() => setTab(it.id)}
-          className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors sm:px-4 ${
-            tab === it.id
-              ? "bg-amber-500 text-zinc-950"
-              : dark
-              ? "text-zinc-400 hover:text-zinc-200"
-              : "text-stone-500 hover:text-stone-800"
-          }`}
-        >
-          {it.label}
-          {!!it.count && (
-            <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${tab === it.id ? "bg-zinc-950/20 text-zinc-950" : "bg-rose-500 text-white"}`}>
-              {it.count}
-            </span>
-          )}
-        </button>
-      ))}
+    <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
+      {items.map((it) => {
+        const showDivider = it.group !== lastGroup && lastGroup !== null;
+        lastGroup = it.group;
+        return (
+          <Fragment key={it.id}>
+            {showDivider && <span className={`mx-0.5 h-5 w-px shrink-0 ${dark ? "bg-zinc-800" : "bg-stone-200"}`} />}
+            <button
+              onClick={() => setTab(it.id)}
+              className={`pl-interactive flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium sm:px-4 ${
+                tab === it.id
+                  ? "bg-amber-500 text-zinc-950"
+                  : dark
+                  ? "text-zinc-400 hover:text-zinc-200"
+                  : "text-stone-500 hover:text-stone-800"
+              }`}
+            >
+              {it.label}
+              {!!it.count && (
+                <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${tab === it.id ? "bg-zinc-950/20 text-zinc-950" : "bg-rose-500 text-white"}`}>
+                  {it.count}
+                </span>
+              )}
+            </button>
+          </Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -1131,7 +1159,8 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
             {vehicles.length === 0 && (
               <tr>
                 <td colSpan={5} className={`px-4 py-10 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-                  Aucun véhicule ne correspond aux filtres.
+                  <Car size={20} className="mx-auto mb-2 opacity-50" />
+                  Aucun véhicule ne correspond à ces filtres — essayez d'en retirer un.
                 </td>
               </tr>
             )}
@@ -1152,7 +1181,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
   return (
     <div
       onClick={() => onSelect(v)}
-      className={`cursor-pointer border p-3.5 shadow-sm transition-colors ${expanded ? "rounded-t-xl" : "rounded-xl"} ${
+      className={`pl-interactive cursor-pointer border p-3.5 shadow-sm transition-colors ${expanded ? "rounded-t-xl" : "rounded-xl"} ${
         expanded ? (dark ? "border-amber-500 bg-zinc-900/60" : "border-amber-400 bg-amber-50/50") : dark ? "border-zinc-800 bg-zinc-900/40 active:bg-zinc-800" : "border-stone-200 bg-white active:bg-stone-50"
       }`}
       style={{ boxShadow: `inset 4px 0 0 ${hasAlert ? "#E11D48" : STATUS_ACCENT[v.baseStatus] || "transparent"}` }}
@@ -1224,11 +1253,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
 
 function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
   if (vehicles.length === 0) {
-    return (
-      <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-        Aucun véhicule ne correspond aux filtres.
-      </div>
-    );
+    return <EmptyState dark={dark} icon={Car} title="Aucun véhicule ne correspond à ces filtres" subtitle="Essayez d'en retirer un pour élargir la recherche." />;
   }
   return (
     <div className="space-y-2.5">
@@ -1345,11 +1370,7 @@ function VendeurPerformanceTable({ dark, vehicles, vendeursList, dossiers }) {
   const tdCls = `px-4 py-2.5 text-right tabular-nums font-medium ${dark ? "text-zinc-200" : "text-stone-700"}`;
 
   if (rows.length === 0) {
-    return (
-      <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-        Aucun vendeur enregistré — ajoutez-en depuis l'icône réglages en haut.
-      </div>
-    );
+    return <EmptyState dark={dark} icon={Users} title="Aucun vendeur enregistré" subtitle="Ajoutez-en depuis l'icône réglages en haut." />;
   }
 
   return (
@@ -1691,12 +1712,12 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
             </div>
             <textarea className={inputCls} rows={3} placeholder="Commentaire libre" value={form.commentaire} onChange={(e) => setForm((f) => ({ ...f, commentaire: e.target.value }))} />
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button onClick={save} disabled={!form.client?.trim()} className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 disabled:opacity-40">Enregistrer</button>
+              <button onClick={save} disabled={!form.client?.trim()} className="pl-interactive flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 disabled:opacity-40">Enregistrer</button>
               {v.reservation?.statut && v.reservation.statut !== "Réservation annulée" && (
                 <button onClick={cancelReservation} className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>Annuler</button>
               )}
               {saved && (
-                <span className={`flex items-center gap-1 text-xs font-semibold ${dark ? "text-emerald-400" : "text-emerald-600"}`}>
+                <span className={`pl-pop flex items-center gap-1 text-xs font-semibold ${dark ? "text-emerald-400" : "text-emerald-600"}`}>
                   <CheckCircle2 size={13} /> Enregistré
                 </span>
               )}
@@ -1727,7 +1748,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
             placeholder="Ex. Livraison prévue Août, Mécanique OK, véhicule abîmé…"
             className={`h-9 min-w-[200px] flex-1 rounded-lg border px-3 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
           />
-          <button onClick={submitComment} disabled={!commentText.trim()} className="h-9 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+          <button onClick={submitComment} disabled={!commentText.trim()} className="pl-interactive h-9 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
             Ajouter
           </button>
         </div>
@@ -2027,9 +2048,7 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfi
           Classement
         </div>
         {classement.length === 0 ? (
-          <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-            Personne n'a encore challengé de stock ancien.
-          </div>
+          <EmptyState dark={dark} icon={Trophy} title="Personne n'a encore challengé de stock ancien" subtitle="Le premier à vendre un véhicule ancien ouvre le classement." />
         ) : (
           <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
             <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
@@ -2052,16 +2071,14 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfi
           Stock à challenger ({stockAncien.length})
         </div>
         {stockAncien.length === 0 ? (
-          <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-            Aucun véhicule au-delà du seuil actuellement — bravo !
-          </div>
+          <EmptyState dark={dark} icon={Trophy} title="Bravo, aucun véhicule au-delà du seuil !" subtitle="Le stock est sain — continuez comme ça." />
         ) : (
           <ul className="space-y-2">
             {stockAncien.map((v) => (
               <li
                 key={v.orderNumber}
                 onClick={() => onOpenVehicle(v)}
-                className={`flex cursor-pointer flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 transition-colors ${dark ? "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/70" : "border-stone-200 bg-white hover:bg-amber-50/40"}`}
+                className={`pl-interactive flex cursor-pointer flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 transition-colors ${dark ? "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/70" : "border-stone-200 bg-white hover:bg-amber-50/40"}`}
               >
                 <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</span>
                 <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.orderNumber}{v.siteLocation ? ` · ${v.siteLocation}` : ""}</span>
@@ -2147,7 +2164,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
           {statutIdx < CONVOYAGE_STATUTS.length - 1 && (
             <button
               onClick={() => onUpdateConvoyageStatut(c.id, CONVOYAGE_STATUTS[statutIdx + 1])}
-              className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+              className="pl-interactive rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400"
             >
               Marquer "{CONVOYAGE_STATUTS[statutIdx + 1]}"
             </button>
@@ -2250,7 +2267,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
         <button
           onClick={submit}
           disabled={!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee || !dateSouhaitee || dateTooSoon}
-          className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40"
+          className="pl-interactive rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40"
         >
           Demander le convoyage
         </button>
@@ -2271,9 +2288,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
           Convoyages en cours ({enCours.length})
         </div>
         {enCours.length === 0 ? (
-          <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-            Aucun convoyage en cours.
-          </div>
+          <EmptyState dark={dark} icon={ArrowRightLeft} title="Aucun convoyage en cours" subtitle="Tout le stock est là où il doit être, pour l'instant." />
         ) : (
           <ul className="space-y-2.5">
             {enCours.map((c) => (
@@ -2495,7 +2510,7 @@ function DossierImportForm({ dark, onImport, existingMeta }) {
           Dernier import : {new Date(existingMeta.importedAt).toLocaleString("fr-FR")} · {existingMeta.count} dossiers
         </div>
       )}
-      <button onClick={submit} disabled={!rows || busy} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+      <button onClick={submit} disabled={!rows || busy} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
         {busy ? "Import en cours…" : "Valider l'import"}
       </button>
     </div>
@@ -2561,7 +2576,7 @@ function ManualSaleRow({ dark, v, vendeursList, onAssign, initialVendeur, initia
         placeholder="Nom du client"
         className={`${inputCls} w-40`}
       />
-      <button onClick={confirm} disabled={!ready} className="flex h-9 items-center gap-1 rounded-lg bg-amber-500 px-3 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+      <button onClick={confirm} disabled={!ready} className="pl-interactive flex h-9 items-center gap-1 rounded-lg bg-amber-500 px-3 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
         OK
       </button>
       {isEdit && (
@@ -2600,9 +2615,11 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Commande, modèle, type de vente…" className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`} />
       </div>
       {filtered.length === 0 ? (
-        <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-          {unattributed.length === 0 ? "Toutes les ventes détectées sont attribuées." : "Aucune commande ne correspond."}
-        </div>
+        <EmptyState
+          dark={dark}
+          icon={CheckCircle2}
+          title={unattributed.length === 0 ? "Toutes les ventes détectées sont attribuées" : "Aucune commande ne correspond"}
+        />
       ) : (
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <ul className={`max-h-[420px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
@@ -2784,7 +2801,7 @@ function ImportForm({ dark, onImport, existingMeta, onImportDossiers, existingDo
           )}
         </div>
       )}
-      <button onClick={submit} disabled={!ordersRows || busy} className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+      <button onClick={submit} disabled={!ordersRows || busy} className="pl-interactive w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
         {busy ? "Import en cours…" : "Valider l'import"}
       </button>
       {existingMeta && onReset && (
@@ -2838,7 +2855,7 @@ function PasswordChangeModal({ dark, onClose, showToast }) {
         <input type="password" autoFocus className={inputCls} placeholder="Nouveau mot de passe" value={pw1} onChange={(e) => setPw1(e.target.value)} />
         <input type="password" className={inputCls} placeholder="Confirmer le mot de passe" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {error && <div className="text-xs font-semibold text-rose-500">{error}</div>}
-        <button onClick={submit} disabled={busy} className="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+        <button onClick={submit} disabled={busy} className="pl-interactive w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
           {busy ? "Mise à jour…" : "Valider"}
         </button>
       </div>
@@ -2918,7 +2935,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
-        <button onClick={submit} disabled={!name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+        <button onClick={submit} disabled={!name.trim()} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
           <Plus size={15} /> Ajouter
         </button>
         <button
@@ -2950,7 +2967,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
-            <button onClick={submitBulk} disabled={!bulkText.trim() || bulkBusy} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+            <button onClick={submitBulk} disabled={!bulkText.trim() || bulkBusy} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
               {bulkBusy ? "Ajout en cours…" : "Ajouter la liste"}
             </button>
           </div>
@@ -2982,9 +2999,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
       )}
 
       {filtered.length === 0 ? (
-        <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-          {vendeurs.length === 0 ? "Aucun vendeur enregistré pour l'instant." : "Aucun vendeur sur ce site."}
-        </div>
+        <EmptyState dark={dark} icon={Users} title={vendeurs.length === 0 ? "Aucun vendeur enregistré pour l'instant" : "Aucun vendeur sur ce site"} />
       ) : (
         <ul className="space-y-2.5">
           {[...filtered].sort((a, b) => a.nom.localeCompare(b.nom)).map((v) => (
@@ -3171,14 +3186,12 @@ function SitesManager({ dark, sitesList, vendeurs, onUpdate }) {
           placeholder="Nom du site (ex. Ford Argentan)"
           className={`${inputCls} min-w-[220px] flex-1`}
         />
-        <button onClick={add} disabled={!name.trim()} className="flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+        <button onClick={add} disabled={!name.trim()} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
           <Plus size={15} /> Ajouter
         </button>
       </div>
       {sitesList.length === 0 ? (
-        <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-          Aucun site enregistré pour l'instant.
-        </div>
+        <EmptyState dark={dark} icon={Truck} title="Aucun site enregistré pour l'instant" />
       ) : (
         <ul className="space-y-2.5">
           {sitesList.map((s) => (
@@ -3240,7 +3253,7 @@ function AlertSettingsPanel({ dark, alertSettings, onUpdate }) {
           </div>
         ))}
       </div>
-      <button onClick={() => onUpdate(values)} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+      <button onClick={() => onUpdate(values)} className="pl-interactive rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
         Enregistrer les seuils
       </button>
     </div>
@@ -3282,7 +3295,7 @@ function ChallengeSettingsPanel({ dark, challengeConfig, entriesCount, onUpdate,
           </div>
         </div>
       </div>
-      <button onClick={() => onUpdate(values)} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+      <button onClick={() => onUpdate(values)} className="pl-interactive rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
         Enregistrer le challenge
       </button>
       <div className={`rounded-2xl border p-4 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
@@ -3311,9 +3324,7 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
       <div>
         <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Journal d'activité récente</div>
         {activityLog.length === 0 ? (
-          <div className={`rounded-2xl border p-6 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-            Aucune action enregistrée pour l'instant.
-          </div>
+          <EmptyState dark={dark} size="sm" icon={History} title="Aucune action enregistrée pour l'instant" />
         ) : (
           <ul className={`max-h-72 space-y-1.5 overflow-y-auto rounded-2xl border p-2 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
             {activityLog.map((entry, i) => (
@@ -3424,9 +3435,7 @@ function AccidentManualList({ dark, accidents, vehicles, vendorName, onAdd, onRe
       </div>
 
       {accidents.length === 0 ? (
-        <div className={`rounded-2xl border p-10 text-center ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-          Aucun véhicule accidenté ajouté pour l'instant.
-        </div>
+        <EmptyState dark={dark} icon={CheckCircle2} title="Aucun véhicule accidenté signalé" subtitle="Tant mieux !" />
       ) : (
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
@@ -3460,23 +3469,34 @@ function AccidentManualList({ dark, accidents, vehicles, vendorName, onAdd, onRe
 function Toast({ dark, toast, onDismiss }) {
   if (!toast) return null;
   const isError = toast.type === "error";
+  const isCelebrate = toast.type === "celebrate";
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
       <div
-        className={`pointer-events-auto flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-lg ${
+        className={`pl-pop pointer-events-auto flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-lg ${
           isError
             ? dark
               ? "bg-rose-950 border-rose-800 text-rose-200"
               : "bg-rose-50 border-rose-200 text-rose-800"
+            : isCelebrate
+            ? dark
+              ? "bg-amber-500/15 border-amber-500/40 text-amber-200"
+              : "bg-amber-50 border-amber-300 text-amber-900"
             : dark
             ? "bg-zinc-900 border-zinc-700 text-zinc-100"
             : "bg-zinc-900 border-zinc-800 text-white"
         }`}
       >
-        {isError ? <AlertTriangle size={15} className="shrink-0" /> : <CheckCircle2 size={15} className="shrink-0 text-emerald-400" />}
+        {isError ? (
+          <AlertTriangle size={15} className="shrink-0" />
+        ) : isCelebrate ? (
+          <Trophy size={16} className="pl-celebrate shrink-0 text-amber-400" />
+        ) : (
+          <CheckCircle2 size={15} className="shrink-0 text-emerald-400" />
+        )}
         <span>{toast.message}</span>
         {toast.action && (
-          <button onClick={() => { toast.action.onClick(); onDismiss(); }} className="ml-1 shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-bold text-zinc-950 hover:bg-amber-400">
+          <button onClick={() => { toast.action.onClick(); onDismiss(); }} className="pl-interactive ml-1 shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-bold text-zinc-950 hover:bg-amber-400">
             {toast.action.label}
           </button>
         )}
@@ -3552,7 +3572,7 @@ function LoginScreen({ dark, onLogin }) {
               className={`mt-2 ${inputCls} ${error ? "border-rose-500 focus:ring-rose-500/30" : ""}`}
             />
             {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
-            <button onClick={submit} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+            <button onClick={submit} disabled={checking} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
               {checking ? "Connexion…" : "Se connecter"}
             </button>
             <button
@@ -3584,7 +3604,7 @@ function LoginScreen({ dark, onLogin }) {
                   className={inputCls}
                 />
                 {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
-                <button onClick={submitReset} disabled={checking} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+                <button onClick={submitReset} disabled={checking} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
                   {checking ? "Envoi…" : "Envoyer le lien"}
                 </button>
               </>
@@ -3634,7 +3654,7 @@ function SetNewPasswordScreen({ dark, onDone }) {
         <input type="password" autoFocus className={inputCls} placeholder="Nouveau mot de passe" value={pw1} onChange={(e) => setPw1(e.target.value)} />
         <input type="password" className={`mt-2 ${inputCls}`} placeholder="Confirmer" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
-        <button onClick={submit} disabled={busy} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+        <button onClick={submit} disabled={busy} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
           {busy ? "Mise à jour…" : "Valider"}
         </button>
       </div>
@@ -4040,7 +4060,11 @@ export default function App() {
     setConvoyages(next);
     localWriteVersionRef.current++;
     if (statut === "Fait" && entry) await handleUpdateVehicleSite(entry.orderNumber, entry.siteArrivee);
-    if (ok) { showToast(`Convoyage : ${statut}`); if (entry) logActivity(`Convoyage "${statut}" — commande ${entry.orderNumber}`); }
+    if (ok) {
+      if (statut === "Fait") showToast(`✅ Convoyage terminé — arrivé à ${entry?.siteArrivee || ""}`, { type: "celebrate" });
+      else showToast(`Convoyage : ${statut}`);
+      if (entry) logActivity(`Convoyage "${statut}" — commande ${entry.orderNumber}`);
+    }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
@@ -4088,7 +4112,10 @@ export default function App() {
     setOverlays(next);
     localWriteVersionRef.current++;
     if (form.statut === "Réservation annulée") logActivity(`Annulation réservation — commande ${orderNumber}`);
-    else if (!old.statut) logActivity(`Nouvelle réservation — commande ${orderNumber} pour ${form.client || "client inconnu"}`);
+    else if (!old.statut) {
+      logActivity(`Nouvelle réservation — commande ${orderNumber} pour ${form.client || "client inconnu"}`);
+      showToast(`🎉 Véhicule réservé pour ${form.client || "le client"}`, { type: "celebrate" });
+    }
   }
 
 
@@ -4284,7 +4311,14 @@ export default function App() {
     const ok = await sSet(STORE_KEYS.challengeEntries, JSON.stringify(next), true);
     setChallengeEntries(next);
     localWriteVersionRef.current++;
-    if (ok) additions.forEach((a) => logActivity(`Challenge : ${a.vendeur} débloque ${a.montant}€ — commande ${a.orderNumber}`));
+    if (ok) {
+      additions.forEach((a) => logActivity(`Challenge : ${a.vendeur} débloque ${a.montant}€ — commande ${a.orderNumber}`));
+      const mine = additions.filter((a) => a.vendeur === vendorName);
+      if (mine.length > 0) {
+        const total = mine.reduce((n, a) => n + a.montant, 0);
+        showToast(`🏆 Bravo ! Vous débloquez ${total}€ sur le Challenge stock ancien`, { type: "celebrate" });
+      }
+    }
   }
 
   async function handleRenameVendeur(oldName, newName) {
@@ -4662,6 +4696,15 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
         .font-display { font-family: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif; }
+        @keyframes plFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .pl-fade-in { animation: plFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes plPop { 0% { transform: scale(0.85); opacity: 0; } 60% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); } }
+        .pl-pop { animation: plPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes plCelebrate { 0%, 100% { transform: scale(1) rotate(0deg); } 25% { transform: scale(1.15) rotate(-8deg); } 50% { transform: scale(1.1) rotate(6deg); } 75% { transform: scale(1.15) rotate(-4deg); } }
+        .pl-celebrate { animation: plCelebrate 0.6s ease-in-out; }
+        .pl-interactive { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+        .pl-interactive:hover { transform: translateY(-1px) scale(1.008); }
+        .pl-interactive:active { transform: scale(0.985); }
       `}</style>
       <datalist id="vendeurs-datalist">
         {vendeursList.map((v) => (
@@ -4684,7 +4727,7 @@ export default function App() {
             <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
               Votre compte ({authEmail}) n'est relié à aucun profil vendeur. Demandez à un administrateur de renseigner votre email dans l'onglet Vendeurs.
             </p>
-            <button onClick={handleLogout} className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+            <button onClick={handleLogout} className="pl-interactive w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
               Se déconnecter
             </button>
           </div>
@@ -4749,7 +4792,7 @@ export default function App() {
                 permissions={permissions}
               />
             </div>
-            <div className="min-w-0 flex-1 space-y-6">
+            <div key={tab} className="pl-fade-in min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
             <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} onSave={handleReservationSave} vendorName={vendorName} onUpdateVehicleSite={handleUpdateVehicleSite} onAddComment={handleAddVehicleComment} onDeleteComment={handleDeleteVehicleComment} />
@@ -4838,9 +4881,12 @@ export default function App() {
                 {dossiers.length > 0 ? (
                   <DossierList dark={dark} dossiers={dossiers} onExport={exportDossiersToExcel} />
                 ) : (
-                  <div className={`rounded-2xl border p-8 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
-                    Aucun dossier importé pour l'instant — utilisez le bouton <span className="font-semibold">Importer</span> en haut de la page pour charger le fichier MyAna.
-                  </div>
+                  <EmptyState
+                    dark={dark}
+                    icon={FileText}
+                    title="Aucun dossier importé pour l'instant"
+                    subtitle="Utilisez le bouton Importer en haut de la page pour charger le fichier MyAna."
+                  />
                 )}
               </div>
               <ManualSalesSection dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
