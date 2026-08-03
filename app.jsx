@@ -1782,19 +1782,19 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
 
 function AlertsDrawer({ dark, vehicles, onClose, onSelect }) {
   const flat = [];
-  vehicles.forEach((v) => v.alerts.forEach((a) => flat.push({ v, a })));
+  vehicles.forEach((v) => v.alerts.forEach((a) => { if (a.type === "resa_expiree" || a.type === "resa_bientot") flat.push({ v, a }); }));
   return (
     <div className="fixed inset-0 z-30 flex justify-end">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className={`relative flex h-full w-full max-w-sm flex-col overflow-y-auto border-l ${dark ? "bg-zinc-950/98 border-zinc-800" : "bg-white border-stone-200"}`}>
         <div className={`flex items-center justify-between border-b px-5 py-4 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-          <div className={`text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>Alertes ({flat.length})</div>
+          <div className={`text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>Réservations à surveiller ({flat.length})</div>
           <button onClick={onClose} className={`rounded-lg p-1.5 ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}>
             <X size={16} />
           </button>
         </div>
         <div className="space-y-2 p-4">
-          {flat.length === 0 && <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune alerte active.</div>}
+          {flat.length === 0 && <EmptyState dark={dark} size="sm" icon={CheckCircle2} title="Aucune réservation à surveiller" subtitle="Rien n'expire ni n'est dépassé pour l'instant." />}
           {flat.map(({ v, a }, i) => (
             <button
               key={i}
@@ -4587,7 +4587,10 @@ export default function App() {
     return list;
   }, [vehicles, filters, sortBy]);
 
-  const totalAlerts = useMemo(() => vehicles.reduce((n, v) => n + v.alerts.length, 0), [vehicles]);
+  const totalAlerts = useMemo(
+    () => vehicles.reduce((n, v) => n + v.alerts.filter((a) => a.type === "resa_expiree" || a.type === "resa_bientot").length, 0),
+    [vehicles]
+  );
   const vendorName = useMemo(() => {
     const e = (authEmail || "").toLowerCase();
     if (!e) return "";
