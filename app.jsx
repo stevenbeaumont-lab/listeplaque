@@ -1839,7 +1839,7 @@ function Modal({ dark, title, onClose, children, size }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative max-h-[85vh] w-full overflow-y-auto rounded-2xl border p-5 ${size === "xl" ? "max-w-3xl" : "max-w-md"} ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+      <div className={`relative max-h-[85vh] w-full overflow-y-auto rounded-2xl border p-5 ${size === "xl" ? "max-w-5xl" : "max-w-lg"} ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
         <div className="mb-4 flex items-center justify-between">
           <div className={`text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{title}</div>
           {onClose && (
@@ -2451,7 +2451,7 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
       {popupVehicle && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setPopupVehicle(null)} />
-          <div className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl shadow-xl">
+          <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-2xl shadow-xl">
             <ExpandedDetail
               v={popupVehicle}
               dark={dark}
