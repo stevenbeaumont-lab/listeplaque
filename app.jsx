@@ -1118,7 +1118,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
 
 
 
-function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
+function VehicleTable({ dark, vehicles, expandedOrder, onSelect }) {
   const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
   return (
     <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
@@ -1141,21 +1141,9 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
             </tr>
           </thead>
           <tbody>
-            {vehicles.map((v, i) => {
-              const isOpen = v.orderNumber === expandedOrder;
-              return (
-                <Fragment key={v.orderNumber}>
-                  <VehicleRow v={v} dark={dark} onSelect={onSelect} expanded={isOpen} zebra={i % 2 === 1} />
-                  {isOpen && (
-                    <tr>
-                      <td colSpan={5} className="p-0">
-                        <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} onAddComment={onAddComment} onDeleteComment={onDeleteComment} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
+            {vehicles.map((v, i) => (
+              <VehicleRow key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} zebra={i % 2 === 1} />
+            ))}
             {vehicles.length === 0 && (
               <tr>
                 <td colSpan={5} className={`px-4 py-10 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
@@ -1251,25 +1239,15 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
   );
 }
 
-function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
+function VehicleCardList({ dark, vehicles, expandedOrder, onSelect }) {
   if (vehicles.length === 0) {
     return <EmptyState dark={dark} icon={Car} title="Aucun véhicule ne correspond à ces filtres" subtitle="Essayez d'en retirer un pour élargir la recherche." />;
   }
   return (
     <div className="space-y-2.5">
-      {vehicles.map((v) => {
-        const isOpen = v.orderNumber === expandedOrder;
-        return (
-          <div key={v.orderNumber}>
-            <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} />
-            {isOpen && (
-              <div className={`overflow-hidden rounded-b-xl border border-t-0 ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
-                <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} onAddComment={onAddComment} onDeleteComment={onDeleteComment} />
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {vehicles.map((v) => (
+        <VehicleCard key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} />
+      ))}
     </div>
   );
 }
@@ -4906,11 +4884,30 @@ export default function App() {
                 onExport={() => exportVehiclesToExcel(filtered)}
               />
               <div className="hidden lg:block">
-                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} onAddComment={handleAddVehicleComment} onDeleteComment={handleDeleteVehicleComment} />
+                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} />
               </div>
               <div className="lg:hidden">
-                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} onAddComment={handleAddVehicleComment} onDeleteComment={handleDeleteVehicleComment} />
+                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} />
               </div>
+              {expandedOrder && vehicles.find((v) => v.orderNumber === expandedOrder) && (
+                <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+                  <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelected(null)} />
+                  <div className="relative max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-2xl shadow-xl">
+                    <ExpandedDetail
+                      v={vehicles.find((v) => v.orderNumber === expandedOrder)}
+                      dark={dark}
+                      onClose={() => setSelected(null)}
+                      onSave={handleReservationSave}
+                      vendorName={vendorName}
+                      vendeursList={vendeursList}
+                      sitesList={sitesList}
+                      onUpdateVehicleSite={handleUpdateVehicleSite}
+                      onAddComment={handleAddVehicleComment}
+                      onDeleteComment={handleDeleteVehicleComment}
+                    />
+                  </div>
+                </div>
+              )}
             </>
           )}
             </div>
