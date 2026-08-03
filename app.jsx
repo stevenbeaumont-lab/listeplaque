@@ -713,11 +713,11 @@ function buildNavItems(permissions, dossierUnmatchedCount) {
     { id: "challenge", label: "Challenge", group: "Performance" },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Performance" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
-    { id: "documents", label: "Documents", group: "Gestion" },
+    { id: "documents", label: "Documents", group: "Gestion", beta: true },
     permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Gestion" },
   ].filter(Boolean);
 }
-function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName }) {
   const items = buildNavItems(permissions, dossierUnmatchedCount);
   let lastGroup = null;
   return (
@@ -740,6 +740,11 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
             >
               <Icon size={16} className="shrink-0" />
               <span className="flex-1 truncate text-left">{it.label}</span>
+              {it.beta && isSuperAdmin(vendorName) && (
+                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${active ? "bg-white/25 text-white" : dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-800"}`}>
+                  Bêta
+                </span>
+              )}
               {!!it.count && (
                 <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>
                   {it.count}
@@ -753,7 +758,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   );
 }
 
-function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions }) {
+function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName }) {
   const items = buildNavItems(permissions, dossierUnmatchedCount);
   let lastGroup = null;
   return (
@@ -775,6 +780,11 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
               }`}
             >
               {it.label}
+              {it.beta && isSuperAdmin(vendorName) && (
+                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tab === it.id ? "bg-white/25 text-white" : dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-800"}`}>
+                  Bêta
+                </span>
+              )}
               {!!it.count && (
                 <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${tab === it.id ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>
                   {it.count}
@@ -4881,7 +4891,7 @@ export default function App() {
       ) : (
         <div className="p-4 md:p-6">
           <div className="mb-6 lg:hidden">
-            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} />
+            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} />
           </div>
           <div className="flex items-start gap-6">
             <div className="hidden lg:block">
@@ -4892,6 +4902,7 @@ export default function App() {
                 accidentCount={accidents.length}
                 dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length}
                 permissions={permissions}
+                vendorName={vendorName}
               />
             </div>
             <div key={tab} className="pl-fade-in min-w-0 flex-1 space-y-6">
