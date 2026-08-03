@@ -1724,56 +1724,56 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
             </div>
           </div>
           )}
-        </div>
-      </div>
 
-      <div className={`mt-4 rounded-xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
-        <div className={`mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-          <Info size={13} /> Commentaires internes {v.comments.length > 0 && `(${v.comments.length})`}
+          <div className={`mt-4 border-t pt-4 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+            <div className={`mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+              <Info size={13} /> Commentaires internes {v.comments.length > 0 && `(${v.comments.length})`}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={commentCategorie}
+                onChange={(e) => setCommentCategorie(e.target.value)}
+                className={`h-9 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+              >
+                {Object.keys(COMMENT_CATEGORIES).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <input
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitComment()}
+                placeholder="Ex. Livraison prévue Août, Mécanique OK, véhicule abîmé…"
+                className={`h-9 min-w-[160px] flex-1 rounded-lg border px-3 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+              />
+              <button onClick={submitComment} disabled={!commentText.trim()} className="pl-interactive h-9 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+                Ajouter
+              </button>
+            </div>
+            {v.comments.length > 0 && (
+              <ul className="mt-3 space-y-2">
+                {v.comments.map((c) => {
+                  const cat = COMMENT_CATEGORIES[c.categorie] || COMMENT_CATEGORIES["Général"];
+                  const canDelete = canModerateComments || c.auteur === vendorName;
+                  return (
+                    <li key={c.id} className={`flex items-start gap-2 rounded-lg border p-2.5 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? cat.dark : cat.light}`}>{c.categorie}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className={`text-sm ${dark ? "text-zinc-200" : "text-stone-700"}`}>{c.texte}</div>
+                        <div className={`mt-0.5 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>{c.auteur} · {c.date} {c.heure}</div>
+                      </div>
+                      {canDelete && (
+                        <button onClick={() => onDeleteComment(c.id)} className={`shrink-0 rounded-lg p-1 transition-colors ${dark ? "text-zinc-600 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={commentCategorie}
-            onChange={(e) => setCommentCategorie(e.target.value)}
-            className={`h-9 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-          >
-            {Object.keys(COMMENT_CATEGORIES).map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <input
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submitComment()}
-            placeholder="Ex. Livraison prévue Août, Mécanique OK, véhicule abîmé…"
-            className={`h-9 min-w-[200px] flex-1 rounded-lg border px-3 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
-          />
-          <button onClick={submitComment} disabled={!commentText.trim()} className="pl-interactive h-9 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
-            Ajouter
-          </button>
-        </div>
-        {v.comments.length > 0 && (
-          <ul className="mt-3 space-y-2">
-            {v.comments.map((c) => {
-              const cat = COMMENT_CATEGORIES[c.categorie] || COMMENT_CATEGORIES["Général"];
-              const canDelete = canModerateComments || c.auteur === vendorName;
-              return (
-                <li key={c.id} className={`flex items-start gap-2 rounded-lg border p-2.5 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? cat.dark : cat.light}`}>{c.categorie}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className={`text-sm ${dark ? "text-zinc-200" : "text-stone-700"}`}>{c.texte}</div>
-                    <div className={`mt-0.5 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>{c.auteur} · {c.date} {c.heure}</div>
-                  </div>
-                  {canDelete && (
-                    <button onClick={() => onDeleteComment(c.id)} className={`shrink-0 rounded-lg p-1 transition-colors ${dark ? "text-zinc-600 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </div>
 
       {historyOpen && (
