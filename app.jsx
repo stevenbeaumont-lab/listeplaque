@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -47,6 +47,7 @@ const STORE_KEYS = {
   convoyages: "dsr:convoyages",
   challengeConfig: "dsr:challenge-config",
   challengeEntries: "dsr:challenge-entries",
+  vehicleComments: "dsr:vehicle-comments",
 };
 
 // ---------------------------------------------------------------------------
@@ -489,7 +490,13 @@ function clientLine(v) {
 // ---------------------------------------------------------------------------
 const DEFAULT_ALERT_SETTINGS = { arriveeRecente: 3, resaExpireBientot: 2, resaLongue: 21, challengeSeuilJours: 45 };
 const DEFAULT_CHALLENGE_CONFIG = { actif: false, montantParVehicule: 50, dateDebut: "", dateFin: "" };
-function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, alertSettings) {
+const COMMENT_CATEGORIES = {
+  "Général": { light: "bg-stone-100 text-stone-600", dark: "bg-zinc-800 text-zinc-300" },
+  "Livraison": { light: "bg-sky-50 text-sky-700", dark: "bg-sky-500/15 text-sky-300" },
+  "Mécanique": { light: "bg-emerald-50 text-emerald-700", dark: "bg-emerald-500/15 text-emerald-300" },
+  "Dommage": { light: "bg-rose-50 text-rose-700", dark: "bg-rose-500/15 text-rose-300" },
+};
+function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, alertSettings, comments) {
   const { model, modelYear, bodyType, trim, color, power, gearbox, energy, battery, length, options: optionsList } = parseDescription(order.description);
   const vu = isVU(model);
   const inStock = !!stock;
@@ -554,6 +561,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, 
     bodyType,
     bodyCode: bodyCodeOf(model, bodyType),
     siteLocation,
+    comments: comments || [],
     transmission: transmissionType(energy, gearbox),
     trim,
     color,
@@ -1044,6 +1052,11 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
               </span>
             )}
             {hasAlert && <AlertTriangle size={13} className="shrink-0 text-rose-500" />}
+            {v.comments.length > 0 && (
+              <span title={`${v.comments.length} commentaire${v.comments.length > 1 ? "s" : ""}`} className={`flex shrink-0 items-center gap-0.5 text-[10px] font-semibold ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                <MessageSquare size={12} />{v.comments.length}
+              </span>
+            )}
           </div>
           {v.baseStatus === "vendu" && (
             <>
@@ -1077,7 +1090,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
 
 
 
-function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite }) {
+function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
   const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
   return (
     <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
@@ -1108,7 +1121,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect, onSave, vendorN
                   {isOpen && (
                     <tr>
                       <td colSpan={5} className="p-0">
-                        <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} />
+                        <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} onAddComment={onAddComment} onDeleteComment={onDeleteComment} />
                       </td>
                     </tr>
                   )}
@@ -1162,6 +1175,11 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className={`font-mono text-xs font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{v.orderNumber}</span>
         <StatusBadge vehicle={v} dark={dark} />
+        {v.comments.length > 0 && (
+          <span title={`${v.comments.length} commentaire${v.comments.length > 1 ? "s" : ""}`} className={`flex shrink-0 items-center gap-0.5 text-xs font-semibold ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+            <MessageSquare size={13} />{v.comments.length}
+          </span>
+        )}
         {v.baseStatus !== "reserve" && v.baseStatus !== "vendu" && activeReservationVendeur(v) && (
           <span title="Déjà réservé, en attente d'arrivée en stock" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Réservé
@@ -1204,7 +1222,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
   );
 }
 
-function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite }) {
+function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
   if (vehicles.length === 0) {
     return (
       <div className={`rounded-2xl border p-10 text-center text-sm ${dark ? "border-zinc-800 bg-zinc-900/40 text-zinc-500" : "border-stone-200 bg-white text-stone-400"}`}>
@@ -1221,7 +1239,7 @@ function VehicleCardList({ dark, vehicles, expandedOrder, onSelect, onSave, vend
             <VehicleCard v={v} dark={dark} onSelect={onSelect} expanded={isOpen} />
             {isOpen && (
               <div className={`overflow-hidden rounded-b-xl border border-t-0 ${dark ? "border-amber-500/60" : "border-amber-400/60"}`}>
-                <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} />
+                <ExpandedDetail v={v} dark={dark} onClose={() => onSelect(v)} onSave={onSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={onUpdateVehicleSite} onAddComment={onAddComment} onDeleteComment={onDeleteComment} />
               </div>
             )}
           </div>
@@ -1480,7 +1498,7 @@ function TrendChart({ dark }) {
   );
 }
 
-function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite }) {
+function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, sitesList, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
   const myPermissions = getPermissions(vendorName, vendeursList);
   const canReserveForOthers = myPermissions.reserveForOthers;
   const canReserve = myPermissions.reserve;
@@ -1493,6 +1511,15 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
   const [form, setForm] = useState(defaultForm);
   const [saved, setSaved] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [commentCategorie, setCommentCategorie] = useState("Général");
+  const myRole = findVendeur(vendeursList, vendorName)?.role || "Vendeur";
+  const canModerateComments = isSuperAdmin(vendorName) || myRole === "Chef des ventes" || myRole === "Directeur de plaque";
+  function submitComment() {
+    if (!commentText.trim()) return;
+    onAddComment(v.orderNumber, commentCategorie, commentText.trim());
+    setCommentText("");
+  }
   useEffect(() => {
     setForm(defaultForm());
     setSaved(false);
@@ -1679,6 +1706,55 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
         </div>
       </div>
 
+      <div className={`mt-4 rounded-xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        <div className={`mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          <Info size={13} /> Commentaires internes {v.comments.length > 0 && `(${v.comments.length})`}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={commentCategorie}
+            onChange={(e) => setCommentCategorie(e.target.value)}
+            className={`h-9 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          >
+            {Object.keys(COMMENT_CATEGORIES).map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <input
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitComment()}
+            placeholder="Ex. Livraison prévue Août, Mécanique OK, véhicule abîmé…"
+            className={`h-9 min-w-[200px] flex-1 rounded-lg border px-3 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+          />
+          <button onClick={submitComment} disabled={!commentText.trim()} className="h-9 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+            Ajouter
+          </button>
+        </div>
+        {v.comments.length > 0 && (
+          <ul className="mt-3 space-y-2">
+            {v.comments.map((c) => {
+              const cat = COMMENT_CATEGORIES[c.categorie] || COMMENT_CATEGORIES["Général"];
+              const canDelete = canModerateComments || c.auteur === vendorName;
+              return (
+                <li key={c.id} className={`flex items-start gap-2 rounded-lg border p-2.5 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? cat.dark : cat.light}`}>{c.categorie}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-sm ${dark ? "text-zinc-200" : "text-stone-700"}`}>{c.texte}</div>
+                    <div className={`mt-0.5 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>{c.auteur} · {c.date} {c.heure}</div>
+                  </div>
+                  {canDelete && (
+                    <button onClick={() => onDeleteComment(c.id)} className={`shrink-0 rounded-lg p-1 transition-colors ${dark ? "text-zinc-600 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}>
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
       {historyOpen && (
         <Modal dark={dark} title={`Historique — ${v.orderNumber}`} onClose={() => setHistoryOpen(false)}>
           {v.history.length === 0 ? (
@@ -1791,6 +1867,11 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
                   {v.siteLocation && (
                     <span className={`shrink-0 truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-700"}`}>
                       {v.siteLocation}
+                    </span>
+                  )}
+                  {v.comments.length > 0 && (
+                    <span title={`${v.comments.length} commentaire${v.comments.length > 1 ? "s" : ""}`} className={`flex shrink-0 items-center gap-0.5 text-[10px] font-semibold ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+                      <MessageSquare size={11} />{v.comments.length}
                     </span>
                   )}
                 </div>
@@ -2224,7 +2305,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
   );
 }
 
-function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, simpleMode, onSave, vendorName, onUpdateVehicleSite }) {
+function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, simpleMode, onSave, vendorName, onUpdateVehicleSite, onAddComment, onDeleteComment }) {
   const [popupVehicle, setPopupVehicle] = useState(null);
   const [query, setQuery] = useState("");
   const [contremarqueFilter, setContremarqueFilter] = useState("all");
@@ -2365,6 +2446,8 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
               vendeursList={vendeursList}
               sitesList={sitesList}
               onUpdateVehicleSite={onUpdateVehicleSite}
+              onAddComment={onAddComment}
+              onDeleteComment={onDeleteComment}
             />
           </div>
         </div>
@@ -3666,6 +3749,7 @@ export default function App() {
   const [convoyages, setConvoyages] = useState([]);
   const [challengeConfig, setChallengeConfig] = useState(DEFAULT_CHALLENGE_CONFIG);
   const [challengeEntries, setChallengeEntries] = useState([]);
+  const [vehicleComments, setVehicleComments] = useState([]);
   const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -3724,7 +3808,7 @@ export default function App() {
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
     const versionBefore = localWriteVersionRef.current;
-    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv, chalCfg, chalEntries] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv, chalCfg, chalEntries, comments] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
@@ -3740,6 +3824,7 @@ export default function App() {
       sGet(STORE_KEYS.convoyages, true),
       sGet(STORE_KEYS.challengeConfig, true),
       sGet(STORE_KEYS.challengeEntries, true),
+      sGet(STORE_KEYS.vehicleComments, true),
     ]);
     const raw = lastRawRef.current;
     const changed = (key, value) => {
@@ -3766,6 +3851,7 @@ export default function App() {
       if (changed("manualSales", manual || "")) setManualSales(manual ? JSON.parse(manual) : {});
       if (changed("convoyages", conv || "")) setConvoyages(conv ? JSON.parse(conv) : []);
       if (changed("challengeEntries", chalEntries || "")) setChallengeEntries(chalEntries ? JSON.parse(chalEntries) : []);
+      if (changed("vehicleComments", comments || "")) setVehicleComments(comments ? JSON.parse(comments) : []);
     }
     setLastSync(new Date());
     if (indicate) setSyncing(false);
@@ -3798,7 +3884,8 @@ export default function App() {
       sGet(STORE_KEYS.convoyages, true),
       sGet(STORE_KEYS.challengeConfig, true),
       sGet(STORE_KEYS.challengeEntries, true),
-    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log, conv, chalCfg, chalEntries]) => {
+      sGet(STORE_KEYS.vehicleComments, true),
+    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log, conv, chalCfg, chalEntries, comments]) => {
       setAccidents(acc2 ? JSON.parse(acc2) : []);
       setDossiersData(doss ? JSON.parse(doss) : []);
       if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
@@ -3809,6 +3896,7 @@ export default function App() {
       if (conv) setConvoyages(JSON.parse(conv));
       if (chalCfg) setChallengeConfig({ ...DEFAULT_CHALLENGE_CONFIG, ...JSON.parse(chalCfg) });
       if (chalEntries) setChallengeEntries(JSON.parse(chalEntries));
+      if (comments) setVehicleComments(JSON.parse(comments));
     });
   }
 
@@ -4145,6 +4233,38 @@ export default function App() {
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
+  async function handleAddVehicleComment(orderNumber, categorie, texte) {
+    const now = new Date();
+    const freshRaw = await sGet(STORE_KEYS.vehicleComments, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      orderNumber,
+      categorie,
+      texte,
+      auteur: vendorName,
+      date: now.toLocaleDateString("fr-FR"),
+      heure: now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+    };
+    const next = [entry, ...fresh];
+    const ok = await sSet(STORE_KEYS.vehicleComments, JSON.stringify(next), true);
+    setVehicleComments(next);
+    localWriteVersionRef.current++;
+    if (ok) showToast("Commentaire ajouté");
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleDeleteVehicleComment(id) {
+    const freshRaw = await sGet(STORE_KEYS.vehicleComments, true);
+    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
+    const next = fresh.filter((c) => c.id !== id);
+    const ok = await sSet(STORE_KEYS.vehicleComments, JSON.stringify(next), true);
+    setVehicleComments(next);
+    localWriteVersionRef.current++;
+    if (ok) showToast("Commentaire supprimé");
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
   async function detectNewChallengeEntries(candidates) {
     if (candidates.length === 0) return;
     const freshRaw = await sGet(STORE_KEYS.challengeEntries, true);
@@ -4328,6 +4448,12 @@ export default function App() {
       if (key && !dossierByOrder.has(key)) dossierByOrder.set(key, d);
     });
     const accidentedOrders = new Set(accidents.map((a) => normalizeOrderNum(a.orderNumber)));
+    const commentsByOrder = new Map();
+    vehicleComments.forEach((c) => {
+      const key = c.orderNumber;
+      if (!commentsByOrder.has(key)) commentsByOrder.set(key, []);
+      commentsByOrder.get(key).push(c);
+    });
     return ordersData
       .map((o) =>
         buildVehicle(
@@ -4337,11 +4463,12 @@ export default function App() {
           dossierByOrder.get(normalizeOrderNum(o.orderNumber)) || null,
           accidentedOrders.has(normalizeOrderNum(o.orderNumber)),
           manualSales[normalizeOrderNum(o.orderNumber)] || null,
-          alertSettings
+          alertSettings,
+          commentsByOrder.get(o.orderNumber) || []
         )
       )
       .filter((v) => v.baseStatus !== "livre_client");
-  }, [ordersData, stockData, overlays, dossiersData, accidents, manualSales, alertSettings]);
+  }, [ordersData, stockData, overlays, dossiersData, accidents, manualSales, alertSettings, vehicleComments]);
 
   const dossiers = useMemo(() => {
     const vehicleByOrder = new Map(vehicles.map((v) => [normalizeOrderNum(v.orderNumber), v]));
@@ -4625,7 +4752,7 @@ export default function App() {
             <div className="min-w-0 flex-1 space-y-6">
 
           {tab === "logistique" ? (
-            <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} onSave={handleReservationSave} vendorName={vendorName} onUpdateVehicleSite={handleUpdateVehicleSite} />
+            <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} onSave={handleReservationSave} vendorName={vendorName} onUpdateVehicleSite={handleUpdateVehicleSite} onAddComment={handleAddVehicleComment} onDeleteComment={handleDeleteVehicleComment} />
           ) : tab === "convoyage" ? (
             <ConvoyageTab
               dark={dark}
@@ -4733,10 +4860,10 @@ export default function App() {
                 onExport={() => exportVehiclesToExcel(filtered)}
               />
               <div className="hidden lg:block">
-                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} />
+                <VehicleTable dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} onAddComment={handleAddVehicleComment} onDeleteComment={handleDeleteVehicleComment} />
               </div>
               <div className="lg:hidden">
-                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} />
+                <VehicleCardList dark={dark} vehicles={filtered} expandedOrder={expandedOrder} onSelect={toggleExpand} onSave={handleReservationSave} vendorName={vendorName} vendeursList={vendeursList} sitesList={sitesList} onUpdateVehicleSite={handleUpdateVehicleSite} onAddComment={handleAddVehicleComment} onDeleteComment={handleDeleteVehicleComment} />
               </div>
             </>
           )}
