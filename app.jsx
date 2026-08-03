@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -48,6 +48,7 @@ const STORE_KEYS = {
   challengeConfig: "dsr:challenge-config",
   challengeEntries: "dsr:challenge-entries",
   vehicleComments: "dsr:vehicle-comments",
+  documentsConfig: "dsr:documents-config",
 };
 
 // ---------------------------------------------------------------------------
@@ -491,6 +492,14 @@ function clientLine(v) {
 // ---------------------------------------------------------------------------
 const DEFAULT_ALERT_SETTINGS = { arriveeRecente: 3, resaExpireBientot: 2, resaLongue: 21, challengeSeuilJours: 45 };
 const DEFAULT_CHALLENGE_CONFIG = { actif: false, montantParVehicule: 50, dateDebut: "", dateFin: "" };
+const DEFAULT_DOCUMENTS_CONFIG = { folderUrl: "" };
+function driveEmbedUrl(shareUrl) {
+  if (!shareUrl) return "";
+  const match = shareUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/) || shareUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  const id = match ? match[1] : null;
+  if (!id) return "";
+  return `https://drive.google.com/embeddedfolderview?id=${id}#grid`;
+}
 const COMMENT_CATEGORIES = {
   "Général": { light: "bg-stone-100 text-stone-600", dark: "bg-zinc-800 text-zinc-300" },
   "Livraison": { light: "bg-sky-50 text-sky-700", dark: "bg-sky-500/15 text-sky-300" },
@@ -691,6 +700,7 @@ const NAV_ICONS = {
   challenge: Trophy,
   dashboard: TrendingUp,
   dossiers: FileText,
+  documents: FolderOpen,
   vendeurs: Users,
   permissions: Lock,
   accidentes: AlertTriangle,
@@ -703,6 +713,7 @@ function buildNavItems(permissions, dossierUnmatchedCount) {
     { id: "challenge", label: "Challenge", group: "Performance" },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Performance" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
+    { id: "documents", label: "Documents", group: "Gestion" },
     permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Gestion" },
   ].filter(Boolean);
 }
@@ -1960,6 +1971,41 @@ function addBusinessDays(date, days) {
 function toDateInputValue(date) {
   return date.toISOString().slice(0, 10);
 }
+function DocumentsTab({ dark, folderUrl, canConfigure, onOpenSettings }) {
+  const embedUrl = driveEmbedUrl(folderUrl);
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          <FolderOpen size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
+          Documents
+        </div>
+        <p className={`mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+          Aperçu en direct d'un dossier Google Drive partagé (factures, contrats, etc.) — le contenu reste géré depuis Drive, rien n'est stocké dans ParcLive.
+        </p>
+      </div>
+
+      {embedUrl ? (
+        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          <iframe src={embedUrl} title="Documents Google Drive" className="h-[70vh] w-full" style={{ colorScheme: "light" }} />
+        </div>
+      ) : (
+        <EmptyState
+          dark={dark}
+          icon={FolderOpen}
+          title="Aucun dossier configuré pour l'instant"
+          subtitle={canConfigure ? "Ouvrez Réglages → Général pour coller le lien de partage de votre dossier Google Drive." : "Demandez à un administrateur de configurer le dossier dans Réglages."}
+        />
+      )}
+      {canConfigure && !embedUrl && (
+        <button onClick={onOpenSettings} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500">
+          Configurer maintenant
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfig, challengeEntries, onOpenVehicle }) {
   const stockAncien = useMemo(
     () => vehicles.filter((v) => v.baseStatus === "disponible" && v.inStock && v.joursStock >= seuilJours).sort((a, b) => b.joursStock - a.joursStock),
@@ -3311,9 +3357,34 @@ function ChallengeSettingsPanel({ dark, challengeConfig, entriesCount, onUpdate,
   );
 }
 
-function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
+function GeneralSettingsPanel({ dark, activityLog, onExportBackup, documentsConfig, onUpdateDocumentsConfig }) {
+  const [folderUrl, setFolderUrl] = useState(documentsConfig.folderUrl || "");
+  const inputCls = `h-9 w-full rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   return (
     <div className="space-y-4">
+      <div>
+        <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Documents (Google Drive)</div>
+        <p className={`mb-2 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+          Collez le lien de partage d'un dossier Google Drive (menu "Partager" → "Copier le lien" dans Drive, avec un accès "Toute personne disposant du lien"). Il apparaîtra dans l'onglet Documents pour toute l'équipe.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={folderUrl}
+            onChange={(e) => setFolderUrl(e.target.value)}
+            placeholder="https://drive.google.com/drive/folders/…"
+            className={`${inputCls} min-w-[240px] flex-1`}
+          />
+          <button
+            onClick={() => onUpdateDocumentsConfig({ folderUrl: folderUrl.trim() })}
+            className="pl-interactive h-9 rounded-lg bg-blue-700 px-4 text-sm font-bold text-white transition-colors hover:bg-blue-500"
+          >
+            Enregistrer
+          </button>
+        </div>
+        {folderUrl && !driveEmbedUrl(folderUrl) && (
+          <p className="mt-2 text-xs font-semibold text-rose-500">Lien non reconnu — vérifiez qu'il s'agit bien d'un lien de dossier Google Drive.</p>
+        )}
+      </div>
       <div>
         <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Sauvegarde</div>
         <button onClick={onExportBackup} className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
@@ -3341,7 +3412,7 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
   );
 }
 
-function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, challengeConfig, challengeEntries, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onUpdateChallengeConfig, onResetChallengeEntries, onExportBackup }) {
+function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, challengeConfig, challengeEntries, documentsConfig, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onUpdateChallengeConfig, onResetChallengeEntries, onExportBackup, onUpdateDocumentsConfig }) {
   const [settingsTab, setSettingsTab] = useState("vendeurs");
   const items = [
     { id: "vendeurs", label: "Vendeurs", icon: Users, group: "equipe" },
@@ -3390,7 +3461,7 @@ function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSet
       ) : settingsTab === "challenge" ? (
         <ChallengeSettingsPanel dark={dark} challengeConfig={challengeConfig} entriesCount={challengeEntries.length} onUpdate={onUpdateChallengeConfig} onReset={onResetChallengeEntries} />
       ) : (
-        <GeneralSettingsPanel dark={dark} activityLog={activityLog} onExportBackup={onExportBackup} />
+        <GeneralSettingsPanel dark={dark} activityLog={activityLog} onExportBackup={onExportBackup} documentsConfig={documentsConfig} onUpdateDocumentsConfig={onUpdateDocumentsConfig} />
       )}
     </div>
   );
@@ -3771,6 +3842,7 @@ export default function App() {
   const [challengeConfig, setChallengeConfig] = useState(DEFAULT_CHALLENGE_CONFIG);
   const [challengeEntries, setChallengeEntries] = useState([]);
   const [vehicleComments, setVehicleComments] = useState([]);
+  const [documentsConfig, setDocumentsConfig] = useState(DEFAULT_DOCUMENTS_CONFIG);
   const [dossiersMeta, setDossiersMeta] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -3830,7 +3902,7 @@ export default function App() {
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
     const versionBefore = localWriteVersionRef.current;
-    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv, chalCfg, chalEntries, comments] = await Promise.all([
+    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv, chalCfg, chalEntries, comments, docCfg] = await Promise.all([
       sGet(STORE_KEYS.orders, true),
       sGet(STORE_KEYS.stock, true),
       sGet(STORE_KEYS.overlays, true),
@@ -3847,6 +3919,7 @@ export default function App() {
       sGet(STORE_KEYS.challengeConfig, true),
       sGet(STORE_KEYS.challengeEntries, true),
       sGet(STORE_KEYS.vehicleComments, true),
+      sGet(STORE_KEYS.documentsConfig, true),
     ]);
     const raw = lastRawRef.current;
     const changed = (key, value) => {
@@ -3862,6 +3935,7 @@ export default function App() {
     if (alertCfg && changed("alertCfg", alertCfg)) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
     if (log && changed("log", log)) setActivityLog(JSON.parse(log));
     if (chalCfg && changed("chalCfg", chalCfg)) setChallengeConfig({ ...DEFAULT_CHALLENGE_CONFIG, ...JSON.parse(chalCfg) });
+    if (docCfg && changed("docCfg", docCfg)) setDocumentsConfig({ ...DEFAULT_DOCUMENTS_CONFIG, ...JSON.parse(docCfg) });
     // Skip overwriting locally-edited stores if a save happened while this fetch was in flight —
     // the fetch may have captured data from just before that save committed. The next poll (8s later)
     // will pick up the now-committed version.
@@ -3907,7 +3981,8 @@ export default function App() {
       sGet(STORE_KEYS.challengeConfig, true),
       sGet(STORE_KEYS.challengeEntries, true),
       sGet(STORE_KEYS.vehicleComments, true),
-    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log, conv, chalCfg, chalEntries, comments]) => {
+      sGet(STORE_KEYS.documentsConfig, true),
+    ]).then(([acc2, doss, dossMeta, manual, sites, alertCfg, log, conv, chalCfg, chalEntries, comments, docCfg]) => {
       setAccidents(acc2 ? JSON.parse(acc2) : []);
       setDossiersData(doss ? JSON.parse(doss) : []);
       if (dossMeta) setDossiersMeta(JSON.parse(dossMeta));
@@ -3919,6 +3994,7 @@ export default function App() {
       if (chalCfg) setChallengeConfig({ ...DEFAULT_CHALLENGE_CONFIG, ...JSON.parse(chalCfg) });
       if (chalEntries) setChallengeEntries(JSON.parse(chalEntries));
       if (comments) setVehicleComments(JSON.parse(comments));
+      if (docCfg) setDocumentsConfig({ ...DEFAULT_DOCUMENTS_CONFIG, ...JSON.parse(docCfg) });
     });
   }
 
@@ -4251,6 +4327,15 @@ export default function App() {
     setChallengeConfig(merged);
     localWriteVersionRef.current++;
     if (ok) { showToast("Challenge enregistré"); logActivity(`Challenge mis à jour — ${merged.montantParVehicule}€/véhicule, ${merged.dateDebut || "?"} → ${merged.dateFin || "?"}, ${merged.actif ? "actif" : "inactif"}`); }
+    else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
+  }
+
+  async function handleUpdateDocumentsConfig(newConfig) {
+    const merged = { ...DEFAULT_DOCUMENTS_CONFIG, ...newConfig };
+    const ok = await sSet(STORE_KEYS.documentsConfig, JSON.stringify(merged), true);
+    setDocumentsConfig(merged);
+    localWriteVersionRef.current++;
+    if (ok) { showToast("Dossier Documents mis à jour"); logActivity("Dossier Documents (Google Drive) reconfiguré"); }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
@@ -4934,6 +5019,13 @@ export default function App() {
                 <AttributedManuallyPanel dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
               )}
             </div>
+          ) : tab === "documents" ? (
+            <DocumentsTab
+              dark={dark}
+              folderUrl={documentsConfig.folderUrl}
+              canConfigure={permissions.vendeurs}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
           ) : (
             <>
               <FilterBar
@@ -5022,6 +5114,7 @@ export default function App() {
             activityLog={activityLog}
             challengeConfig={challengeConfig}
             challengeEntries={challengeEntries}
+            documentsConfig={documentsConfig}
             onAdd={handleAddVendeur}
             onRemove={handleRemoveVendeur}
             onUpdateSite={handleUpdateVendeurSite}
@@ -5034,6 +5127,7 @@ export default function App() {
             onUpdateChallengeConfig={handleUpdateChallengeConfig}
             onResetChallengeEntries={handleResetChallengeEntries}
             onExportBackup={() => exportFullBackup(vehicles, dossiers, vendeursList)}
+            onUpdateDocumentsConfig={handleUpdateDocumentsConfig}
           />
         </Modal>
       )}
