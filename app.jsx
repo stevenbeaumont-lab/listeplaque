@@ -26,7 +26,7 @@ function stripAccents(s) {
 }
 function normalizeVendeur(v) {
   const base = typeof v === "string" ? { nom: v, site: "" } : v;
-  return { role: "Vendeur", permOverrides: {}, email: "", ...base };
+  return { role: "Vendeur", permOverrides: {}, email: "", lastLogin: "", ...base };
 }
 const STORE_KEYS = {
   orders: "dsr:orders",
@@ -363,6 +363,7 @@ function exportVendeursToExcel(vendeursList) {
     "Email": v.email || "",
     "Site": v.site || "",
     "Rôle": v.role || "Vendeur",
+    "Dernière connexion": v.lastLogin ? new Date(v.lastLogin).toLocaleString("fr-FR") : "Jamais",
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = Object.keys(rows[0] || {}).map((k) => ({ wch: Math.max(k.length, 20) }));
@@ -2575,25 +2576,14 @@ function ManualSaleRow({ dark, v, vendeursList, onAssign, initialVendeur, initia
   );
 }
 
-function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
+function UnattributedSalesPanel({ dark, vehicles, vendeursList, onAssign }) {
   const unattributed = useMemo(() => vehicles.filter((v) => v.vendu && !v.venduPar && !v.clientLabel), [vehicles]);
-  const attributedManually = useMemo(() => vehicles.filter((v) => v.venduAttribManuelle), [vehicles]);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const filtered = unattributed.filter((v) => !q || `${v.orderNumber} ${v.model} ${v.typeVente}`.toLowerCase().includes(q));
-  const [attribOpen, setAttribOpen] = useState(false);
-  const [attribQuery, setAttribQuery] = useState("");
-  const aq = attribQuery.trim().toLowerCase();
-  const attributedFiltered = attributedManually.filter(
-    (v) => !aq || `${v.orderNumber} ${v.model} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase().includes(aq)
-  );
 
   return (
     <div className="space-y-3">
-      <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-        <User size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
-        Commandes vendues sans dossier MyAna
-      </div>
       <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
         Ces véhicules sont marqués "Vendu" d'après leur type de vente, sans dossier MyAna correspondant. Renseignez le vendeur et le nom du client, puis validez avec OK.
       </p>
@@ -2616,38 +2606,48 @@ function ManualSalesSection({ dark, vehicles, vendeursList, onAssign }) {
           </ul>
         </div>
       )}
-      {attributedManually.length > 0 && (
-        <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-          <button
-            onClick={() => setAttribOpen((o) => !o)}
-            className={`flex w-full items-center justify-between border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest transition-colors ${dark ? "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/70" : "border-stone-200 bg-stone-100 text-stone-500 hover:bg-stone-200/70"}`}
-          >
-            <span>Attribuées manuellement ({attributedManually.length})</span>
-            <ChevronRight size={14} className={`transition-transform ${attribOpen ? "rotate-90" : ""}`} />
-          </button>
-          {attribOpen && (
-            <>
-              <div className={`flex h-9 items-center gap-2 border-b px-3 ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}>
-                <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
-                <input
-                  value={attribQuery}
-                  onChange={(e) => setAttribQuery(e.target.value)}
-                  placeholder="Commande, modèle, vendeur, client…"
-                  className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
-                />
-              </div>
-              {attributedFiltered.length === 0 ? (
-                <div className={`p-6 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune correspondance.</div>
-              ) : (
-                <ul className={`max-h-[420px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
-                  {attributedFiltered.map((v) => (
-                    <ManualSaleRow key={v.orderNumber} dark={dark} v={v} vendeursList={vendeursList} onAssign={onAssign} initialVendeur={v.venduPar} initialClient={v.clientLabel} isEdit />
-                  ))}
-                </ul>
-              )}
-            </>
+    </div>
+  );
+}
+
+function AttributedManuallyPanel({ dark, vehicles, vendeursList, onAssign }) {
+  const attributedManually = useMemo(() => vehicles.filter((v) => v.venduAttribManuelle), [vehicles]);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const filtered = attributedManually.filter(
+    (v) => !q || `${v.orderNumber} ${v.model} ${v.venduPar || ""} ${v.clientLabel || ""}`.toLowerCase().includes(q)
+  );
+
+  return (
+    <div className="space-y-3">
+      <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        Ventes attribuées à la main — modifiables à tout moment.
+      </p>
+      {attributedManually.length === 0 ? (
+        <EmptyState dark={dark} icon={CheckCircle2} title="Aucune attribution manuelle pour l'instant" />
+      ) : (
+        <>
+          <div className={`flex h-9 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-stone-50 border-stone-200"}`}>
+            <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Commande, modèle, vendeur, client…"
+              className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
+            />
+          </div>
+          {filtered.length === 0 ? (
+            <div className={`p-6 text-center text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune correspondance.</div>
+          ) : (
+            <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+              <ul className={`max-h-[420px] divide-y overflow-auto ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
+                {filtered.map((v) => (
+                  <ManualSaleRow key={v.orderNumber} dark={dark} v={v} vendeursList={vendeursList} onAssign={onAssign} initialVendeur={v.venduPar} initialClient={v.clientLabel} isEdit />
+                ))}
+              </ul>
+            </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -3110,7 +3110,19 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
             <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         )}
-        <span className={`ml-auto text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>{usage} vente{usage > 1 ? "s" : ""}/résa.</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          {v.lastLogin ? (
+            <span title={new Date(v.lastLogin).toLocaleString("fr-FR")} className={`flex items-center gap-1 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${(Date.now() - new Date(v.lastLogin).getTime()) / 86400000 <= 7 ? "bg-emerald-500" : "bg-zinc-400"}`} />
+              Connecté le {new Date(v.lastLogin).toLocaleDateString("fr-FR")}
+            </span>
+          ) : (
+            <span className={`flex items-center gap-1 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" /> Jamais connecté
+            </span>
+          )}
+          <span className={`text-xs font-medium ${dark ? "text-zinc-500" : "text-stone-400"}`}>· {usage} vente{usage > 1 ? "s" : ""}/résa.</span>
+        </span>
       </div>
 
       {open && !superAdmin && (
@@ -3763,6 +3775,7 @@ export default function App() {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(() => !loadLocal("dsr:welcome-seen", false));
+  const [dossiersSubTab, setDossiersSubTab] = useState("dossiers");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
     const saved = loadLocal("dsr:ui-selected", null);
@@ -4596,6 +4609,18 @@ export default function App() {
     if (match) handleUpdateVendeurEmail(match.nom, authEmail);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authEmail, vendeursList]);
+
+  const lastLoginRecordedRef = useRef(false);
+  useEffect(() => {
+    if (!vendorName || lastLoginRecordedRef.current) return;
+    if (isSuperAdmin(vendorName)) return; // Steven doesn't need a vendeur record to function; skip if not present.
+    const vd = findVendeur(vendeursList, vendorName);
+    if (!vd) return;
+    lastLoginRecordedRef.current = true;
+    patchVendeursList((fresh) => fresh.map((v) => (v.nom === vendorName ? { ...v, lastLogin: new Date().toISOString() } : v)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorName, vendeursList]);
+
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
 
   const mySiteScope = useMemo(() => {
@@ -4863,9 +4888,32 @@ export default function App() {
           ) : tab === "accidentes" ? (
             <AccidentManualList dark={dark} accidents={accidents} vehicles={vehicles} vendorName={vendorName} onAdd={handleAddAccident} onRemove={handleRemoveAccident} />
           ) : tab === "dossiers" ? (
-            <div className="space-y-8">
-              <div className="space-y-4">
-                {dossiers.length > 0 ? (
+            <div className="space-y-4">
+              <div className={`inline-flex gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+                {[
+                  { id: "dossiers", label: "Dossiers importés", count: dossiers.length },
+                  { id: "non-attribuees", label: "Non attribuées", count: vehicles.filter((v) => v.vendu && !v.venduPar && !v.clientLabel).length },
+                  { id: "attribuees", label: "Attribuées manuellement", count: vehicles.filter((v) => v.venduAttribManuelle).length },
+                ].map((it) => (
+                  <button
+                    key={it.id}
+                    onClick={() => setDossiersSubTab(it.id)}
+                    className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${
+                      dossiersSubTab === it.id ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+                    }`}
+                  >
+                    {it.label}
+                    {it.count > 0 && (
+                      <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${dossiersSubTab === it.id ? "bg-zinc-950/20 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
+                        {it.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {dossiersSubTab === "dossiers" ? (
+                dossiers.length > 0 ? (
                   <DossierList dark={dark} dossiers={dossiers} onExport={exportDossiersToExcel} />
                 ) : (
                   <EmptyState
@@ -4874,9 +4922,12 @@ export default function App() {
                     title="Aucun dossier importé pour l'instant"
                     subtitle="Utilisez le bouton Importer en haut de la page pour charger le fichier MyAna."
                   />
-                )}
-              </div>
-              <ManualSalesSection dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
+                )
+              ) : dossiersSubTab === "non-attribuees" ? (
+                <UnattributedSalesPanel dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
+              ) : (
+                <AttributedManuallyPanel dark={dark} vehicles={vehicles} vendeursList={vendeursList} onAssign={handleAssignManualSale} />
+              )}
             </div>
           ) : (
             <>
