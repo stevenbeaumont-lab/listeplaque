@@ -593,7 +593,7 @@ function buildVehicle(order, stock, overlay, dossier, isAccidented, manualSale, 
 
 const STATUS_META = {
   disponible: { label: "Disponible", dot: "bg-emerald-500", text: "text-emerald-800", bg: "bg-emerald-100", textDark: "text-emerald-300", bgDark: "bg-emerald-500/20" },
-  reserve: { label: "Réservé", dot: "bg-amber-500", text: "text-amber-800", bg: "bg-amber-100", textDark: "text-amber-300", bgDark: "bg-amber-500/20" },
+  reserve: { label: "Réservé", dot: "bg-orange-500", text: "text-orange-800", bg: "bg-orange-100", textDark: "text-orange-300", bgDark: "bg-orange-500/20" },
   vendu: { label: "Vendu", dot: "bg-violet-600", text: "text-violet-800", bg: "bg-violet-100", textDark: "text-violet-300", bgDark: "bg-violet-500/20" },
   hs: { label: "HS", dot: "bg-rose-600", text: "text-rose-800", bg: "bg-rose-100", textDark: "text-rose-300", bgDark: "bg-rose-500/20" },
   commande: { label: "Commandé", dot: "bg-zinc-400", text: "text-zinc-700", bg: "bg-zinc-200", textDark: "text-zinc-300", bgDark: "bg-zinc-500/20" },
@@ -602,7 +602,7 @@ const STATUS_META = {
 };
 const STATUS_ACCENT = {
   disponible: "#10B981",
-  reserve: "#F59E0B",
+  reserve: "#F97316",
   vendu: "#7C3AED",
   hs: "#E11D48",
   commande: "#A1A1AA",
@@ -633,7 +633,7 @@ function VehicleTypeIcon({ vu, dark, size }) {
   const iconSize = size === "sm" ? 13 : 16;
   return (
     <span
-      className={`inline-flex ${dims} items-center justify-center rounded-lg ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}
+      className={`inline-flex ${dims} items-center justify-center rounded-lg ring-1 ${dark ? "bg-blue-700/10 text-blue-500 ring-blue-700/20" : "bg-blue-50 text-blue-800 ring-blue-200"}`}
       title={vu ? "Véhicule Utilitaire" : "Véhicule Particulier"}
     >
       <Icon size={iconSize} />
@@ -663,7 +663,7 @@ function KPICard({ label, value, dark, onClick, size }) {
       onClick={onClick}
       className={`w-full rounded-2xl border text-left transition-colors ${compact ? "p-3" : "p-4"} ${
         dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"
-      } ${onClick ? `pl-interactive ${dark ? "hover:border-amber-500/50 hover:bg-zinc-900 cursor-pointer" : "hover:border-amber-400 hover:bg-amber-50/30 cursor-pointer"}` : ""}`}
+      } ${onClick ? `pl-interactive ${dark ? "hover:border-blue-700/50 hover:bg-zinc-900 cursor-pointer" : "hover:border-blue-500 hover:bg-blue-50/30 cursor-pointer"}` : ""}`}
       style={dark ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" } : { boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
     >
       <div className={`font-semibold uppercase tracking-widest ${compact ? "text-[10px]" : "text-[11px]"} ${dark ? "text-zinc-500" : "text-stone-400"}`}>{label}</div>
@@ -675,7 +675,7 @@ function DashboardSection({ dark, icon: Icon, title, children }) {
   return (
     <div className="space-y-3">
       <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-        <Icon size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+        <Icon size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
         {title}
       </div>
       {children}
@@ -724,13 +724,13 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
             <button
               onClick={() => setTab(it.id)}
               className={`pl-interactive flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${
-                active ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+                active ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
               }`}
             >
               <Icon size={16} className="shrink-0" />
               <span className="flex-1 truncate text-left">{it.label}</span>
               {!!it.count && (
-                <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-zinc-950/20 text-zinc-950" : "bg-rose-500 text-white"}`}>
+                <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>
                   {it.count}
                 </span>
               )}
@@ -757,7 +757,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
               onClick={() => setTab(it.id)}
               className={`pl-interactive flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium sm:px-4 ${
                 tab === it.id
-                  ? "bg-amber-500 text-zinc-950"
+                  ? "bg-blue-700 text-white"
                   : dark
                   ? "text-zinc-400 hover:text-zinc-200"
                   : "text-stone-500 hover:text-stone-800"
@@ -765,7 +765,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
             >
               {it.label}
               {!!it.count && (
-                <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${tab === it.id ? "bg-zinc-950/20 text-zinc-950" : "bg-rose-500 text-white"}`}>
+                <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${tab === it.id ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>
                   {it.count}
                 </span>
               )}
@@ -788,7 +788,7 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
           <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dark ? "bg-emerald-400" : "bg-emerald-500"}`} />
         </span>
         <span className={`font-display text-xl font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>
-          Parc<span className={dark ? "text-amber-400" : "text-amber-600"}>Live</span>
+          Parc<span className={dark ? "text-blue-500" : "text-blue-800"}>Live</span>
         </span>
       </div>
       <div className={`hidden text-xs sm:block ${dark ? "text-zinc-500" : "text-stone-400"}`}>
@@ -878,7 +878,7 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
 
 function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, vendeurs, models }) {
   const [open, setOpen] = useState(false);
-  const selectCls = `h-9 w-full rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const selectCls = `h-9 w-full rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   const labelCls = `mb-1.5 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
 
   const activeCount =
@@ -893,7 +893,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
 
   function chipCls(active) {
     return `rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-      active ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+      active ? "bg-blue-700 text-white" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
     }`;
   }
   function toggleTypeVente(code) {
@@ -911,7 +911,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
       >
         <SlidersHorizontal size={14} /> Filtres
         {activeCount > 0 && (
-          <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-zinc-950">{activeCount}</span>
+          <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-700 px-1 text-[10px] font-bold text-white">{activeCount}</span>
         )}
       </button>
       {open && (
@@ -973,7 +973,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
               <div className={`max-h-28 space-y-0.5 overflow-y-auto rounded-lg border p-1.5 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
                 {typeVentes.map((t) => (
                   <label key={t} className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-50"}`}>
-                    <input type="checkbox" checked={filters.typeVente.includes(t)} onChange={() => toggleTypeVente(t)} className="accent-amber-500" />
+                    <input type="checkbox" checked={filters.typeVente.includes(t)} onChange={() => toggleTypeVente(t)} className="accent-blue-700" />
                     <span className={dark ? "text-zinc-200" : "text-stone-700"}>{t}</span>
                   </label>
                 ))}
@@ -1001,10 +1001,10 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
 }
 
 function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeurs, models, sortBy, setSortBy, onExport }) {
-  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30 focus:border-amber-500/40" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20 focus:border-amber-400"}`;
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30 focus:border-blue-700/40" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20 focus:border-blue-500"}`;
   return (
     <div className={`flex flex-wrap items-center gap-2 rounded-2xl border p-2.5 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
-      <div className={`flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-lg border px-3 transition-shadow focus-within:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 focus-within:ring-amber-500/30" : "bg-stone-50 border-stone-200 focus-within:ring-amber-500/20"}`}>
+      <div className={`flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-lg border px-3 transition-shadow focus-within:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 focus-within:ring-blue-700/30" : "bg-stone-50 border-stone-200 focus-within:ring-blue-700/20"}`}>
         <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
         <input
           id="parclive-search"
@@ -1043,13 +1043,13 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
     <tr
       onClick={() => onSelect(v)}
       className={`group cursor-pointer border-t transition-colors ${baseBg} ${
-        expanded ? (dark ? "border-zinc-800 bg-zinc-900/70" : "border-stone-200 bg-amber-50/60") : dark ? "border-zinc-800 hover:bg-zinc-800/70" : "border-stone-200 hover:bg-amber-50/40"
+        expanded ? (dark ? "border-zinc-800 bg-zinc-900/70" : "border-stone-200 bg-blue-50/60") : dark ? "border-zinc-800 hover:bg-zinc-800/70" : "border-stone-200 hover:bg-blue-50/40"
       }`}
       style={{ boxShadow: `inset 4px 0 0 ${hasAlert ? "#E11D48" : STATUS_ACCENT[v.baseStatus] || "transparent"}` }}
     >
       <td className="px-3 py-2 text-center">
         <VehicleTypeIcon vu={v.vu} dark={dark} size="sm" />
-        <div className={`mt-1 truncate font-mono text-[11px] font-semibold transition-colors ${dark ? "text-zinc-300 group-hover:text-amber-400" : "text-stone-600 group-hover:text-amber-600"}`}>
+        <div className={`mt-1 truncate font-mono text-[11px] font-semibold transition-colors ${dark ? "text-zinc-300 group-hover:text-blue-500" : "text-stone-600 group-hover:text-blue-800"}`}>
           {v.orderNumber}
         </div>
       </td>
@@ -1076,8 +1076,8 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
           <div className="flex items-center gap-1.5">
             <StatusBadge vehicle={v} dark={dark} />
             {v.baseStatus !== "reserve" && v.baseStatus !== "vendu" && activeReservationVendeur(v) && (
-              <span title="Déjà réservé, en attente d'arrivée en stock" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Réservé
+              <span title="Déjà réservé, en attente d'arrivée en stock" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? "bg-orange-500/15 text-orange-300" : "bg-orange-50 text-orange-700"}`}>
+                <span className="h-1.5 w-1.5 rounded-full bg-orange-500" /> Réservé
               </span>
             )}
             {hasAlert && <AlertTriangle size={13} className="shrink-0 text-rose-500" />}
@@ -1171,7 +1171,7 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
     <div
       onClick={() => onSelect(v)}
       className={`pl-interactive cursor-pointer border p-3.5 shadow-sm transition-colors ${expanded ? "rounded-t-xl" : "rounded-xl"} ${
-        expanded ? (dark ? "border-amber-500 bg-zinc-900/60" : "border-amber-400 bg-amber-50/50") : dark ? "border-zinc-800 bg-zinc-900/40 active:bg-zinc-800" : "border-stone-200 bg-white active:bg-stone-50"
+        expanded ? (dark ? "border-blue-700 bg-zinc-900/60" : "border-blue-500 bg-blue-50/50") : dark ? "border-zinc-800 bg-zinc-900/40 active:bg-zinc-800" : "border-stone-200 bg-white active:bg-stone-50"
       }`}
       style={{ boxShadow: `inset 4px 0 0 ${hasAlert ? "#E11D48" : STATUS_ACCENT[v.baseStatus] || "transparent"}` }}
     >
@@ -1199,8 +1199,8 @@ function VehicleCard({ v, dark, onSelect, expanded }) {
           </span>
         )}
         {v.baseStatus !== "reserve" && v.baseStatus !== "vendu" && activeReservationVendeur(v) && (
-          <span title="Déjà réservé, en attente d'arrivée en stock" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Réservé
+          <span title="Déjà réservé, en attente d'arrivée en stock" className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${dark ? "bg-orange-500/15 text-orange-300" : "bg-orange-50 text-orange-700"}`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-orange-500" /> Réservé
           </span>
         )}
         {v.siteLocation && (
@@ -1253,8 +1253,8 @@ function VehicleCardList({ dark, vehicles, expandedOrder, onSelect }) {
   );
 }
 
-const DONUT_COLORS_LIGHT = ["#D97706", "#0284C7", "#059669", "#DB2777", "#7C3AED", "#64748B"];
-const DONUT_COLORS_DARK = ["#FBBF24", "#38BDF8", "#34D399", "#F472B6", "#A78BFA", "#94A3B8"];
+const DONUT_COLORS_LIGHT = ["#1D4ED8", "#0284C7", "#059669", "#DB2777", "#7C3AED", "#64748B"];
+const DONUT_COLORS_DARK = ["#3B82F6", "#38BDF8", "#34D399", "#F472B6", "#A78BFA", "#94A3B8"];
 
 function DonutCard({ dark, title, data }) {
   const palette = dark ? DONUT_COLORS_DARK : DONUT_COLORS_LIGHT;
@@ -1366,13 +1366,13 @@ function VendeurPerformanceTable({ dark, vehicles, vendeursList, dossiers }) {
         </thead>
         <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
           {rows.map((r, i) => (
-            <tr key={r.nom} className={dark ? "hover:bg-zinc-900/60" : "hover:bg-amber-50/40"}>
+            <tr key={r.nom} className={dark ? "hover:bg-zinc-900/60" : "hover:bg-blue-50/40"}>
               <td className={`px-4 py-2.5 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
                 {i === 0 && r.total > 0 && "🥇 "}{i === 1 && r.total > 0 && "🥈 "}{i === 2 && r.total > 0 && "🥉 "}{r.nom}
               </td>
               <td className={`px-4 py-2.5 ${dark ? "text-zinc-400" : "text-stone-500"}`}>{r.site}</td>
               <td className={`${tdCls} ${dark ? "text-violet-400" : "text-violet-600"}`}>{r.ventes}</td>
-              <td className={`${tdCls} ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.reservations}</td>
+              <td className={`${tdCls} ${dark ? "text-orange-400" : "text-orange-600"}`}>{r.reservations}</td>
               <td className={tdCls}>{r.total}</td>
             </tr>
           ))}
@@ -1415,11 +1415,11 @@ function SiteComparisonTable({ dark, vehicles }) {
         </thead>
         <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
           {rows.map((r) => (
-            <tr key={r.concession} className={dark ? "hover:bg-zinc-900/60" : "hover:bg-amber-50/40"}>
+            <tr key={r.concession} className={dark ? "hover:bg-zinc-900/60" : "hover:bg-blue-50/40"}>
               <td className={`px-4 py-2.5 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{r.concession}</td>
               <td className={tdCls}>{r.total}</td>
               <td className={`${tdCls} ${dark ? "text-emerald-400" : "text-emerald-600"}`}>{r.disponibles}</td>
-              <td className={`${tdCls} ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.reserves}</td>
+              <td className={`${tdCls} ${dark ? "text-orange-400" : "text-orange-600"}`}>{r.reserves}</td>
               <td className={`${tdCls} ${dark ? "text-violet-400" : "text-violet-600"}`}>{r.vendus}</td>
               <td className={`${tdCls} ${r.alertes > 0 ? (dark ? "text-rose-400" : "text-rose-600") : ""}`}>{r.alertes}</td>
             </tr>
@@ -1489,7 +1489,7 @@ function TrendChart({ dark }) {
             <XAxis dataKey="date" tick={{ fill: tickColor, fontSize: 11 }} axisLine={{ stroke: gridColor }} tickLine={false} />
             <YAxis tick={{ fill: tickColor, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
             <Tooltip contentStyle={{ background: dark ? "#18181B" : "#fff", border: `1px solid ${gridColor}`, borderRadius: 10, fontSize: 12 }} />
-            <Line type="monotone" dataKey="total" stroke={dark ? "#FBBF24" : "#D97706"} strokeWidth={2} dot={false} name="Total véhicules" />
+            <Line type="monotone" dataKey="total" stroke={dark ? "#3B82F6" : "#1D4ED8"} strokeWidth={2} dot={false} name="Total véhicules" />
             <Line type="monotone" dataKey="disponibles" stroke={dark ? "#34D399" : "#059669"} strokeWidth={2} dot={false} name="Disponibles" />
           </LineChart>
         </ResponsiveContainer>
@@ -1526,7 +1526,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.orderNumber]);
 
-  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30 focus:border-amber-500/40" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20 focus:border-amber-400"}`;
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30 focus:border-blue-700/40" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20 focus:border-blue-500"}`;
 
   function save() {
     if (!form.client?.trim()) return;
@@ -1547,7 +1547,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
 
   return (
     <div
-      className={`border-t-2 border-l-4 border-amber-500 px-5 py-5 ${dark ? "bg-zinc-950 border-t-zinc-800" : "bg-stone-50 border-t-stone-200"}`}
+      className={`border-t-2 border-l-4 border-blue-700 px-5 py-5 ${dark ? "bg-zinc-950 border-t-zinc-800" : "bg-stone-50 border-t-stone-200"}`}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -1602,7 +1602,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
             <Info size={13} /> Fiche véhicule
           </div>
           {v.dataWarning && (
-            <div className={`flex items-start gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-medium ${dark ? "border-amber-800 bg-amber-500/10 text-amber-300" : "border-amber-300 bg-amber-50 text-amber-800"}`}>
+            <div className={`flex items-start gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-medium ${dark ? "border-blue-900 bg-blue-700/10 text-blue-300" : "border-blue-300 bg-blue-50 text-blue-900"}`}>
               <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {v.dataWarningReason}
             </div>
           )}
@@ -1615,7 +1615,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
                 <select
                   value={v.siteLocation || ""}
                   onChange={(e) => onUpdateVehicleSite(v.orderNumber, e.target.value)}
-                  className={`mt-0.5 h-7 rounded-lg border px-1.5 text-xs font-medium outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-100 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-800 focus:ring-amber-500/20"}`}
+                  className={`mt-0.5 h-7 rounded-lg border px-1.5 text-xs font-medium outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-100 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-800 focus:ring-blue-700/20"}`}
                 >
                   <option value="">Non renseigné</option>
                   {sitesList.map((s) => (
@@ -1682,7 +1682,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
               value={form.client || ""}
               onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))}
             />
-            <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${form.statut === "Réservation annulée" ? (dark ? "border-rose-800 bg-rose-500/10 text-rose-300" : "border-rose-200 bg-rose-50 text-rose-700") : (dark ? "border-amber-800 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700")}`}>
+            <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${form.statut === "Réservation annulée" ? (dark ? "border-rose-800 bg-rose-500/10 text-rose-300" : "border-rose-200 bg-rose-50 text-rose-700") : (dark ? "border-blue-900 bg-blue-700/10 text-blue-300" : "border-blue-200 bg-blue-50 text-blue-800")}`}>
               <CheckCircle2 size={13} className="shrink-0" /> {form.statut === "Réservation annulée" ? "Réservation annulée" : "Réservé"}
             </div>
             <div className="flex gap-2">
@@ -1691,7 +1691,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
             </div>
             <textarea className={inputCls} rows={3} placeholder="Commentaire libre" value={form.commentaire} onChange={(e) => setForm((f) => ({ ...f, commentaire: e.target.value }))} />
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button onClick={save} disabled={!form.client?.trim()} className="pl-interactive flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 disabled:opacity-40">Enregistrer</button>
+              <button onClick={save} disabled={!form.client?.trim()} className="pl-interactive flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-500 disabled:opacity-40">Enregistrer</button>
               {v.reservation?.statut && v.reservation.statut !== "Réservation annulée" && (
                 <button onClick={cancelReservation} className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>Annuler</button>
               )}
@@ -1712,7 +1712,7 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
               <select
                 value={commentCategorie}
                 onChange={(e) => setCommentCategorie(e.target.value)}
-                className={`h-9 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+                className={`h-9 rounded-lg border px-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`}
               >
                 {Object.keys(COMMENT_CATEGORIES).map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -1723,9 +1723,9 @@ function ExpandedDetail({ v, dark, onClose, onSave, vendorName, vendeursList, si
                 onChange={(e) => setCommentText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitComment()}
                 placeholder="Ex. Livraison prévue Août, Mécanique OK, véhicule abîmé…"
-                className={`h-9 min-w-[160px] flex-1 rounded-lg border px-3 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+                className={`h-9 min-w-[160px] flex-1 rounded-lg border px-3 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`}
               />
-              <button onClick={submitComment} disabled={!commentText.trim()} className="pl-interactive h-9 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+              <button onClick={submitComment} disabled={!commentText.trim()} className="pl-interactive h-9 rounded-lg bg-blue-700 px-3.5 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
                 Ajouter
               </button>
             </div>
@@ -1849,7 +1849,7 @@ function LogisticsGroup({ dark, title, icon: Icon, iconColor, vehicles, emptyLab
             <li
               key={v.orderNumber}
               onClick={() => onOpen(v)}
-              className={`flex cursor-pointer flex-wrap items-start gap-2.5 px-4 py-3 transition-colors ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}
+              className={`flex cursor-pointer flex-wrap items-start gap-2.5 px-4 py-3 transition-colors ${dark ? "hover:bg-zinc-900/70" : "hover:bg-blue-50/40"}`}
             >
               <div className="mt-0.5"><VehicleTypeIcon vu={v.vu} dark={dark} size="sm" /></div>
               <div className="min-w-[140px] flex-1">
@@ -1901,7 +1901,7 @@ function VehiclePicker({ dark, vehicles, value, onChange }) {
   const results = q
     ? vehicles.filter((v) => `${v.orderNumber} ${v.vin} ${displayModelBase(v)}`.toLowerCase().includes(q)).slice(0, 30)
     : [];
-  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   if (selected && !open) {
     return (
@@ -1991,7 +1991,7 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfi
     <div className="space-y-8">
       <div>
         <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-          <Trophy size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+          <Trophy size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
           Challenge stock ancien
         </div>
         <p className={`mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
@@ -2000,11 +2000,11 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfi
       </div>
 
       {challengeActif ? (
-        <div className={`rounded-2xl border p-4 ${dark ? "border-amber-500/30 bg-amber-500/10" : "border-amber-200 bg-amber-50"}`}>
-          <div className={`text-sm font-bold ${dark ? "text-amber-300" : "text-amber-800"}`}>
+        <div className={`rounded-2xl border p-4 ${dark ? "border-blue-700/30 bg-blue-700/10" : "border-blue-200 bg-blue-50"}`}>
+          <div className={`text-sm font-bold ${dark ? "text-blue-300" : "text-blue-900"}`}>
             Challenge en cours — {challengeConfig.montantParVehicule}€ par véhicule ancien vendu
           </div>
-          <div className={`mt-1 text-xs ${dark ? "text-amber-300/80" : "text-amber-700"}`}>
+          <div className={`mt-1 text-xs ${dark ? "text-blue-300/80" : "text-blue-800"}`}>
             {challengeConfig.dateDebut && challengeConfig.dateFin ? `Du ${challengeConfig.dateDebut} au ${challengeConfig.dateFin}` : "Sans date de fin définie"}
             {joursRestants != null && joursRestants >= 0 && ` · ${joursRestants} jour${joursRestants > 1 ? "s" : ""} restant${joursRestants > 1 ? "s" : ""}`}
           </div>
@@ -2032,12 +2032,12 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfi
           <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
             <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
               {classement.map((r, i) => (
-                <li key={r.nom} className={`flex items-center gap-3 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/60" : "hover:bg-amber-50/40"}`}>
+                <li key={r.nom} className={`flex items-center gap-3 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/60" : "hover:bg-blue-50/40"}`}>
                   <span className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
                     {i === 0 && "🥇 "}{i === 1 && "🥈 "}{i === 2 && "🥉 "}{r.nom}
                   </span>
                   <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{r.site} · {r.count} véhicule{r.count > 1 ? "s" : ""}</span>
-                  <span className={`ml-auto font-bold tabular-nums ${dark ? "text-amber-400" : "text-amber-600"}`}>{r.montant}€</span>
+                  <span className={`ml-auto font-bold tabular-nums ${dark ? "text-blue-500" : "text-blue-800"}`}>{r.montant}€</span>
                 </li>
               ))}
             </ul>
@@ -2057,7 +2057,7 @@ function ChallengeTab({ dark, vehicles, vendeursList, seuilJours, challengeConfi
               <li
                 key={v.orderNumber}
                 onClick={() => onOpenVehicle(v)}
-                className={`pl-interactive flex cursor-pointer flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 transition-colors ${dark ? "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/70" : "border-stone-200 bg-white hover:bg-amber-50/40"}`}
+                className={`pl-interactive flex cursor-pointer flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 transition-colors ${dark ? "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/70" : "border-stone-200 bg-white hover:bg-blue-50/40"}`}
               >
                 <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</span>
                 <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{v.orderNumber}{v.siteLocation ? ` · ${v.siteLocation}` : ""}</span>
@@ -2093,7 +2093,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
     }
   }, [formOrder]);
 
-  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   const labelCls = `mb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
   const dateTooSoon = dateSouhaitee && dateSouhaitee < minDate;
 
@@ -2143,7 +2143,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
           {statutIdx < CONVOYAGE_STATUTS.length - 1 && (
             <button
               onClick={() => onUpdateConvoyageStatut(c.id, CONVOYAGE_STATUTS[statutIdx + 1])}
-              className="pl-interactive rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-zinc-950 transition-colors hover:bg-amber-400"
+              className="pl-interactive rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-500"
             >
               Marquer "{CONVOYAGE_STATUTS[statutIdx + 1]}"
             </button>
@@ -2163,7 +2163,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
     <div className="space-y-8">
       <div>
         <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-          <ArrowRightLeft size={15} className={dark ? "text-amber-400" : "text-amber-600"} />
+          <ArrowRightLeft size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
           Convoyage entre sites
         </div>
         <p className={`mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
@@ -2175,7 +2175,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
         <div className={`overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
           <button
             onClick={() => setShowSansLoc((o) => !o)}
-            className={`flex w-full items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-widest transition-colors ${dark ? "bg-amber-500/10 text-amber-300 hover:bg-amber-500/15" : "bg-amber-50 text-amber-800 hover:bg-amber-100"}`}
+            className={`flex w-full items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-widest transition-colors ${dark ? "bg-blue-700/10 text-blue-300 hover:bg-blue-700/15" : "bg-blue-50 text-blue-900 hover:bg-blue-100"}`}
           >
             <span className="flex items-center gap-2"><AlertTriangle size={13} /> {sansLocalisation.length} véhicule{sansLocalisation.length > 1 ? "s" : ""} sans localisation connue</span>
             <ChevronRight size={14} className={`transition-transform ${showSansLoc ? "rotate-90" : ""}`} />
@@ -2183,14 +2183,14 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
           {showSansLoc && (
             <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-200"}`}>
               {sansLocalisation.map((v) => (
-                <li key={v.orderNumber} className={`flex flex-wrap items-center gap-2 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+                <li key={v.orderNumber} className={`flex flex-wrap items-center gap-2 px-4 py-2.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-blue-50/40"}`}>
                   <span className={`min-w-[160px] flex-1 truncate text-sm ${dark ? "text-zinc-200" : "text-stone-700"}`}>
                     {displayModelBase(v)} <span className={dark ? "text-zinc-500" : "text-stone-400"}>— {v.orderNumber}</span>
                   </span>
                   <select
                     defaultValue=""
                     onChange={(e) => e.target.value && onUpdateVehicleSite(v.orderNumber, e.target.value)}
-                    className={`h-8 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`}
+                    className={`h-8 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-600 focus:ring-blue-700/20"}`}
                   >
                     <option value="">Où est-il ? —</option>
                     {sitesList.map((s) => (
@@ -2246,7 +2246,7 @@ function ConvoyageTab({ dark, vehicles, convoyages, sitesList, vendorName, onCre
         <button
           onClick={submit}
           disabled={!formOrder || !siteDepart || !siteArrivee || siteDepart === siteArrivee || !dateSouhaitee || dateTooSoon}
-          className="pl-interactive rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40"
+          className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-40"
         >
           Demander le convoyage
         </button>
@@ -2342,10 +2342,10 @@ function LogisticsTab({ dark, vehicles, vendeursList, sitesList, onOpenVehicle, 
   );
   const nonSerialises = useMemo(() => vehicles.filter((v) => !v.vin && matches(v)), [vehicles, q, contremarqueFilter, concessionFilter, vendeurFilter, siteFilter]);
 
-  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   function chipCls(active) {
     return `rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-      active ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+      active ? "bg-blue-700 text-white" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
     }`;
   }
 
@@ -2482,7 +2482,7 @@ function DossierImportForm({ dark, onImport, existingMeta }) {
     setBusy(false);
     if (!ok) setError("Échec de l'enregistrement (base de données injoignable). Ouvrez la console (F12) pour le détail.");
   }
-  const dropCls = `flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dark ? "border-zinc-700 hover:border-amber-500/60 hover:bg-amber-500/5" : "border-stone-300 hover:border-amber-400 hover:bg-amber-50/50"}`;
+  const dropCls = `flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dark ? "border-zinc-700 hover:border-blue-700/60 hover:bg-blue-700/5" : "border-stone-300 hover:border-blue-500 hover:bg-blue-50/50"}`;
 
   return (
     <div className={`rounded-2xl border p-4 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -2498,7 +2498,7 @@ function DossierImportForm({ dark, onImport, existingMeta }) {
           Dernier import : {new Date(existingMeta.importedAt).toLocaleString("fr-FR")} · {existingMeta.count} dossiers
         </div>
       )}
-      <button onClick={submit} disabled={!rows || busy} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+      <button onClick={submit} disabled={!rows || busy} className="pl-interactive mt-3 w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
         {busy ? "Import en cours…" : "Valider l'import"}
       </button>
     </div>
@@ -2510,9 +2510,9 @@ function DossierRow({ dark, d }) {
   const clientLabel = d.societe || [d.prenom, d.nom].filter(Boolean).join(" ") || "—";
   const modelLabel = matched ? displayModelBase(d.vehicle) : d.modele || "—";
   return (
-    <li className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`} style={{ boxShadow: `inset 4px 0 0 ${matched ? "transparent" : "#E11D48"}` }}>
+    <li className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-blue-50/40"}`} style={{ boxShadow: `inset 4px 0 0 ${matched ? "transparent" : "#E11D48"}` }}>
       <div className="min-w-[130px]">
-        <div className={`flex items-center gap-1.5 text-sm font-bold ${dark ? "text-amber-400" : "text-amber-700"}`}>
+        <div className={`flex items-center gap-1.5 text-sm font-bold ${dark ? "text-blue-500" : "text-blue-800"}`}>
           <User size={12} className="shrink-0" /> <span className="truncate">{d.vendeur || "—"}</span>
         </div>
         <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{clientLabel}</div>
@@ -2538,7 +2538,7 @@ function ManualSaleRow({ dark, v, vendeursList, onAssign, initialVendeur, initia
   const [vendeur, setVendeur] = useState(initialVendeur || "");
   const [client, setClient] = useState(initialClient || "");
   const ready = vendeur.trim() && client.trim();
-  const inputCls = `h-9 rounded-lg border px-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `h-9 rounded-lg border px-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   function confirm() {
     if (!ready) return;
@@ -2546,7 +2546,7 @@ function ManualSaleRow({ dark, v, vendeursList, onAssign, initialVendeur, initia
   }
 
   return (
-    <li className={`flex flex-wrap items-center gap-2 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-amber-50/40"}`}>
+    <li className={`flex flex-wrap items-center gap-2 px-4 py-3 ${dark ? "hover:bg-zinc-900/70" : "hover:bg-blue-50/40"}`}>
       <div className="min-w-[160px] flex-1">
         <div className={`truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{displayModelBase(v)}</div>
         <div className={`truncate text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Commande {v.orderNumber} · Type {v.typeVente}</div>
@@ -2564,7 +2564,7 @@ function ManualSaleRow({ dark, v, vendeursList, onAssign, initialVendeur, initia
         placeholder="Nom du client"
         className={`${inputCls} w-40`}
       />
-      <button onClick={confirm} disabled={!ready} className="pl-interactive flex h-9 items-center gap-1 rounded-lg bg-amber-500 px-3 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+      <button onClick={confirm} disabled={!ready} className="pl-interactive flex h-9 items-center gap-1 rounded-lg bg-blue-700 px-3 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
         OK
       </button>
       {isEdit && (
@@ -2672,7 +2672,7 @@ function DossierList({ dark, dossiers, onExport }) {
     });
   }, [dossiers, query, vendeurFilter, localisationFilter]);
   const unmatchedCount = dossiers.filter((d) => !d.vehicle).length;
-  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   return (
     <div className="space-y-4">
@@ -2754,7 +2754,7 @@ function ImportForm({ dark, onImport, existingMeta, onImportDossiers, existingDo
     else if (!dossiersOk) setError("Commandes/stock enregistrés, mais l'import des dossiers a échoué — réessayez.");
   }
 
-  const dropCls = `flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dark ? "border-zinc-700 hover:border-amber-500/60 hover:bg-amber-500/5" : "border-stone-300 hover:border-amber-400 hover:bg-amber-50/50"}`;
+  const dropCls = `flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dark ? "border-zinc-700 hover:border-blue-700/60 hover:bg-blue-700/5" : "border-stone-300 hover:border-blue-500 hover:bg-blue-50/50"}`;
 
   return (
     <div className="space-y-4">
@@ -2784,11 +2784,11 @@ function ImportForm({ dark, onImport, existingMeta, onImportDossiers, existingDo
           {existingMeta && <div>Dernier import véhicules : {new Date(existingMeta.importedAt).toLocaleString("fr-FR")} · {existingMeta.ordersCount} commandes, {existingMeta.stockCount} en stock</div>}
           {existingDossiersMeta && <div>Dernier import dossiers : {new Date(existingDossiersMeta.importedAt).toLocaleString("fr-FR")} · {existingDossiersMeta.count} dossiers</div>}
           {dataWarningsCount > 0 && (
-            <div className={dark ? "text-amber-400" : "text-amber-600"}>{dataWarningsCount} fiche{dataWarningsCount > 1 ? "s" : ""} véhicule à vérifier (données incomplètes)</div>
+            <div className={dark ? "text-blue-500" : "text-blue-800"}>{dataWarningsCount} fiche{dataWarningsCount > 1 ? "s" : ""} véhicule à vérifier (données incomplètes)</div>
           )}
         </div>
       )}
-      <button onClick={submit} disabled={!ordersRows || busy} className="pl-interactive w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+      <button onClick={submit} disabled={!ordersRows || busy} className="pl-interactive w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
         {busy ? "Import en cours…" : "Valider l'import"}
       </button>
       {existingMeta && onReset && (
@@ -2834,7 +2834,7 @@ function PasswordChangeModal({ dark, onClose, showToast }) {
     }
   }
 
-  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   return (
     <Modal dark={dark} title="Changer mon mot de passe" onClose={onClose}>
@@ -2842,7 +2842,7 @@ function PasswordChangeModal({ dark, onClose, showToast }) {
         <input type="password" autoFocus className={inputCls} placeholder="Nouveau mot de passe" value={pw1} onChange={(e) => setPw1(e.target.value)} />
         <input type="password" className={inputCls} placeholder="Confirmer le mot de passe" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {error && <div className="text-xs font-semibold text-rose-500">{error}</div>}
-        <button onClick={submit} disabled={busy} className="pl-interactive w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+        <button onClick={submit} disabled={busy} className="pl-interactive w-full rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-50">
           {busy ? "Mise à jour…" : "Valider"}
         </button>
       </div>
@@ -2900,7 +2900,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
     setBulkOpen(false);
   }
 
-  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   const filtered = (siteFilter === "all" ? vendeurs : vendeurs.filter((v) => v.site === siteFilter)).filter(
     (v) => !query.trim() || v.nom.toLowerCase().includes(query.trim().toLowerCase())
@@ -2922,7 +2922,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
-        <button onClick={submit} disabled={!name.trim()} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+        <button onClick={submit} disabled={!name.trim()} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-blue-700 px-3.5 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
           <Plus size={15} /> Ajouter
         </button>
         <button
@@ -2945,7 +2945,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
             onChange={(e) => setBulkText(e.target.value)}
             rows={5}
             placeholder={"LEROY Anthony\nPAILLETTE Nicolas\nNEE Alexandre"}
-            className={`w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+            className={`w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`}
           />
           <div className="flex flex-wrap items-center gap-2">
             <select value={bulkSite} onChange={(e) => setBulkSite(e.target.value)} className={inputCls}>
@@ -2954,7 +2954,7 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
-            <button onClick={submitBulk} disabled={!bulkText.trim() || bulkBusy} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+            <button onClick={submitBulk} disabled={!bulkText.trim() || bulkBusy} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-blue-700 px-3.5 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
               {bulkBusy ? "Ajout en cours…" : "Ajouter la liste"}
             </button>
           </div>
@@ -2974,11 +2974,11 @@ function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd,
       )}
       {vendeurs.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <button onClick={() => setSiteFilter("all")} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === "all" ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
+          <button onClick={() => setSiteFilter("all")} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === "all" ? "bg-blue-700 text-white" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
             Tous les sites
           </button>
           {sitesList.map((s) => (
-            <button key={s} onClick={() => setSiteFilter(s)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === s ? "bg-amber-500 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
+            <button key={s} onClick={() => setSiteFilter(s)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${siteFilter === s ? "bg-blue-700 text-white" : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>
               {s}
             </button>
           ))}
@@ -3021,7 +3021,7 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
   const effective = { ...ROLE_PERMISSIONS[role], ...overrides };
   const hasOverrides = Object.keys(overrides).length > 0;
   const superAdmin = isSuperAdmin(v.nom);
-  const selectCls = `h-9 rounded-lg border px-2.5 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-600 focus:ring-amber-500/20"}`;
+  const selectCls = `h-9 rounded-lg border px-2.5 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-300 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-600 focus:ring-blue-700/20"}`;
   const initials = v.nom.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 
   function confirmRename() {
@@ -3036,7 +3036,7 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
   return (
     <li className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/40 border-zinc-800" : "bg-white border-stone-200"}`}>
       <div className="flex flex-wrap items-start gap-3">
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ring-1 ${dark ? "bg-blue-700/10 text-blue-500 ring-blue-700/20" : "bg-blue-50 text-blue-800 ring-blue-200"}`}>
           {initials}
         </span>
 
@@ -3048,7 +3048,7 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); if (e.key === "Escape") setRenaming(false); }}
               onBlur={confirmRename}
-              className={`h-8 w-full rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+              className={`h-8 w-full rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`}
             />
           ) : (
             <button onClick={() => { setNewName(v.nom); setRenaming(true); }} className={`truncate text-left text-sm font-semibold hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
@@ -3066,10 +3066,10 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
                 onKeyDown={(e) => { if (e.key === "Enter") confirmEmail(); if (e.key === "Escape") setEmailEditing(false); }}
                 onBlur={confirmEmail}
                 placeholder="prenom.nom@groupe-legrand.fr"
-                className={`h-7 min-w-[200px] flex-1 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+                className={`h-7 min-w-[200px] flex-1 rounded-lg border px-2 text-xs outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`}
               />
             ) : (
-              <button onClick={() => { setEmailValue(v.email || ""); setEmailEditing(true); }} className={`truncate text-left text-xs hover:underline ${v.email ? (dark ? "text-zinc-400" : "text-stone-500") : "italic text-amber-500"}`}>
+              <button onClick={() => { setEmailValue(v.email || ""); setEmailEditing(true); }} className={`truncate text-left text-xs hover:underline ${v.email ? (dark ? "text-zinc-400" : "text-stone-500") : "italic text-blue-700"}`}>
                 {v.email || "email non renseigné — cliquer pour ajouter"}
               </button>
             )}
@@ -3084,7 +3084,7 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
             ))}
           </select>
           {superAdmin ? (
-            <span className={`rounded-full px-2.5 py-1.5 text-xs font-bold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Accès complet</span>
+            <span className={`rounded-full px-2.5 py-1.5 text-xs font-bold ${dark ? "bg-blue-700/20 text-blue-300" : "bg-blue-100 text-blue-900"}`}>Accès complet</span>
           ) : (
             <select value={role} onChange={(e) => onUpdateRole(v.nom, e.target.value)} className={selectCls} title="Rôle">
               {ROLES.map((r) => (
@@ -3105,7 +3105,7 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
             onClick={() => setOpen((o) => !o)}
             className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
           >
-            {hasOverrides && <span className={`h-1.5 w-1.5 rounded-full ${dark ? "bg-amber-400" : "bg-amber-500"}`} />}
+            {hasOverrides && <span className={`h-1.5 w-1.5 rounded-full ${dark ? "bg-blue-500" : "bg-blue-700"}`} />}
             <Lock size={12} /> Personnaliser les permissions
             <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
@@ -3129,7 +3129,7 @@ function VendeurManageRow({ dark, v, usage, sitesList, onUpdateSite, onUpdateRol
         <div className={`mt-3 grid gap-2 rounded-xl border p-3 sm:grid-cols-2 ${dark ? "border-zinc-800 bg-zinc-950/50" : "border-stone-100 bg-stone-50/70"}`}>
           {PERMISSION_KEYS.map((key) => (
             <div key={key} className="flex items-center gap-2">
-              <input type="checkbox" checked={!!effective[key]} onChange={(e) => onUpdatePermission(v.nom, key, e.target.checked)} className="accent-amber-500" />
+              <input type="checkbox" checked={!!effective[key]} onChange={(e) => onUpdatePermission(v.nom, key, e.target.checked)} className="accent-blue-700" />
               <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{PERMISSION_LABELS[key]}</span>
               {overrides[key] !== undefined && (
                 <button onClick={() => onUpdatePermission(v.nom, key, null)} className={`text-xs underline-offset-2 hover:underline ${dark ? "text-zinc-500" : "text-stone-400"}`}>
@@ -3148,7 +3148,7 @@ function SitesManager({ dark, sitesList, vendeurs, onUpdate }) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState(null);
   const [editValue, setEditValue] = useState("");
-  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   const countBySite = useMemo(() => {
     const c = {};
     vendeurs.forEach((v) => { if (v.site) c[v.site] = (c[v.site] || 0) + 1; });
@@ -3185,7 +3185,7 @@ function SitesManager({ dark, sitesList, vendeurs, onUpdate }) {
           placeholder="Nom du site (ex. Ford Argentan)"
           className={`${inputCls} min-w-[220px] flex-1`}
         />
-        <button onClick={add} disabled={!name.trim()} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-40">
+        <button onClick={add} disabled={!name.trim()} className="pl-interactive flex h-9 items-center gap-1.5 rounded-lg bg-blue-700 px-3.5 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
           <Plus size={15} /> Ajouter
         </button>
       </div>
@@ -3205,7 +3205,7 @@ function SitesManager({ dark, sitesList, vendeurs, onUpdate }) {
                   onChange={(e) => setEditValue(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditing(null); }}
                   onBlur={confirmEdit}
-                  className={`h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`}
+                  className={`h-8 min-w-0 flex-1 rounded-lg border px-2 text-sm font-semibold outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`}
                 />
               ) : (
                 <button onClick={() => { setEditing(s); setEditValue(s); }} className={`min-w-0 flex-1 truncate text-left text-sm font-semibold hover:underline ${dark ? "text-zinc-100" : "text-stone-900"}`} title="Cliquer pour renommer">
@@ -3228,7 +3228,7 @@ function SitesManager({ dark, sitesList, vendeurs, onUpdate }) {
 
 function AlertSettingsPanel({ dark, alertSettings, onUpdate }) {
   const [values, setValues] = useState(alertSettings);
-  const inputCls = `h-9 w-20 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `h-9 w-20 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   const rows = [
     { key: "arriveeRecente", label: "Arrivée récente (véhicule en stock depuis moins de X jours)" },
     { key: "resaExpireBientot", label: "Réservation qui expire bientôt (dans moins de X jours)" },
@@ -3252,7 +3252,7 @@ function AlertSettingsPanel({ dark, alertSettings, onUpdate }) {
           </div>
         ))}
       </div>
-      <button onClick={() => onUpdate(values)} className="pl-interactive rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+      <button onClick={() => onUpdate(values)} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500">
         Enregistrer les seuils
       </button>
     </div>
@@ -3262,7 +3262,7 @@ function AlertSettingsPanel({ dark, alertSettings, onUpdate }) {
 function ChallengeSettingsPanel({ dark, challengeConfig, entriesCount, onUpdate, onReset }) {
   const [values, setValues] = useState(challengeConfig);
   const [resetConfirm, setResetConfirm] = useState(false);
-  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   return (
     <div className="space-y-4">
@@ -3274,7 +3274,7 @@ function ChallengeSettingsPanel({ dark, challengeConfig, entriesCount, onUpdate,
           <span className={`flex-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>Challenge actif</span>
           <button
             onClick={() => setValues((v) => ({ ...v, actif: !v.actif }))}
-            className={`h-6 w-11 rounded-full transition-colors ${values.actif ? "bg-amber-500" : dark ? "bg-zinc-700" : "bg-stone-300"}`}
+            className={`h-6 w-11 rounded-full transition-colors ${values.actif ? "bg-blue-700" : dark ? "bg-zinc-700" : "bg-stone-300"}`}
           >
             <span className={`block h-5 w-5 translate-x-0.5 rounded-full bg-white transition-transform ${values.actif ? "translate-x-[22px]" : ""}`} />
           </button>
@@ -3294,7 +3294,7 @@ function ChallengeSettingsPanel({ dark, challengeConfig, entriesCount, onUpdate,
           </div>
         </div>
       </div>
-      <button onClick={() => onUpdate(values)} className="pl-interactive rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+      <button onClick={() => onUpdate(values)} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500">
         Enregistrer le challenge
       </button>
       <div className={`rounded-2xl border p-4 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
@@ -3344,26 +3344,28 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup }) {
 function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, challengeConfig, challengeEntries, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onUpdateChallengeConfig, onResetChallengeEntries, onExportBackup }) {
   const [settingsTab, setSettingsTab] = useState("vendeurs");
   const items = [
-    { id: "vendeurs", label: "Vendeurs", icon: Users },
-    { id: "sites", label: "Sites", icon: Truck },
-    { id: "alertes", label: "Alertes", icon: AlertTriangle },
-    { id: "challenge", label: "Challenge", icon: Trophy },
-    { id: "general", label: "Général", icon: Settings },
+    { id: "vendeurs", label: "Vendeurs", icon: Users, group: "equipe" },
+    { id: "sites", label: "Sites", icon: Truck, group: "equipe" },
+    { id: "alertes", label: "Alertes", icon: AlertTriangle, group: "config" },
+    { id: "challenge", label: "Challenge", icon: Trophy, group: "config" },
+    { id: "general", label: "Général", icon: Settings, group: "systeme" },
   ];
   return (
     <div className="space-y-4">
-      <div className={`inline-flex gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
-        {items.map((it) => (
-          <button
-            key={it.id}
-            onClick={() => setSettingsTab(it.id)}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
-              settingsTab === it.id ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
-            }`}
-          >
-            <it.icon size={14} />
-            {it.label}
-          </button>
+      <div className={`inline-flex flex-wrap items-center gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        {items.map((it, i) => (
+          <Fragment key={it.id}>
+            {i > 0 && items[i - 1].group !== it.group && <span className={`mx-0.5 h-5 w-px ${dark ? "bg-zinc-800" : "bg-stone-200"}`} />}
+            <button
+              onClick={() => setSettingsTab(it.id)}
+              className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${
+                settingsTab === it.id ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+              }`}
+            >
+              <it.icon size={14} />
+              {it.label}
+            </button>
+          </Fragment>
         ))}
       </div>
       {settingsTab === "vendeurs" ? (
@@ -3479,8 +3481,8 @@ function Toast({ dark, toast, onDismiss }) {
               : "bg-rose-50 border-rose-200 text-rose-800"
             : isCelebrate
             ? dark
-              ? "bg-amber-500/15 border-amber-500/40 text-amber-200"
-              : "bg-amber-50 border-amber-300 text-amber-900"
+              ? "bg-blue-700/15 border-blue-700/40 text-blue-200"
+              : "bg-blue-50 border-blue-300 text-blue-950"
             : dark
             ? "bg-zinc-900 border-zinc-700 text-zinc-100"
             : "bg-zinc-900 border-zinc-800 text-white"
@@ -3489,13 +3491,13 @@ function Toast({ dark, toast, onDismiss }) {
         {isError ? (
           <AlertTriangle size={15} className="shrink-0" />
         ) : isCelebrate ? (
-          <Trophy size={16} className="pl-celebrate shrink-0 text-amber-400" />
+          <Trophy size={16} className="pl-celebrate shrink-0 text-blue-500" />
         ) : (
           <CheckCircle2 size={15} className="shrink-0 text-emerald-400" />
         )}
         <span>{toast.message}</span>
         {toast.action && (
-          <button onClick={() => { toast.action.onClick(); onDismiss(); }} className="pl-interactive ml-1 shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-bold text-zinc-950 hover:bg-amber-400">
+          <button onClick={() => { toast.action.onClick(); onDismiss(); }} className="pl-interactive ml-1 shrink-0 rounded-md bg-blue-700 px-2.5 py-1 text-xs font-bold text-white hover:bg-blue-500">
             {toast.action.label}
           </button>
         )}
@@ -3536,18 +3538,18 @@ function LoginScreen({ dark, onLogin }) {
     else setResetSent(true);
   }
 
-  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   return (
     <div className="flex min-h-[520px] items-center justify-center p-6">
       <div className={`w-full max-w-sm rounded-2xl border p-6 text-center shadow-sm ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
         <div className="mb-4 flex justify-center">
-          <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+          <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-blue-700/10 text-blue-500 ring-blue-700/20" : "bg-blue-50 text-blue-800 ring-blue-200"}`}>
             <Lock size={20} />
           </span>
         </div>
         <div className={`font-display text-lg font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>
-          Parc<span className={dark ? "text-amber-400" : "text-amber-600"}>Live</span>
+          Parc<span className={dark ? "text-blue-500" : "text-blue-800"}>Live</span>
         </div>
         {mode === "login" ? (
           <>
@@ -3571,7 +3573,7 @@ function LoginScreen({ dark, onLogin }) {
               className={`mt-2 ${inputCls} ${error ? "border-rose-500 focus:ring-rose-500/30" : ""}`}
             />
             {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
-            <button onClick={submit} disabled={checking} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+            <button onClick={submit} disabled={checking} className="pl-interactive mt-3 w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-50">
               {checking ? "Connexion…" : "Se connecter"}
             </button>
             <button
@@ -3603,7 +3605,7 @@ function LoginScreen({ dark, onLogin }) {
                   className={inputCls}
                 />
                 {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
-                <button onClick={submitReset} disabled={checking} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+                <button onClick={submitReset} disabled={checking} className="pl-interactive mt-3 w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-50">
                   {checking ? "Envoi…" : "Envoyer le lien"}
                 </button>
               </>
@@ -3638,13 +3640,13 @@ function SetNewPasswordScreen({ dark, onDone }) {
     else onDone();
   }
 
-  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-amber-500/30" : "bg-white border-stone-200 text-stone-700 focus:ring-amber-500/20"}`;
+  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   return (
     <div className="flex min-h-[520px] items-center justify-center p-6">
       <div className={`w-full max-w-sm rounded-2xl border p-6 text-center shadow-sm ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
         <div className="mb-4 flex justify-center">
-          <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+          <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-blue-700/10 text-blue-500 ring-blue-700/20" : "bg-blue-50 text-blue-800 ring-blue-200"}`}>
             <Lock size={20} />
           </span>
         </div>
@@ -3653,7 +3655,7 @@ function SetNewPasswordScreen({ dark, onDone }) {
         <input type="password" autoFocus className={inputCls} placeholder="Nouveau mot de passe" value={pw1} onChange={(e) => setPw1(e.target.value)} />
         <input type="password" className={`mt-2 ${inputCls}`} placeholder="Confirmer" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {error && <div className="mt-2 text-xs font-semibold text-rose-500">{error}</div>}
-        <button onClick={submit} disabled={busy} className="pl-interactive mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400 disabled:opacity-50">
+        <button onClick={submit} disabled={busy} className="pl-interactive mt-3 w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-50">
           {busy ? "Mise à jour…" : "Valider"}
         </button>
       </div>
@@ -4701,8 +4703,8 @@ export default function App() {
       style={{
         minHeight: 640,
         backgroundImage: dark
-          ? "radial-gradient(900px circle at 100% 0%, rgba(251,191,36,0.07), transparent 45%), radial-gradient(700px circle at 0% 100%, rgba(56,189,248,0.06), transparent 45%)"
-          : "radial-gradient(900px circle at 100% 0%, rgba(217,119,6,0.05), transparent 45%)",
+          ? "radial-gradient(900px circle at 100% 0%, rgba(59,130,246,0.08), transparent 45%), radial-gradient(700px circle at 0% 100%, rgba(56,189,248,0.06), transparent 45%)"
+          : "radial-gradient(900px circle at 100% 0%, rgba(29,78,216,0.06), transparent 45%)",
       }}
     >
       <style>{`
@@ -4739,7 +4741,7 @@ export default function App() {
             <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
               Votre compte ({authEmail}) n'est relié à aucun profil vendeur. Demandez à un administrateur de renseigner votre email dans l'onglet Vendeurs.
             </p>
-            <button onClick={handleLogout} className="pl-interactive w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-amber-400">
+            <button onClick={handleLogout} className="pl-interactive w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-500">
               Se déconnecter
             </button>
           </div>
@@ -4770,7 +4772,7 @@ export default function App() {
         </div>
       )}
       {showWelcome && vendorName && (
-        <div className={`flex flex-wrap items-center gap-2 px-4 py-2 text-xs font-medium md:px-6 ${dark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-800"}`}>
+        <div className={`flex flex-wrap items-center gap-2 px-4 py-2 text-xs font-medium md:px-6 ${dark ? "bg-blue-700/10 text-blue-300" : "bg-blue-50 text-blue-900"}`}>
           <Info size={13} className="shrink-0" />
           <span>
             Bienvenue {vendorName} — vous êtes connecté avec le rôle <span className="font-semibold">{isSuperAdmin(vendorName) ? "Accès complet" : (findVendeur(vendeursList, vendorName)?.role || "Vendeur")}</span>.
@@ -4870,7 +4872,7 @@ export default function App() {
                   <DonutCard dark={dark} title="Statut de livraison (dossiers)" data={groupCount(dossiers, (d) => d.statutLivraison)} />
                 </div>
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <BarListCard dark={dark} title="Par type de vente" data={dashboardStats.byTypeVente.slice(0, 8)} color={dark ? "#FBBF24" : "#D97706"} />
+                  <BarListCard dark={dark} title="Par type de vente" data={dashboardStats.byTypeVente.slice(0, 8)} color={dark ? "#3B82F6" : "#1D4ED8"} />
                   <BarListCard dark={dark} title="Top 5 modèles" data={dashboardStats.topModels} color={dark ? "#FB923C" : "#EA580C"} layout="vertical" />
                 </div>
               </DashboardSection>
@@ -4899,12 +4901,12 @@ export default function App() {
                     key={it.id}
                     onClick={() => setDossiersSubTab(it.id)}
                     className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${
-                      dossiersSubTab === it.id ? "bg-amber-500 text-zinc-950" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+                      dossiersSubTab === it.id ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
                     }`}
                   >
                     {it.label}
                     {it.count > 0 && (
-                      <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${dossiersSubTab === it.id ? "bg-zinc-950/20 text-zinc-950" : dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
+                      <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${dossiersSubTab === it.id ? "bg-white/25 text-white" : dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
                         {it.count}
                       </span>
                     )}
