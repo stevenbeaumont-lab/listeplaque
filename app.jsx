@@ -483,7 +483,7 @@ function venduLabel(v) {
 }
 function clientLine(v) {
   if (v.vendu && v.clientLabel) return v.clientLabel;
-  if (v.baseStatus === "reserve" && v.reservation?.client) return v.reservation.client;
+  if (v.reservation?.client && activeReservationVendeur(v)) return v.reservation.client;
   return "";
 }
 
@@ -853,8 +853,11 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
               <ul className={`space-y-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Véhicules</span> — parc complet, recherche, réservation</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Logistique</span> — en stock, en transit, non sérialisés</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Convoyage</span> — transferts entre sites, localisation du stock</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Challenge</span> — stock ancien à écouler, primes et classement</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Tableau de bord</span> — statistiques et tendances</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers</span> — import MyAna, attribution des ventes</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Documents</span> — dossier Google Drive partagé</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Accidentés</span> — véhicules signalés HS</li>
               </ul>
             </div>
