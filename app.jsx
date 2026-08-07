@@ -943,6 +943,13 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className={`absolute right-0 z-20 mt-1 max-h-[75vh] w-72 overflow-y-auto rounded-xl border shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+            {activeCount > 0 && (
+              <div className={`border-b p-2.5 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+                <button onClick={reset} className={`w-full rounded-lg py-1.5 text-xs font-semibold underline ${dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>
+                  Réinitialiser les filtres
+                </button>
+              </div>
+            )}
             <div className="space-y-3 p-3.5">
             <div>
               <div className={labelCls}>Véhicule (modèle)</div>
@@ -1015,13 +1022,6 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
               </select>
             </div>
             </div>
-            {activeCount > 0 && (
-              <div className={`sticky bottom-0 border-t p-2.5 ${dark ? "border-zinc-800 bg-zinc-900" : "border-stone-200 bg-white"}`}>
-                <button onClick={reset} className={`w-full rounded-lg py-1.5 text-xs font-semibold underline ${dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>
-                  Réinitialiser les filtres
-                </button>
-              </div>
-            )}
           </div>
         </>
       )}
