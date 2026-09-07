@@ -920,14 +920,14 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
   );
 }
 
-function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, vendeurs, models }) {
+function FiltersPopover({ dark, filters, setFilters, sitesList, typeVentes, vendeurs, models }) {
   const [open, setOpen] = useState(false);
   const selectCls = `h-9 w-full rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   const labelCls = `mb-1.5 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
 
   const activeCount =
     (filters.modele !== "all" ? 1 : 0) +
-    (filters.concession !== "all" ? 1 : 0) +
+    (filters.site !== "all" ? 1 : 0) +
     (filters.vu !== "all" ? 1 : 0) +
     (filters.statut !== "all" ? 1 : 0) +
     (filters.vendeur !== "all" ? 1 : 0) +
@@ -944,7 +944,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
     setFilters((f) => ({ ...f, typeVente: f.typeVente.includes(code) ? f.typeVente.filter((c) => c !== code) : [...f.typeVente, code] }));
   }
   function reset() {
-    setFilters((f) => ({ ...f, modele: "all", concession: "all", vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", typeVente: [] }));
+    setFilters((f) => ({ ...f, modele: "all", site: "all", vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", typeVente: [] }));
   }
 
   return (
@@ -980,11 +980,11 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
               </select>
             </div>
             <div>
-              <div className={labelCls}>Concession</div>
-              <select className={selectCls} value={filters.concession} onChange={(e) => setFilters((f) => ({ ...f, concession: e.target.value }))}>
-                <option value="all">Toutes concessions</option>
-                {concessions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+              <div className={labelCls}>Site</div>
+              <select className={selectCls} value={filters.site} onChange={(e) => setFilters((f) => ({ ...f, site: e.target.value }))}>
+                <option value="all">Tous les sites</option>
+                {sitesList.map((s) => (
+                  <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </div>
@@ -1048,7 +1048,7 @@ function FiltersPopover({ dark, filters, setFilters, concessions, typeVentes, ve
   );
 }
 
-function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeurs, models, sortBy, setSortBy, onExport }) {
+function FilterBar({ dark, filters, setFilters, sitesList, typeVentes, vendeurs, models, sortBy, setSortBy, onExport }) {
   const inputCls = `h-9 rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30 focus:border-blue-700/40" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20 focus:border-blue-500"}`;
   return (
     <div className={`flex flex-wrap items-center gap-2 rounded-2xl border p-2.5 shadow-sm ${dark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -1062,7 +1062,7 @@ function FilterBar({ dark, filters, setFilters, concessions, typeVentes, vendeur
           className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
         />
       </div>
-      <FiltersPopover dark={dark} filters={filters} setFilters={setFilters} concessions={concessions} typeVentes={typeVentes} vendeurs={vendeurs} models={models} />
+      <FiltersPopover dark={dark} filters={filters} setFilters={setFilters} sitesList={sitesList} typeVentes={typeVentes} vendeurs={vendeurs} models={models} />
       <select className={inputCls} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
         <option value="recent">Trier : arrivée récente</option>
         <option value="stock_asc">Trier : jours de stock (A→Z)</option>
@@ -3895,7 +3895,7 @@ export default function App() {
   const [resetConfirm, setResetConfirm] = useState(false);
   const [tab, setTab] = useState(() => loadLocal("dsr:ui-tab", "vehicules"));
   const [filters, setFilters] = useState(() =>
-    loadLocal("dsr:ui-filters", { modele: "all", concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "" })
+    loadLocal("dsr:ui-filters", { modele: "all", site: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "" })
   );
   const [sortBy, setSortBy] = useState(() => loadLocal("dsr:ui-sort", "stock_desc"));
 
@@ -4661,20 +4661,20 @@ export default function App() {
   }
   function goToVehicles(patch) {
     setTab("vehicules");
-    setFilters((f) => ({ ...f, modele: "all", concession: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "", ...patch }));
+    setFilters((f) => ({ ...f, modele: "all", site: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "", ...patch }));
   }
 
   const stats = useMemo(() => computeStats(vehicles), [vehicles]);
 
-  const concessions = useMemo(() => [...new Set(vehicles.map((v) => v.concession))].filter(Boolean).sort(), [vehicles]);
   const typeVentes = useMemo(() => [...new Set(vehicles.map((v) => v.typeVente))].filter(Boolean).sort(), [vehicles]);
   const vendeurs = useMemo(() => [...new Set(vehicles.map((v) => activeReservationVendeur(v)).filter(Boolean))].sort(), [vehicles]);
   const models = useMemo(() => [...new Set(vehicles.map((v) => v.model))].filter(Boolean).sort(), [vehicles]);
 
   const filtered = useMemo(() => {
     const terms = filters.query.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const siteByVendeur = new Map(vendeursList.map((v) => [v.nom, v.site]));
     let list = vehicles.filter((v) => {
-      if (filters.concession !== "all" && v.concession !== filters.concession) return false;
+      if (filters.site !== "all" && vehicleEffectiveSite(v, siteByVendeur) !== filters.site) return false;
       if (filters.typeVente.length > 0 && !filters.typeVente.includes(v.typeVente)) return false;
       if (filters.vu === "vp" && v.vu) return false;
       if (filters.vu === "vu" && !v.vu) return false;
@@ -4707,7 +4707,7 @@ export default function App() {
     // HS vehicles always go last, whatever the chosen sort — they're not sellable stock.
     list = [...list.filter((v) => v.baseStatus !== "hs"), ...list.filter((v) => v.baseStatus === "hs")];
     return list;
-  }, [vehicles, filters, sortBy]);
+  }, [vehicles, filters, sortBy, vendeursList]);
 
   const totalAlerts = useMemo(
     () => vehicles.reduce((n, v) => n + v.alerts.filter((a) => a.type === "resa_expiree" || a.type === "resa_bientot").length, 0),
@@ -5070,7 +5070,7 @@ export default function App() {
                 dark={dark}
                 filters={filters}
                 setFilters={setFilters}
-                concessions={concessions}
+                sitesList={sitesList}
                 typeVentes={typeVentes}
                 vendeurs={vendeurs}
                 models={models}
