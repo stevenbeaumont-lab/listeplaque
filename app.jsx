@@ -135,6 +135,25 @@ async function parseWorkbook(file) {
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
   return rows.map(normalizeRow);
 }
+function pickLongestEstimate(n) {
+  const pairs = [
+    ["current delivery estimate from", "current delivery estimate to"],
+    ["predicted delivery estimate from", "predicted delivery estimate to"],
+    ["prev predicted delivery estimate from", "prev predicted delivery estimate to"],
+  ];
+  let best = null;
+  for (const [fromKey, toKey] of pairs) {
+    const from = pick(n, fromKey);
+    const to = pick(n, toKey);
+    if (!from || !to) continue;
+    const endDate = parseExcelDateStr(to);
+    if (!endDate) continue;
+    if (!best || endDate > best.endDate) best = { from, to, endDate };
+  }
+  if (best) return `${best.from} - ${best.to}`;
+  // Older export format (single combined column) — kept for compatibility.
+  return pick(n, "delivery estimate");
+}
 function toOrderRecord(n) {
   return {
     concession: pick(n, "code concession"),
@@ -148,7 +167,7 @@ function toOrderRecord(n) {
     codeDestination: pick(n, "code destination"),
     typeVente: pick(n, "type de vente global"),
     dateLivraisonSouhaitee: pick(n, "date de livraison souhaitée", "date de livraison souhaitee"),
-    deliveryEstimate: pick(n, "delivery estimate"),
+    deliveryEstimate: pickLongestEstimate(n),
   };
 }
 function toStockRecord(n) {
