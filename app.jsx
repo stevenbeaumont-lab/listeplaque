@@ -92,6 +92,20 @@ async function sGet(key, shared) {
     return null;
   }
 }
+async function sGetTableMeta() {
+  // Lightweight poll: only key + updated_at (a few bytes per row), so a background refresh
+  // doesn't have to re-download every store's full value just to check whether it changed.
+  try {
+    const { data, error } = await supabase.from(TABLE).select("key, updated_at");
+    if (error || !data) return null;
+    const map = {};
+    data.forEach((row) => { map[row.key] = row.updated_at; });
+    return map;
+  } catch (e) {
+    console.error("supabase meta fetch failed", e);
+    return null;
+  }
+}
 async function sSet(key, value, shared) {
   if (!shared) {
     try {
@@ -3935,60 +3949,79 @@ export default function App() {
   }, [importOpen, alertsOpen, selected, legendOpen]);
 
   const localWriteVersionRef = useRef(0);
-  const lastRawRef = useRef({});
+  const PROTECTED_KEYS = useMemo(
+    () =>
+      new Set([
+        STORE_KEYS.overlays,
+        STORE_KEYS.accidents,
+        STORE_KEYS.dossiers,
+        STORE_KEYS.vendeurs,
+        STORE_KEYS.manualSales,
+        STORE_KEYS.convoyages,
+        STORE_KEYS.challengeEntries,
+        STORE_KEYS.vehicleComments,
+      ]),
+    []
+  );
+  function applyStoreValue(key, raw) {
+    switch (key) {
+      case STORE_KEYS.orders: if (raw) setOrdersData(JSON.parse(raw)); break;
+      case STORE_KEYS.stock: if (raw) setStockData(JSON.parse(raw)); break;
+      case STORE_KEYS.meta: if (raw) setImportMeta(JSON.parse(raw)); break;
+      case STORE_KEYS.dossiersMeta: if (raw) setDossiersMeta(JSON.parse(raw)); break;
+      case STORE_KEYS.sites: if (raw) setSitesList(JSON.parse(raw)); break;
+      case STORE_KEYS.alertSettings: if (raw) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(raw) }); break;
+      case STORE_KEYS.activityLog: if (raw) setActivityLog(JSON.parse(raw)); break;
+      case STORE_KEYS.challengeConfig: if (raw) setChallengeConfig({ ...DEFAULT_CHALLENGE_CONFIG, ...JSON.parse(raw) }); break;
+      case STORE_KEYS.documentsConfig: if (raw) setDocumentsConfig({ ...DEFAULT_DOCUMENTS_CONFIG, ...JSON.parse(raw) }); break;
+      case STORE_KEYS.overlays: setOverlays(raw ? JSON.parse(raw) : {}); break;
+      case STORE_KEYS.accidents: setAccidents(raw ? JSON.parse(raw) : []); break;
+      case STORE_KEYS.dossiers: setDossiersData(raw ? JSON.parse(raw) : []); break;
+      case STORE_KEYS.vendeurs: if (raw) setVendeursList(JSON.parse(raw).map(normalizeVendeur)); break;
+      case STORE_KEYS.manualSales: setManualSales(raw ? JSON.parse(raw) : {}); break;
+      case STORE_KEYS.convoyages: setConvoyages(raw ? JSON.parse(raw) : []); break;
+      case STORE_KEYS.challengeEntries: setChallengeEntries(raw ? JSON.parse(raw) : []); break;
+      case STORE_KEYS.vehicleComments: setVehicleComments(raw ? JSON.parse(raw) : []); break;
+      default: break;
+    }
+  }
+  const lastMetaRef = useRef(null);
   const refreshAll = useCallback(async (indicate) => {
     if (indicate) setSyncing(true);
     const versionBefore = localWriteVersionRef.current;
-    const [o, s, ov, meta, acc, doss, dossMeta, vends, manual, sites, alertCfg, log, conv, chalCfg, chalEntries, comments, docCfg] = await Promise.all([
-      sGet(STORE_KEYS.orders, true),
-      sGet(STORE_KEYS.stock, true),
-      sGet(STORE_KEYS.overlays, true),
-      sGet(STORE_KEYS.meta, true),
-      sGet(STORE_KEYS.accidents, true),
-      sGet(STORE_KEYS.dossiers, true),
-      sGet(STORE_KEYS.dossiersMeta, true),
-      sGet(STORE_KEYS.vendeurs, true),
-      sGet(STORE_KEYS.manualSales, true),
-      sGet(STORE_KEYS.sites, true),
-      sGet(STORE_KEYS.alertSettings, true),
-      sGet(STORE_KEYS.activityLog, true),
-      sGet(STORE_KEYS.convoyages, true),
-      sGet(STORE_KEYS.challengeConfig, true),
-      sGet(STORE_KEYS.challengeEntries, true),
-      sGet(STORE_KEYS.vehicleComments, true),
-      sGet(STORE_KEYS.documentsConfig, true),
-    ]);
-    const raw = lastRawRef.current;
-    const changed = (key, value) => {
-      if (raw[key] === value) return false;
-      raw[key] = value;
-      return true;
+    const allKeys = Object.values(STORE_KEYS);
+    const meta = await sGetTableMeta();
+
+    const applyKey = (key, raw) => {
+      if (PROTECTED_KEYS.has(key)) {
+        // Skip overwriting locally-edited stores if a save happened while this fetch was in flight —
+        // the fetch may have captured data from just before that save committed. The next poll
+        // will pick up the now-committed version.
+        if (versionBefore === localWriteVersionRef.current) applyStoreValue(key, raw);
+      } else {
+        applyStoreValue(key, raw);
+      }
     };
-    if (o && changed("orders", o)) setOrdersData(JSON.parse(o));
-    if (s && changed("stock", s)) setStockData(JSON.parse(s));
-    if (meta && changed("meta", meta)) setImportMeta(JSON.parse(meta));
-    if (dossMeta && changed("dossMeta", dossMeta)) setDossiersMeta(JSON.parse(dossMeta));
-    if (sites && changed("sites", sites)) setSitesList(JSON.parse(sites));
-    if (alertCfg && changed("alertCfg", alertCfg)) setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...JSON.parse(alertCfg) });
-    if (log && changed("log", log)) setActivityLog(JSON.parse(log));
-    if (chalCfg && changed("chalCfg", chalCfg)) setChallengeConfig({ ...DEFAULT_CHALLENGE_CONFIG, ...JSON.parse(chalCfg) });
-    if (docCfg && changed("docCfg", docCfg)) setDocumentsConfig({ ...DEFAULT_DOCUMENTS_CONFIG, ...JSON.parse(docCfg) });
-    // Skip overwriting locally-edited stores if a save happened while this fetch was in flight —
-    // the fetch may have captured data from just before that save committed. The next poll (8s later)
-    // will pick up the now-committed version.
-    if (versionBefore === localWriteVersionRef.current) {
-      if (changed("overlays", ov || "")) setOverlays(ov ? JSON.parse(ov) : {});
-      if (changed("accidents", acc || "")) setAccidents(acc ? JSON.parse(acc) : []);
-      if (changed("dossiers", doss || "")) setDossiersData(doss ? JSON.parse(doss) : []);
-      if (vends && changed("vendeurs", vends)) setVendeursList(JSON.parse(vends).map(normalizeVendeur));
-      if (changed("manualSales", manual || "")) setManualSales(manual ? JSON.parse(manual) : {});
-      if (changed("convoyages", conv || "")) setConvoyages(conv ? JSON.parse(conv) : []);
-      if (changed("challengeEntries", chalEntries || "")) setChallengeEntries(chalEntries ? JSON.parse(chalEntries) : []);
-      if (changed("vehicleComments", comments || "")) setVehicleComments(comments ? JSON.parse(comments) : []);
+
+    if (!meta) {
+      // Meta check unavailable (e.g. transient error) — fall back to fetching everything,
+      // exactly as before, so a hiccup here never breaks syncing.
+      const values = await Promise.all(allKeys.map((k) => sGet(k, true)));
+      allKeys.forEach((key, i) => applyKey(key, values[i]));
+      setLastSync(new Date());
+      if (indicate) setSyncing(false);
+      return;
+    }
+
+    const changedKeys = allKeys.filter((key) => meta[key] && lastMetaRef.current?.[key] !== meta[key]);
+    lastMetaRef.current = meta;
+    if (changedKeys.length > 0) {
+      const values = await Promise.all(changedKeys.map((k) => sGet(k, true)));
+      changedKeys.forEach((key, i) => applyKey(key, values[i]));
     }
     setLastSync(new Date());
     if (indicate) setSyncing(false);
-  }, []);
+  }, [PROTECTED_KEYS]);
 
   const dataLoadedRef = useRef(false);
   async function loadInitialData() {
