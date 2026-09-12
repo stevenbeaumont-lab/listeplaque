@@ -735,6 +735,7 @@ const NAV_ICONS = {
   dashboard: TrendingUp,
   dossiers: FileText,
   documents: FolderOpen,
+  reglages: Settings,
   vendeurs: Users,
   permissions: Lock,
   accidentes: AlertTriangle,
@@ -749,6 +750,7 @@ function buildNavItems(permissions, dossierUnmatchedCount) {
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
     { id: "documents", label: "Documents", group: "Gestion", beta: true },
     permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Gestion" },
+    permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Gestion" },
   ].filter(Boolean);
 }
 function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName }) {
@@ -832,7 +834,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport, canManage, onOpenSettings }) {
+function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
   return (
@@ -893,16 +895,12 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers</span> — import MyAna, attribution des ventes</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Documents</span> — dossier Google Drive partagé</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Accidentés</span> — véhicules signalés HS</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Réglages</span> — vendeurs, sites, rôles & permissions</li>
               </ul>
             </div>
           </>
         )}
       </div>
-      {canManage && (
-        <button onClick={onOpenSettings} className={`w-9 ${btnCls}`} title="Vendeurs, sites, rôles & permissions">
-          <Settings size={16} />
-        </button>
-      )}
       <button onClick={() => setDark(!dark)} className={`w-9 ${btnCls}`} title={dark ? "Mode clair" : "Mode sombre"}>
         {dark ? <Sun size={16} /> : <Moon size={16} />}
       </button>
@@ -3901,7 +3899,6 @@ export default function App() {
   const [legendOpen, setLegendOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(() => !loadLocal("dsr:welcome-seen", false));
   const [dossiersSubTab, setDossiersSubTab] = useState("dossiers");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
     const saved = loadLocal("dsr:ui-selected", null);
     return saved ? { orderNumber: saved } : null;
@@ -4921,8 +4918,6 @@ export default function App() {
         legendOpen={legendOpen}
         setLegendOpen={setLegendOpen}
         canImport={permissions.import}
-        canManage={permissions.vendeurs}
-        onOpenSettings={() => setSettingsOpen(true)}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
@@ -5095,7 +5090,33 @@ export default function App() {
               dark={dark}
               folderUrl={documentsConfig.folderUrl}
               canConfigure={permissions.vendeurs}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => setTab("reglages")}
+            />
+          ) : tab === "reglages" ? (
+            <SettingsPanel
+              dark={dark}
+              vendeurs={vendeursList}
+              vehicles={vehicles}
+              dossiers={dossiers}
+              sitesList={sitesList}
+              alertSettings={alertSettings}
+              activityLog={activityLog}
+              challengeConfig={challengeConfig}
+              challengeEntries={challengeEntries}
+              documentsConfig={documentsConfig}
+              onAdd={handleAddVendeur}
+              onRemove={handleRemoveVendeur}
+              onUpdateSite={handleUpdateVendeurSite}
+              onUpdateRole={handleUpdateVendeurRole}
+              onUpdatePermission={handleUpdateVendeurPermission}
+              onRename={handleRenameVendeur}
+              onUpdateEmail={handleUpdateVendeurEmail}
+              onUpdateSites={handleUpdateSites}
+              onUpdateAlertSettings={handleUpdateAlertSettings}
+              onUpdateChallengeConfig={handleUpdateChallengeConfig}
+              onResetChallengeEntries={handleResetChallengeEntries}
+              onExportBackup={() => exportFullBackup(vehicles, dossiers, vendeursList)}
+              onUpdateDocumentsConfig={handleUpdateDocumentsConfig}
             />
           ) : (
             <>
@@ -5173,35 +5194,6 @@ export default function App() {
         </Modal>
       )}
       {showPasswordModal && <PasswordChangeModal dark={dark} onClose={() => setShowPasswordModal(false)} showToast={showToast} />}
-      {settingsOpen && (
-        <Modal dark={dark} title="Réglages" onClose={() => setSettingsOpen(false)} size="xl">
-          <SettingsPanel
-            dark={dark}
-            vendeurs={vendeursList}
-            vehicles={vehicles}
-            dossiers={dossiers}
-            sitesList={sitesList}
-            alertSettings={alertSettings}
-            activityLog={activityLog}
-            challengeConfig={challengeConfig}
-            challengeEntries={challengeEntries}
-            documentsConfig={documentsConfig}
-            onAdd={handleAddVendeur}
-            onRemove={handleRemoveVendeur}
-            onUpdateSite={handleUpdateVendeurSite}
-            onUpdateRole={handleUpdateVendeurRole}
-            onUpdatePermission={handleUpdateVendeurPermission}
-            onRename={handleRenameVendeur}
-            onUpdateEmail={handleUpdateVendeurEmail}
-            onUpdateSites={handleUpdateSites}
-            onUpdateAlertSettings={handleUpdateAlertSettings}
-            onUpdateChallengeConfig={handleUpdateChallengeConfig}
-            onResetChallengeEntries={handleResetChallengeEntries}
-            onExportBackup={() => exportFullBackup(vehicles, dossiers, vendeursList)}
-            onUpdateDocumentsConfig={handleUpdateDocumentsConfig}
-          />
-        </Modal>
-      )}
         </>
       )}
       <Toast dark={dark} toast={toast} onDismiss={() => setToast(null)} />
