@@ -12,7 +12,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
-import { MapContainer, TileLayer, Marker, Popup, useMapEvent } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMapEvent, useMap } from "react-leaflet";
 import L from "leaflet";
 
 // ---------------------------------------------------------------------------
@@ -4372,6 +4372,16 @@ function ProspectionMapClickHandler({ onClick }) {
   return null;
 }
 
+function ProspectionMapSizeFix() {
+  const map = useMap();
+  useEffect(() => {
+    const t1 = setTimeout(() => map.invalidateSize(), 100);
+    const t2 = setTimeout(() => map.invalidateSize(), 400);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [map]);
+  return null;
+}
+
 function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
@@ -4426,6 +4436,7 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
       <div className={`h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`}>
         <MapContainer center={PROSPECTION_CAEN_CENTER} zoom={11} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
           <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <ProspectionMapSizeFix />
           <ProspectionMapClickHandler onClick={() => setSelectedId(null)} />
           {placed.map((p) => {
             const late = prospectionRelanceState(p) === "late";
@@ -5845,6 +5856,9 @@ export default function App() {
         .pl-interactive:hover { transform: translateY(-1px) scale(1.008); }
         .pl-interactive:active { transform: scale(0.985); }
         .prospection-map-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
+        .leaflet-container { background: #ddd; }
+        .leaflet-container img.leaflet-tile { max-width: none !important; max-height: none !important; width: 256px !important; height: 256px !important; }
+        .leaflet-container img.leaflet-marker-icon, .leaflet-container img.leaflet-marker-shadow { max-width: none !important; }
       `}</style>
       <datalist id="vendeurs-datalist">
         {vendeursList.map((v) => (
