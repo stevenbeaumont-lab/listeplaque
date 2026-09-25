@@ -12,7 +12,6 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
-import { MapContainer, TileLayer, Marker, Popup, useMapEvent, useMap } from "react-leaflet";
 import L from "leaflet";
 
 // ---------------------------------------------------------------------------
@@ -4367,19 +4366,29 @@ function prospectionMarkerIcon(color, { late, selected } = {}) {
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
 }
 
-function ProspectionMapClickHandler({ onClick }) {
-  useMapEvent("click", onClick);
-  return null;
+function prospectionEscapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-function ProspectionMapSizeFix() {
-  const map = useMap();
-  useEffect(() => {
-    const t1 = setTimeout(() => map.invalidateSize(), 100);
-    const t2 = setTimeout(() => map.invalidateSize(), 400);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [map]);
-  return null;
+function prospectionPopupHtml(p) {
+  const late = prospectionRelanceState(p) === "late";
+  const lines = [
+    `<div style="min-width:200px;font-size:13px;line-height:1.45;color:#292524;">`,
+    `<b>${prospectionEscapeHtml(p.societe)}</b>`,
+    `<div>${prospectionEscapeHtml([p.contact, p.tel].filter(Boolean).join(" · "))}</div>`,
+    `<div style="color:#78716c;">${prospectionEscapeHtml([p.adresse, p.commune].filter(Boolean).join(", "))}</div>`,
+    `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
+    p.relance ? `<div style="${late ? "color:#be123c;" : ""}">Relance : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
+    `<div style="margin-top:8px;display:flex;gap:8px;">`,
+    `<button data-prospect-open="${prospectionEscapeHtml(p.id)}" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
+    `<a href="${prospectionMapsDirectionsUrl(p)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
+    `</div></div>`,
+  ];
+  return lines.join("");
 }
 
 function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, showToast }) {
@@ -4387,6 +4396,11 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [busy, setBusy] = useState("");
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markersRef = useRef(new Map());
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
 
   const colorOfCommercial = useMemo(() => {
     const m = {};
@@ -4400,6 +4414,54 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
   const legend = colorBy === "statut" ? PROSPECTION_STATUTS.map((s) => [s, PROSPECTION_STATUT_COLORS[s]]) : commerciaux.map((n) => [n, colorOfCommercial[n]]);
+
+  // Crée la carte Leaflet une seule fois (pas de wrapper React — évite tout risque de double instance de React).
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+    const map = L.map(containerRef.current, { scrollWheelZoom: true }).setView([PROSPECTION_CAEN_CENTER.lat, PROSPECTION_CAEN_CENTER.lng], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+    map.on("click", () => setSelectedId(null));
+    map.on("popupopen", (e) => {
+      const btn = e.popup.getElement()?.querySelector("[data-prospect-open]");
+      if (btn) btn.onclick = () => onOpenRef.current(btn.getAttribute("data-prospect-open"));
+    });
+    mapRef.current = map;
+    // Le conteneur peut ne pas encore avoir sa taille finale au tout premier rendu (Tailwind CDN
+    // applique ses classes juste après) : on force un recalcul juste après.
+    setTimeout(() => map.invalidateSize(), 100);
+    setTimeout(() => map.invalidateSize(), 400);
+    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); };
+  }, []);
+
+  // Synchronise les marqueurs avec les prospects visibles.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const seen = new Set();
+    placed.forEach((p) => {
+      const late = prospectionRelanceState(p) === "late";
+      const icon = prospectionMarkerIcon(colorFor(p), { late, selected: p.id === selectedId });
+      let marker = markersRef.current.get(p.id);
+      if (!marker) {
+        marker = L.marker([p.lat, p.lng], { icon }).addTo(map);
+        marker.on("click", () => setSelectedId(p.id));
+        marker.bindPopup(prospectionPopupHtml(p));
+        markersRef.current.set(p.id, marker);
+      } else {
+        marker.setLatLng([p.lat, p.lng]);
+        marker.setIcon(icon);
+        marker.setPopupContent(prospectionPopupHtml(p));
+      }
+      seen.add(p.id);
+    });
+    markersRef.current.forEach((marker, id) => {
+      if (!seen.has(id)) { map.removeLayer(marker); markersRef.current.delete(id); }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placed, colorBy, selectedId, colorOfCommercial]);
 
   const runGeocode = async () => {
     setBusy("0");
@@ -4433,38 +4495,7 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
         )}
       </div>
 
-      <div className={`h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`}>
-        <MapContainer center={PROSPECTION_CAEN_CENTER} zoom={11} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
-          <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <ProspectionMapSizeFix />
-          <ProspectionMapClickHandler onClick={() => setSelectedId(null)} />
-          {placed.map((p) => {
-            const late = prospectionRelanceState(p) === "late";
-            return (
-              <Marker
-                key={p.id}
-                position={[p.lat, p.lng]}
-                icon={prospectionMarkerIcon(colorFor(p), { late, selected: p.id === selectedId })}
-                eventHandlers={{ click: () => setSelectedId(p.id) }}
-              >
-                <Popup>
-                  <div className="min-w-[200px] text-sm leading-snug text-stone-800">
-                    <b>{p.societe}</b>
-                    <div>{[p.contact, p.tel].filter(Boolean).join(" · ")}</div>
-                    <div className="text-stone-500">{[p.adresse, p.commune].filter(Boolean).join(", ")}</div>
-                    <div className="mt-1">{p.statut}{p.commercial ? ` · ${p.commercial}` : ""}</div>
-                    {p.relance && <div className={prospectionRelanceState(p) === "late" ? "text-rose-700" : ""}>Relance : {prospectionFrDate(p.relance)}</div>}
-                    <div className="mt-2 flex gap-2">
-                      <button onClick={() => onOpen(p.id)} className="rounded bg-blue-700 px-2 py-1 text-white">Ouvrir la fiche</button>
-                      <a href={prospectionMapsDirectionsUrl(p)} target="_blank" rel="noreferrer" className="rounded border border-stone-300 px-2 py-1">Itinéraire</a>
-                    </div>
-                  </div>
-                </Popup>
-              </Marker>
-            );
-          })}
-        </MapContainer>
-      </div>
+      <div ref={containerRef} className={`h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
 
       <div className={`flex flex-wrap gap-4 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>
         {legend.map(([l, c]) => (
