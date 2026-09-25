@@ -6,12 +6,13 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, MapPin,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
+import { APIProvider, Map as GoogleMap, AdvancedMarker, Pin, InfoWindow } from "@vis.gl/react-google-maps";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -731,6 +732,7 @@ const NAV_ICONS = {
   vehicules: Car,
   logistique: Truck,
   convoyage: ArrowRightLeft,
+  prospection: Target,
   challenge: Trophy,
   dashboard: TrendingUp,
   dossiers: FileText,
@@ -740,11 +742,12 @@ const NAV_ICONS = {
   permissions: Lock,
   accidentes: AlertTriangle,
 };
-function buildNavItems(permissions, dossierUnmatchedCount) {
+function buildNavItems(permissions, dossierUnmatchedCount, canProspect) {
   return [
     { id: "vehicules", label: "Véhicules", group: "Stock" },
     { id: "logistique", label: "Logistique", group: "Stock" },
     { id: "convoyage", label: "Convoyage", group: "Stock" },
+    canProspect && { id: "prospection", label: "Prospection", group: "Stock", beta: true },
     { id: "challenge", label: "Challenge", group: "Performance" },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Performance" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
@@ -753,8 +756,8 @@ function buildNavItems(permissions, dossierUnmatchedCount) {
     permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Gestion" },
   ].filter(Boolean);
 }
-function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount);
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect);
   let lastGroup = null;
   return (
     <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -794,8 +797,8 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   );
 }
 
-function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount);
+function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect);
   let lastGroup = null;
   return (
     <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
@@ -3867,11 +3870,983 @@ function computeStats(vehicles) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Module Prospection B2B (intégré depuis parclive-prospection.zip)
+// Onglet visible uniquement pour les comptes présents dans prospection_members
+// (accès géré côté base via RLS — voir useProspectionAccess ci-dessous).
+// ---------------------------------------------------------------------------
+const PROSPECTION_STATUTS = ["À contacter", "Contacté", "RDV fixé", "Offre envoyée", "Gagné", "Perdu"];
+// Orange volontairement absent de cette palette : il reste réservé au statut "Réservé" des véhicules.
+const PROSPECTION_STATUT_COLORS = {
+  "À contacter": "#6B7280",
+  "Contacté": "#2563EB",
+  "RDV fixé": "#7C3AED",
+  "Offre envoyée": "#0D9488",
+  "Gagné": "#16A34A",
+  "Perdu": "#94A3B8",
+};
+const PROSPECTION_COMMERCIAL_COLORS = ["#1D4ED8", "#0D9488", "#7C3AED", "#DB2777", "#0891B2", "#65A30D"];
+const PROSPECTION_SECTEURS = ["BTP", "Artisans", "Transport et logistique", "Agriculture", "Commerce", "Services", "Santé", "Collectivités", "Industrie", "Location / VTC"];
+const PROSPECTION_MODELES = ["Transit", "Transit Custom", "Transit Connect", "Transit Courier", "E-Transit", "Ranger", "Puma", "Kuga", "Explorer", "Mustang Mach-E", "Flotte mixte"];
+const PROSPECTION_TYPES_ACTION = ["Appel", "Email", "Visite", "RDV", "Relance", "Autre"];
+const PROSPECTION_CAEN_CENTER = { lat: 49.1829, lng: -0.3707 };
+const PROSPECTION_OBJECTIF_SEMAINE = 25;
+
+// Aucun rôle ParcLive existant ne distingue les commerciaux B2B des autres vendeurs —
+// liste à éditer ici en attendant un éventuel champ dédié. Signalé dans le récapitulatif de livraison.
+const PROSPECTION_COMMERCIAUX = ["Nom Prénom 1", "Nom Prénom 2", "Nom Prénom 3", "Nom Prénom 4"];
+
+// Clé Google Maps publique, restreinte par domaine (referrer HTTP) côté Google Cloud Console —
+// même principe que les autres clés publiques déjà utilisées dans ParcLive. À compléter.
+const GOOGLE_MAPS_API_KEY = "";
+const GOOGLE_MAPS_MAP_ID = "DEMO_MAP_ID";
+
+function prospectionTodayISO(d) {
+  const base = d || new Date();
+  const z = new Date(base.getTime() - base.getTimezoneOffset() * 60000);
+  return z.toISOString().slice(0, 10);
+}
+function prospectionAddDaysISO(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return prospectionTodayISO(d);
+}
+function prospectionFrDate(s) {
+  return s ? new Date(s + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "";
+}
+function prospectionInitials(n) {
+  return (n || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+}
+function prospectionRelanceState(p) {
+  if (!p.relance || p.statut === "Gagné" || p.statut === "Perdu") return "";
+  const t = prospectionTodayISO();
+  if (p.relance < t) return "late";
+  if (p.relance === t) return "due";
+  return "future";
+}
+function prospectionMapsDirectionsUrl(p) {
+  return p.lat != null
+    ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([p.adresse, p.code_postal, p.commune].filter(Boolean).join(" "))}`;
+}
+
+// Géocodage via l'API Géoplateforme de l'IGN (ex-API Adresse) : gratuite, sans clé.
+const PROSPECTION_GEOCODE_BASE = "https://data.geopf.fr/geocodage/search";
+async function prospectionGeocode({ adresse, code_postal, commune }) {
+  const q = [adresse, code_postal, commune].filter(Boolean).join(" ").trim();
+  if (q.length < 3) return null;
+  try {
+    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=1`);
+    if (!r.ok) return null;
+    const f = (await r.json()).features?.[0];
+    if (!f) return null;
+    const [lng, lat] = f.geometry.coordinates;
+    return { lat, lng, score: f.properties.score };
+  } catch (e) {
+    return null;
+  }
+}
+async function prospectionSuggestAdresses(q) {
+  if (!q || q.trim().length < 4) return [];
+  try {
+    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=5&autocomplete=1&lat=49.18&lon=-0.37`);
+    if (!r.ok) return [];
+    return ((await r.json()).features || []).map((f) => ({
+      label: f.properties.label,
+      adresse: f.properties.name,
+      code_postal: f.properties.postcode,
+      commune: f.properties.city,
+      lat: f.geometry.coordinates[1],
+      lng: f.geometry.coordinates[0],
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+// Import/export CSV compatibles avec l'export de l'ancienne application de prospection (séparateur ";").
+const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
+function prospectionParseCsvLine(line, sep) {
+  const out = [];
+  let cur = "";
+  let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === sep) { out.push(cur); cur = ""; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+function parseProspectsCsv(text) {
+  const clean = text.replace(/^\ufeff/, "").replace(/\r/g, "");
+  const lines = clean.split("\n").filter((l) => l.trim());
+  if (!lines.length) return [];
+  const sep = (lines[0].match(/;/g) || []).length >= (lines[0].match(/,/g) || []).length ? ";" : ",";
+  const head = prospectionParseCsvLine(lines[0], sep).map((h) => h.trim().toLowerCase());
+  return lines
+    .slice(1)
+    .map((l) => {
+      const cells = prospectionParseCsvLine(l, sep);
+      const row = {};
+      head.forEach((h, i) => { if (PROSPECTION_CSV_COLS.includes(h)) row[h] = cells[i]; });
+      return row;
+    })
+    .filter((r) => r.societe);
+}
+function prospectsToCsv(prospects) {
+  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  return "\ufeff" + [PROSPECTION_CSV_COLS.join(";"), ...prospects.map((p) => PROSPECTION_CSV_COLS.map((c) => esc(p[c])).join(";"))].join("\n");
+}
+
+// true uniquement si le compte connecté est dans prospection_members (RLS applique la vraie restriction).
+function useProspectionAccess(userId) {
+  const [allowed, setAllowed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (!userId) { setAllowed(false); return; }
+    supabase
+      .from("prospection_members")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data }) => { if (alive) setAllowed(!!data); });
+    return () => { alive = false; };
+  }, [userId]);
+  return allowed;
+}
+
+const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
+function prospectionCleanRow(p) {
+  const row = {};
+  for (const k of PROSPECTION_EDITABLE_FIELDS) {
+    let v = p[k];
+    if (typeof v === "string") v = v.trim();
+    if (v === "" || v === undefined) v = null;
+    if (k === "flotte" && v != null) v = parseInt(v, 10) || null;
+    row[k] = v;
+  }
+  return row;
+}
+
+function useProspection() {
+  const [prospects, setProspects] = useState([]);
+  const [actions, setActions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const timer = useRef(null);
+  const lastSig = useRef("");
+
+  const load = useCallback(async () => {
+    const [p, a] = await Promise.all([
+      supabase.from("prospects").select("*").order("updated_at", { ascending: false }),
+      supabase.from("prospect_actions").select("*").order("created_at", { ascending: false }).limit(3000),
+    ]);
+    const err = p.error || a.error;
+    if (err) { setError(err.message); setLoading(false); return; }
+    // Détection de changement : on ne re-rend que si les données ont réellement bougé.
+    const sig = `${p.data.length}:${p.data[0]?.updated_at}|${a.data.length}:${a.data[0]?.created_at}`;
+    if (sig !== lastSig.current) {
+      lastSig.current = sig;
+      setProspects(p.data);
+      setActions(a.data);
+    }
+    setError(null);
+    setLoading(false);
+  }, []);
+
+  const scheduleLoad = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(load, 300);
+  }, [load]);
+
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel("prospection-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "prospects" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "prospect_actions" }, scheduleLoad)
+      .subscribe();
+    return () => { clearTimeout(timer.current); supabase.removeChannel(ch); };
+  }, [load, scheduleLoad]);
+
+  const save = useCallback(async (p, previous) => {
+    const row = prospectionCleanRow(p);
+    const adresseChanged = !previous || ["adresse", "code_postal", "commune"].some((k) => (previous[k] || "") !== (row[k] || ""));
+    if ((adresseChanged && !p._coordsFromSuggestion) || row.lat == null) {
+      const g = await prospectionGeocode(row);
+      row.lat = g?.lat ?? null;
+      row.lng = g?.lng ?? null;
+    }
+    const q = p.id
+      ? supabase.from("prospects").update(row).eq("id", p.id).select().single()
+      : supabase.from("prospects").insert(row).select().single();
+    const { data, error: err } = await q;
+    if (err) throw err;
+    lastSig.current = "";
+    await load();
+    return data;
+  }, [load]);
+
+  const remove = useCallback(async (id) => {
+    const { error: err } = await supabase.from("prospects").delete().eq("id", id);
+    if (err) throw err;
+    lastSig.current = "";
+    await load();
+  }, [load]);
+
+  const addAction = useCallback(async (prospect_id, type, texte, par) => {
+    const { error: err } = await supabase.from("prospect_actions").insert({ prospect_id, type, texte, par });
+    if (err) throw err;
+    lastSig.current = "";
+    await load();
+  }, [load]);
+
+  const patch = useCallback(async (id, fields) => {
+    const { error: err } = await supabase.from("prospects").update(fields).eq("id", id);
+    if (err) throw err;
+    lastSig.current = "";
+    await load();
+  }, [load]);
+
+  const geocodeMissing = useCallback(async (onProgress) => {
+    const missing = prospects.filter((p) => p.lat == null && (p.adresse || p.commune));
+    let ok = 0;
+    for (let i = 0; i < missing.length; i++) {
+      const g = await prospectionGeocode(missing[i]);
+      if (g) { await supabase.from("prospects").update({ lat: g.lat, lng: g.lng }).eq("id", missing[i].id); ok++; }
+      onProgress?.(i + 1, missing.length);
+      await new Promise((r) => setTimeout(r, 60)); // reste sous la limite de 50 req/s de l'IGN
+    }
+    lastSig.current = "";
+    await load();
+    return { ok, total: missing.length };
+  }, [prospects, load]);
+
+  const bulkInsert = useCallback(async (rows, onProgress) => {
+    let done = 0;
+    for (const r of rows) {
+      const row = prospectionCleanRow(r);
+      if (!row.societe) continue;
+      const g = await prospectionGeocode(row);
+      if (g) { row.lat = g.lat; row.lng = g.lng; }
+      const { error: err } = await supabase.from("prospects").insert(row);
+      if (err) throw err;
+      onProgress?.(++done, rows.length);
+      await new Promise((res) => setTimeout(res, 60));
+    }
+    lastSig.current = "";
+    await load();
+    return done;
+  }, [load]);
+
+  return { prospects, actions, loading, error, save, remove, addAction, patch, geocodeMissing, bulkInsert, reload: load };
+}
+
+function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
+  const [sugg, setSugg] = useState([]);
+  const t = useRef(null);
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  const change = (v) => {
+    onChange(v);
+    clearTimeout(t.current);
+    t.current = setTimeout(async () => setSugg(await prospectionSuggestAdresses(v)), 300);
+  };
+  return (
+    <div className="relative">
+      <input
+        className={inputCls}
+        value={value || ""}
+        onChange={(e) => change(e.target.value)}
+        onBlur={() => setTimeout(() => setSugg([]), 150)}
+        placeholder="Commencez à taper l'adresse…"
+        autoComplete="off"
+      />
+      {sugg.length > 0 && (
+        <ul className={`absolute z-20 mt-1 w-full overflow-hidden rounded-lg border shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+          {sugg.map((s) => (
+            <li key={s.label}>
+              <button
+                type="button"
+                onMouseDown={() => { onPick(s); setSugg([]); }}
+                className={`block w-full px-3 py-2 text-left text-sm ${dark ? "text-zinc-200 hover:bg-zinc-800" : "text-stone-800 hover:bg-stone-100"}`}
+              >
+                {s.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, onClose, onSave, onDelete, onAddAction, showToast }) {
+  // Toujours relu en direct par identifiant (jamais une copie figée) — se remonte automatiquement
+  // avec les mises à jour temps réel de useProspection tant que le popup reste ouvert.
+  const prospect = prospectId === "new" ? { statut: "À contacter", commercial: "", relance: prospectionAddDaysISO(0) } : prospects.find((x) => x.id === prospectId);
+  const isNew = prospectId === "new";
+  const [p, setP] = useState(prospect);
+  const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [logType, setLogType] = useState("Appel");
+  const [logTxt, setLogTxt] = useState("");
+  const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
+
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  if (!prospect) return null; // supprimé par quelqu'un d'autre pendant que le popup était ouvert
+
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  const labelCls = `flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
+
+  const save = async () => {
+    if (!p.societe?.trim()) { showToast("Indiquez le nom de la société", { type: "error" }); return; }
+    setSaving(true);
+    try {
+      await onSave(p, isNew ? null : prospect);
+      showToast(isNew ? "Prospect ajouté" : "Prospect enregistré");
+      onClose();
+    } catch (e) {
+      showToast(`Enregistrement impossible — ${e.message}`, { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addLog = async () => {
+    if (isNew) { showToast("Enregistrez d'abord le prospect", { type: "error" }); return; }
+    if (!logTxt.trim() && logType === "Autre") return;
+    await onAddAction(prospect.id, logType, logTxt.trim(), me);
+    if (p.statut === "À contacter") setP((x) => ({ ...x, statut: "Contacté" }));
+    setLogTxt("");
+  };
+
+  const doDelete = async () => {
+    await onDelete(prospect.id);
+    showToast("Prospect supprimé");
+    onClose();
+  };
+
+  const hist = actions.filter((a) => a.prospect_id === prospect.id);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" className={`pl-fade-in h-full w-full max-w-xl overflow-y-auto p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <h2 className={`text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{isNew ? "Nouveau prospect" : prospect.societe}</h2>
+          <div className="flex shrink-0 items-center gap-2">
+            {!isNew && (p.adresse || p.commune) && (
+              <a
+                href={prospectionMapsDirectionsUrl(p)}
+                target="_blank"
+                rel="noreferrer"
+                className={`pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+              >
+                Itinéraire
+              </a>
+            )}
+            <button onClick={onClose} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className={`${labelCls} sm:col-span-2`}>Société *<input className={inputCls} value={p.societe || ""} onChange={set("societe")} autoFocus={isNew} /></label>
+          <label className={`${labelCls} sm:col-span-2`}>
+            Adresse
+            <ProspectionAdresseInput
+              dark={dark}
+              value={p.adresse}
+              onChange={(v) => setP((x) => ({ ...x, adresse: v, _coordsFromSuggestion: false }))}
+              onPick={(s) => setP((x) => ({ ...x, adresse: s.adresse, code_postal: s.code_postal, commune: s.commune, lat: s.lat, lng: s.lng, _coordsFromSuggestion: true }))}
+            />
+          </label>
+          <label className={labelCls}>Code postal<input className={inputCls} value={p.code_postal || ""} onChange={set("code_postal")} /></label>
+          <label className={labelCls}>Commune<input className={inputCls} value={p.commune || ""} onChange={set("commune")} /></label>
+          <label className={labelCls}>
+            Secteur
+            <input className={inputCls} list="prospection-secteurs" value={p.secteur || ""} onChange={set("secteur")} />
+            <datalist id="prospection-secteurs">{PROSPECTION_SECTEURS.map((s) => <option key={s} value={s} />)}</datalist>
+          </label>
+          <label className={labelCls}>Taille de flotte (véhicules)<input type="number" min="0" className={inputCls} value={p.flotte ?? ""} onChange={set("flotte")} /></label>
+          <label className={labelCls}>Contact<input className={inputCls} value={p.contact || ""} onChange={set("contact")} /></label>
+          <label className={labelCls}>Fonction<input className={inputCls} value={p.fonction || ""} onChange={set("fonction")} /></label>
+          <label className={labelCls}>Téléphone<input type="tel" className={inputCls} value={p.tel || ""} onChange={set("tel")} /></label>
+          <label className={labelCls}>Email<input type="email" className={inputCls} value={p.email || ""} onChange={set("email")} /></label>
+          <label className={labelCls}>
+            Modèle visé
+            <input className={inputCls} list="prospection-modeles" value={p.modele || ""} onChange={set("modele")} />
+            <datalist id="prospection-modeles">{PROSPECTION_MODELES.map((s) => <option key={s} value={s} />)}</datalist>
+          </label>
+          <label className={labelCls}>
+            Statut
+            <select className={inputCls} value={p.statut} onChange={set("statut")}>{PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
+          </label>
+          <label className={labelCls}>
+            Commercial
+            <select className={inputCls} value={p.commercial || ""} onChange={set("commercial")}>
+              <option value="">Non attribué</option>
+              {commerciaux.map((n) => <option key={n}>{n}</option>)}
+            </select>
+          </label>
+          <label className={labelCls}>Prochaine relance<input type="date" className={inputCls} value={p.relance || ""} min={isNew ? prospectionTodayISO() : undefined} onChange={set("relance")} /></label>
+          <label className={`${labelCls} sm:col-span-2`}>Prochaine action<input className={inputCls} value={p.prochaine || ""} onChange={set("prochaine")} /></label>
+          <label className={`${labelCls} sm:col-span-2`}>Notes<textarea rows={3} className={inputCls} value={p.notes || ""} onChange={set("notes")} /></label>
+        </div>
+
+        {!isNew && (
+          <section className={`mt-5 rounded-xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+            <h3 className={`mb-3 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Historique des actions</h3>
+            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto]">
+              <select className={inputCls} value={logType} onChange={(e) => setLogType(e.target.value)}>{PROSPECTION_TYPES_ACTION.map((t) => <option key={t}>{t}</option>)}</select>
+              <input
+                className={inputCls}
+                value={logTxt}
+                onChange={(e) => setLogTxt(e.target.value)}
+                placeholder="Ex. messagerie, rappeler jeudi…"
+                onKeyDown={(e) => e.key === "Enter" && addLog()}
+              />
+              <button onClick={addLog} className={`pl-interactive rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
+                Ajouter
+              </button>
+            </div>
+            {hist.length === 0 ? (
+              <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune action enregistrée.</p>
+            ) : (
+              <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
+                {hist.map((a) => (
+                  <li key={a.id} className="py-2 text-sm">
+                    <span className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{a.type}</span> <span className={dark ? "text-zinc-300" : "text-stone-700"}>{a.texte}</span>
+                    <div className={`text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>{new Date(a.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} · {a.par}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            {!isNew && (
+              <button
+                onClick={() => (deleteConfirm ? doDelete() : setDeleteConfirm(true))}
+                onBlur={() => setDeleteConfirm(false)}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${deleteConfirm ? "text-rose-500" : dark ? "text-rose-400 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}
+              >
+                {deleteConfirm ? "Confirmer la suppression" : "Supprimer"}
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
+              Annuler
+            </button>
+            <button onClick={save} disabled={saving} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-60">
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, showToast }) {
+  const [colorBy, setColorBy] = useState("statut");
+  const [selectedId, setSelectedId] = useState(null);
+  const [hideClosed, setHideClosed] = useState(true);
+  const [busy, setBusy] = useState("");
+
+  const colorOfCommercial = useMemo(() => {
+    const m = {};
+    commerciaux.forEach((n, i) => { m[n] = PROSPECTION_COMMERCIAL_COLORS[i % PROSPECTION_COMMERCIAL_COLORS.length]; });
+    return m;
+  }, [commerciaux]);
+
+  const visible = prospects.filter((p) => !hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu"));
+  const placed = visible.filter((p) => p.lat != null && p.lng != null);
+  const missing = prospects.filter((p) => p.lat == null);
+  const selected = placed.find((p) => p.id === selectedId);
+
+  const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
+  const legend = colorBy === "statut" ? PROSPECTION_STATUTS.map((s) => [s, PROSPECTION_STATUT_COLORS[s]]) : commerciaux.map((n) => [n, colorOfCommercial[n]]);
+
+  if (!GOOGLE_MAPS_API_KEY) {
+    return (
+      <EmptyState
+        dark={dark}
+        icon={MapPin}
+        title="Carte non configurée"
+        subtitle="Ajoutez la clé Google Maps (GOOGLE_MAPS_API_KEY) dans le code pour afficher la carte."
+      />
+    );
+  }
+
+  const runGeocode = async () => {
+    setBusy("0");
+    const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`));
+    setBusy("");
+    showToast(`${res.ok} prospect(s) localisé(s) sur ${res.total}`);
+  };
+
+  const chipCls = (active) =>
+    `px-3 py-1.5 text-sm font-medium ${active ? "bg-blue-700 text-white" : dark ? "bg-zinc-900 text-zinc-300" : "bg-white text-stone-700"}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className={`inline-flex overflow-hidden rounded-lg border ${dark ? "border-zinc-800" : "border-stone-300"}`}>
+          <button onClick={() => setColorBy("statut")} className={chipCls(colorBy === "statut")}>Couleur par statut</button>
+          <button onClick={() => setColorBy("commercial")} className={chipCls(colorBy === "commercial")}>Couleur par commercial</button>
+        </div>
+        <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+          <input type="checkbox" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} className="accent-blue-700" />
+          Masquer gagnés et perdus
+        </label>
+        {missing.length > 0 && (
+          <button
+            onClick={runGeocode}
+            disabled={!!busy}
+            className={`pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+          >
+            {busy ? `Localisation… ${busy}` : `Localiser ${missing.length} prospect(s) sans position`}
+          </button>
+        )}
+      </div>
+
+      <div className={`h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+        <APIProvider apiKey={GOOGLE_MAPS_API_KEY} language="fr" region="FR">
+          <GoogleMap
+            defaultCenter={PROSPECTION_CAEN_CENTER}
+            defaultZoom={11}
+            mapId={GOOGLE_MAPS_MAP_ID}
+            gestureHandling="greedy"
+            streetViewControl={false}
+            mapTypeControl={false}
+            onClick={() => setSelectedId(null)}
+          >
+            {placed.map((p) => {
+              const late = prospectionRelanceState(p) === "late";
+              return (
+                <AdvancedMarker key={p.id} position={{ lat: p.lat, lng: p.lng }} title={p.societe} onClick={() => setSelectedId(p.id)} zIndex={p.id === selectedId ? 1000 : late ? 500 : 1}>
+                  <Pin background={colorFor(p)} borderColor={late ? "#B91C1C" : "#ffffff"} glyphColor={late ? "#B91C1C" : "#ffffff"} scale={p.id === selectedId ? 1.3 : late ? 1.15 : 1} />
+                </AdvancedMarker>
+              );
+            })}
+            {selected && (
+              <InfoWindow position={{ lat: selected.lat, lng: selected.lng }} pixelOffset={[0, -38]} onCloseClick={() => setSelectedId(null)} headerContent={<b>{selected.societe}</b>}>
+                <div className="min-w-[200px] text-sm leading-snug text-stone-800">
+                  <div>{[selected.contact, selected.tel].filter(Boolean).join(" · ")}</div>
+                  <div className="text-stone-500">{[selected.adresse, selected.commune].filter(Boolean).join(", ")}</div>
+                  <div className="mt-1">{selected.statut}{selected.commercial ? ` · ${selected.commercial}` : ""}</div>
+                  {selected.relance && <div className={prospectionRelanceState(selected) === "late" ? "text-rose-700" : ""}>Relance : {prospectionFrDate(selected.relance)}</div>}
+                  <div className="mt-2 flex gap-2">
+                    <button onClick={() => onOpen(selected.id)} className="rounded bg-blue-700 px-2 py-1 text-white">Ouvrir la fiche</button>
+                    <a href={prospectionMapsDirectionsUrl(selected)} target="_blank" rel="noreferrer" className="rounded border border-stone-300 px-2 py-1">Itinéraire</a>
+                  </div>
+                </div>
+              </InfoWindow>
+            )}
+          </GoogleMap>
+        </APIProvider>
+      </div>
+
+      <div className={`flex flex-wrap gap-4 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>
+        {legend.map(([l, c]) => (
+          <span key={l} className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full" style={{ background: c }} />{l}</span>
+        ))}
+        <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full border-2 border-rose-700" />Relance en retard (contour et point rouges)</span>
+        <span>{placed.length} prospect(s) affiché(s)</span>
+      </div>
+    </div>
+  );
+}
+
+function ProspectionRelancePill({ dark, p }) {
+  const s = prospectionRelanceState(p);
+  if (!s) return null;
+  const cls =
+    s === "late"
+      ? dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"
+      : s === "due"
+      ? dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-800"
+      : dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-600";
+  const lbl = s === "late" ? `En retard · ${prospectionFrDate(p.relance)}` : s === "due" ? "Aujourd'hui" : prospectionFrDate(p.relance);
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{lbl}</span>;
+}
+
+function ProspectionTab({ dark, currentUserName, showToast }) {
+  const data = useProspection();
+  const { prospects, actions, loading, error } = data;
+  const [vue, setVue] = useState("jour");
+  const [scope, setScope] = useState("");
+  const [openId, setOpenId] = useState(null);
+  const [filters, setFilters] = useState({ q: "", statut: "", secteur: "" });
+  const [importing, setImporting] = useState("");
+  const [pendingImport, setPendingImport] = useState(null); // { rows } en attente de confirmation
+  const fileRef = useRef(null);
+
+  const commerciaux = PROSPECTION_COMMERCIAUX;
+  const team = useMemo(() => {
+    const s = new Set(commerciaux);
+    prospects.forEach((p) => p.commercial && s.add(p.commercial));
+    return [...s];
+  }, [commerciaux, prospects]);
+
+  const scoped = scope ? prospects.filter((p) => p.commercial === scope) : prospects;
+
+  const addAction = async (id, type, texte, par) => {
+    await data.addAction(id, type, texte, par);
+    const p = prospects.find((x) => x.id === id);
+    if (p?.statut === "À contacter") await data.patch(id, { statut: "Contacté" });
+  };
+
+  const snooze = async (p, n) => {
+    await data.patch(p.id, { relance: prospectionAddDaysISO(n), ...(p.statut === "À contacter" ? { statut: "Contacté" } : {}) });
+    await data.addAction(p.id, "Relance", `Reportée de ${n} jours`, currentUserName);
+  };
+
+  const exportCsv = () => {
+    const blob = new Blob([prospectsToCsv(filtered)], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `prospects-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const pickCsv = async (file) => {
+    const rows = parseProspectsCsv(await file.text());
+    if (!rows.length) { showToast('Aucun prospect trouvé dans ce fichier (colonne "societe" attendue)', { type: "error" }); return; }
+    setPendingImport({ rows });
+  };
+
+  const confirmImport = async () => {
+    const rows = pendingImport.rows;
+    setPendingImport(null);
+    try {
+      setImporting("0");
+      const n = await data.bulkInsert(rows, (i, t) => setImporting(`${i}/${t}`));
+      showToast(`${n} prospect(s) importé(s)`);
+    } catch (e) {
+      showToast(`Import interrompu — ${e.message}`, { type: "error" });
+    } finally {
+      setImporting("");
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const q = filters.q.toLowerCase();
+  const filtered = scoped.filter(
+    (p) =>
+      (!filters.statut || p.statut === filters.statut) &&
+      (!filters.secteur || p.secteur === filters.secteur) &&
+      (!q || [p.societe, p.contact, p.commune, p.adresse, p.notes, p.tel].join(" ").toLowerCase().includes(q))
+  );
+
+  const inputCls = `rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  const cardCls = `rounded-2xl border ${dark ? "bg-zinc-900/40 border-zinc-800" : "bg-white border-stone-200"}`;
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={24} />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className={`rounded-2xl border p-4 text-sm ${dark ? "border-rose-800 bg-rose-950 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
+        Impossible de charger la prospection — {error}
+      </div>
+    );
+  }
+
+  const dueCount = scoped.filter((p) => ["late", "due"].includes(prospectionRelanceState(p))).length;
+
+  const Row = ({ p }) => (
+    <div className={`pl-interactive grid grid-cols-1 items-center gap-2 p-3.5 sm:grid-cols-[1fr_auto] ${cardCls}`}>
+      <div className="min-w-0 cursor-pointer" onClick={() => setOpenId(p.id)}>
+        <div className={`flex flex-wrap items-center gap-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+          {p.societe} <ProspectionRelancePill dark={dark} p={p} />
+        </div>
+        <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.contact, p.tel, p.commune, p.statut, !scope && p.commercial].filter(Boolean).join(" · ")}</div>
+        {p.prochaine && <div className={`text-sm ${dark ? "text-zinc-400" : "text-stone-600"}`}>À faire : {p.prochaine}</div>}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {p.tel && (
+          <a href={`tel:${p.tel.replace(/\s/g, "")}`} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>
+            Appeler
+          </a>
+        )}
+        {(p.adresse || p.commune) && (
+          <a href={prospectionMapsDirectionsUrl(p)} target="_blank" rel="noreferrer" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>
+            Itinéraire
+          </a>
+        )}
+        <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>
+        <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>
+        <button onClick={() => setOpenId(p.id)} className="rounded-lg bg-blue-700 px-2.5 py-1 text-sm font-semibold text-white">Ouvrir</button>
+      </div>
+    </div>
+  );
+
+  const Block = ({ title, items }) =>
+    items.length ? (
+      <section className="mb-5">
+        <h3 className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>{title} ({items.length})</h3>
+        <div className="flex flex-col gap-2">{items.map((p) => <Row key={p.id} p={p} />)}</div>
+      </section>
+    ) : null;
+
+  const vueJour = () => {
+    const byDate = (a, b) => (a.relance || "").localeCompare(b.relance || "");
+    const late = scoped.filter((p) => prospectionRelanceState(p) === "late").sort(byDate);
+    const due = scoped.filter((p) => prospectionRelanceState(p) === "due");
+    const semaine = scoped.filter((p) => prospectionRelanceState(p) === "future" && p.relance <= prospectionAddDaysISO(7)).sort(byDate);
+    const jamais = scoped.filter((p) => p.statut === "À contacter" && !p.relance);
+    if (!scoped.length) return <EmptyState dark={dark} icon={Target} title="Aucun prospect pour l'instant" subtitle="Commencez par en ajouter un." />;
+    if (!late.length && !due.length && !semaine.length && !jamais.length) return <EmptyState dark={dark} icon={CheckCircle2} title="Rien à relancer cette semaine" />;
+    return (
+      <>
+        <Block title="En retard" items={late} />
+        <Block title="À relancer aujourd'hui" items={due} />
+        <Block title="Cette semaine" items={semaine} />
+        <Block title="Jamais contactés" items={jamais} />
+      </>
+    );
+  };
+
+  const vuePipeline = () => (
+    <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
+      {PROSPECTION_STATUTS.map((s) => {
+        const items = scoped.filter((p) => p.statut === s);
+        return (
+          <div key={s} className={`min-h-[140px] rounded-2xl p-2 ${dark ? "bg-zinc-900/60" : "bg-stone-100"}`}>
+            <h3 className={`mb-2 flex justify-between px-1 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+              <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: PROSPECTION_STATUT_COLORS[s] }} />{s}</span>
+              <span>{items.length}</span>
+            </h3>
+            {items.map((p) => (
+              <button key={p.id} onClick={() => setOpenId(p.id)} className={`pl-interactive mb-2 block w-full rounded-xl border p-2.5 text-left ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
+                <div className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</div>
+                <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.flotte && `${p.flotte} véh.`, p.modele].filter(Boolean).join(" · ")}</div>
+                <div className="mt-1.5 flex items-center justify-between">
+                  <span title={p.commercial} className="grid h-6 w-6 place-items-center rounded-full bg-blue-700 text-[10px] font-bold text-white">{prospectionInitials(p.commercial)}</span>
+                  <ProspectionRelancePill dark={dark} p={p} />
+                </div>
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const vueListe = () => (
+    <>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <input
+          type="search"
+          placeholder="Rechercher une société, un contact, une commune…"
+          value={filters.q}
+          onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+          className={`min-w-[220px] flex-1 ${inputCls}`}
+        />
+        <select value={filters.statut} onChange={(e) => setFilters({ ...filters, statut: e.target.value })} className={inputCls}>
+          <option value="">Tous les statuts</option>
+          {PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select value={filters.secteur} onChange={(e) => setFilters({ ...filters, secteur: e.target.value })} className={inputCls}>
+          <option value="">Tous les secteurs</option>
+          {PROSPECTION_SECTEURS.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <button onClick={exportCsv} className={`pl-interactive flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
+          <Download size={14} /> Exporter en CSV
+        </button>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={!!importing}
+          className={`pl-interactive rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+        >
+          {importing ? `Import… ${importing}` : "Importer un CSV"}
+        </button>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => e.target.files[0] && pickCsv(e.target.files[0])} />
+      </div>
+
+      {pendingImport && (
+        <div className={`mb-3 flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm ${dark ? "border-blue-700/40 bg-blue-500/10 text-blue-200" : "border-blue-200 bg-blue-50 text-blue-900"}`}>
+          <span>Importer {pendingImport.rows.length} prospect(s) ? Les adresses seront localisées automatiquement.</span>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => { setPendingImport(null); if (fileRef.current) fileRef.current.value = ""; }} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}>
+              Annuler
+            </button>
+            <button onClick={confirmImport} className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-bold text-white">Importer</button>
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <EmptyState dark={dark} icon={Target} title="Aucun prospect ne correspond à ces filtres" />
+      ) : (
+        <div className={`overflow-x-auto rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className={`border-b text-left text-xs ${dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-500"}`}>
+                {["Société", "Contact", "Commune", "Secteur", "Flotte", "Statut", "Commercial", "Relance"].map((h) => (
+                  <th key={h} className="whitespace-nowrap px-3 py-2 font-semibold">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p) => (
+                <tr key={p.id} onClick={() => setOpenId(p.id)} className={`cursor-pointer border-b transition-colors ${dark ? "border-zinc-800 hover:bg-zinc-900/60" : "border-stone-100 hover:bg-stone-50"}`}>
+                  <td className={`whitespace-nowrap px-3 py-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+                    {p.societe}
+                    {p.lat == null && <span title="Adresse non localisée" className={dark ? "ml-1 text-zinc-600" : "ml-1 text-stone-400"}>·</span>}
+                  </td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.contact}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.commune}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.secteur}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.flotte}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.statut}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.commercial}</td>
+                  <td className="whitespace-nowrap px-3 py-2"><ProspectionRelancePill dark={dark} p={p} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+
+  const vueEquipe = () => {
+    const weekAgo = Date.now() - 7 * 864e5;
+    return (
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+        {team.map((n) => {
+          const l = prospects.filter((p) => p.commercial === n);
+          const nbActions = actions.filter((a) => a.par === n && new Date(a.created_at).getTime() >= weekAgo).length;
+          const rdv = l.filter((p) => ["RDV fixé", "Offre envoyée", "Gagné"].includes(p.statut)).length;
+          const gagnes = l.filter((p) => p.statut === "Gagné");
+          const vehicules = gagnes.reduce((s, p) => s + (p.flotte || 0), 0);
+          const retard = l.filter((p) => prospectionRelanceState(p) === "late").length;
+          const pct = Math.min(100, Math.round((nbActions / PROSPECTION_OBJECTIF_SEMAINE) * 100));
+          return (
+            <div key={n} className={`p-4 ${cardCls}`}>
+              <h3 className={`mb-3 flex items-center gap-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-700 text-xs font-bold text-white">{prospectionInitials(n)}</span>
+                {n}
+              </h3>
+              <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
+                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Prospects en portefeuille</dt>
+                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length}</dd>
+                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>RDV obtenus</dt>
+                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{rdv}</dd>
+                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Affaires gagnées</dt>
+                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{gagnes.length}{vehicules ? ` (${vehicules} véh.)` : ""}</dd>
+                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Taux de transformation</dt>
+                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length ? Math.round((gagnes.length / l.length) * 100) : 0} %</dd>
+                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Relances en retard</dt>
+                <dd className={`text-right font-semibold ${retard ? "text-rose-500" : dark ? "text-zinc-100" : "text-stone-800"}`}>{retard}</dd>
+              </dl>
+              <div className={`mt-3 h-2 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
+                <div className="h-full rounded-full bg-blue-700" style={{ width: `${pct}%` }} />
+              </div>
+              <div className={`mt-1 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{nbActions} actions sur 7 jours, objectif {PROSPECTION_OBJECTIF_SEMAINE}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const VUES = [
+    ["jour", "Aujourd'hui"],
+    ["pipeline", "Pipeline"],
+    ["liste", "Prospects"],
+    ["carte", "Carte"],
+    ["equipe", "Équipe"],
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+          <Target size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
+          Prospection B2B
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <select value={scope} onChange={(e) => setScope(e.target.value)} className={inputCls}>
+            <option value="">Toute l'équipe</option>
+            {team.map((n) => <option key={n}>{n}</option>)}
+          </select>
+          <button onClick={() => setOpenId("new")} className="pl-interactive ml-auto rounded-lg bg-blue-700 px-3.5 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500">
+            Nouveau prospect
+          </button>
+        </div>
+      </div>
+
+      <div className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        {VUES.map(([k, l]) => (
+          <button
+            key={k}
+            onClick={() => setVue(k)}
+            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vue === k ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
+          >
+            {l}
+            {k === "jour" && dueCount > 0 && (
+              <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${vue === k ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>{dueCount}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {vue === "jour" && vueJour()}
+      {vue === "pipeline" && vuePipeline()}
+      {vue === "liste" && vueListe()}
+      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} commerciaux={team} onOpen={setOpenId} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
+      {vue === "equipe" && vueEquipe()}
+
+      {openId && (
+        <ProspectFiche
+          dark={dark}
+          prospectId={openId}
+          prospects={prospects}
+          actions={actions}
+          commerciaux={team}
+          me={currentUserName}
+          onClose={() => setOpenId(null)}
+          onSave={data.save}
+          onDelete={data.remove}
+          onAddAction={addAction}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [dark, setDark] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [dbStatus, setDbStatus] = useState("checking");
   const [authEmail, setAuthEmail] = useState("");
+  const [authUserId, setAuthUserId] = useState("");
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -4074,6 +5049,7 @@ export default function App() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user?.email) {
         setAuthEmail(session.user.email);
+        setAuthUserId(session.user.id);
         setUnlocked(true);
         await loadInitialData();
       } else {
@@ -4087,9 +5063,11 @@ export default function App() {
       } else if (event === "SIGNED_OUT") {
         setUnlocked(false);
         setAuthEmail("");
+        setAuthUserId("");
         dataLoadedRef.current = false;
       } else if (session?.user?.email) {
         setAuthEmail(session.user.email);
+        setAuthUserId(session.user.id);
         setUnlocked(true);
         if (!dataLoadedRef.current) {
           // A fresh login happening after mount (not caught by the getSession() check above) —
@@ -4779,6 +5757,7 @@ export default function App() {
   }, [vendorName, vendeursList]);
 
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
+  const canProspect = useProspectionAccess(authUserId);
 
   const mySiteScope = useMemo(() => {
     if (isSuperAdmin(vendorName)) return null;
@@ -4946,7 +5925,7 @@ export default function App() {
       ) : (
         <div className="p-4 md:p-6">
           <div className="mb-6 lg:hidden">
-            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} />
+            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} />
           </div>
           <div className="flex items-start gap-6">
             <div className="hidden lg:block">
@@ -4958,6 +5937,7 @@ export default function App() {
                 dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length}
                 permissions={permissions}
                 vendorName={vendorName}
+                canProspect={canProspect}
               />
             </div>
             <div key={tab} className="pl-fade-in min-w-0 flex-1 space-y-6">
@@ -4977,6 +5957,10 @@ export default function App() {
               onUpdateVehicleSite={handleUpdateVehicleSite}
               onOpenVehicle={openInVehicules}
             />
+          ) : tab === "prospection" ? (
+            canProspect ? (
+              <ProspectionTab dark={dark} currentUserName={vendorName} showToast={showToast} />
+            ) : null
           ) : tab === "challenge" ? (
             <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} challengeConfig={challengeConfig} challengeEntries={challengeEntries} onOpenVehicle={openInVehicules} />
           ) : tab === "dashboard" ? (
