@@ -3886,6 +3886,9 @@ const PROSPECTION_STATUT_COLORS = {
   "Perdu": "#94A3B8",
 };
 const PROSPECTION_COMMERCIAL_COLORS = ["#1D4ED8", "#0D9488", "#7C3AED", "#DB2777", "#0891B2", "#65A30D"];
+// Couleur des clients existants (CRM) sur la carte — volontairement distincte de toutes les couleurs
+// de statut/commercial ci-dessus, et associée à une forme de marqueur différente (losange vs rond).
+const PROSPECTION_CLIENT_COLOR = "#334155";
 const PROSPECTION_SECTEURS = ["BTP", "Artisans", "Transport et logistique", "Agriculture", "Commerce", "Services", "Santé", "Collectivités", "Industrie", "Location / VTC"];
 const PROSPECTION_MODELES = ["Transit", "Transit Custom", "Transit Connect", "Transit Courier", "E-Transit", "Ranger", "Puma", "Kuga", "Explorer", "Mustang Mach-E", "Flotte mixte"];
 const PROSPECTION_TYPES_ACTION = ["Appel", "Email", "Visite", "RDV", "Relance", "Autre"];
@@ -4016,11 +4019,12 @@ function useProspectionAccess(userId) {
   return allowed;
 }
 
-const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
+const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes", "client_existant"];
 function prospectionCleanRow(p) {
   const row = {};
   for (const k of PROSPECTION_EDITABLE_FIELDS) {
     let v = p[k];
+    if (k === "client_existant") { row[k] = !!v; continue; }
     if (typeof v === "string") v = v.trim();
     if (v === "" || v === undefined) v = null;
     if (k === "flotte" && v != null) v = parseInt(v, 10) || null;
@@ -4123,10 +4127,10 @@ function useProspection() {
     return { ok, total: missing.length };
   }, [prospects, load]);
 
-  const bulkInsert = useCallback(async (rows, onProgress) => {
+  const bulkInsert = useCallback(async (rows, onProgress, extra) => {
     let done = 0;
     for (const r of rows) {
-      const row = prospectionCleanRow(r);
+      const row = prospectionCleanRow({ ...r, ...extra });
       if (!row.societe) continue;
       const g = await prospectionGeocode(row);
       if (g) { row.lat = g.lat; row.lng = g.lng; }
@@ -4366,6 +4370,12 @@ function prospectionMarkerIcon(color, { late, selected } = {}) {
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
 }
 
+function prospectionClientIcon({ selected } = {}) {
+  const size = selected ? 22 : 18;
+  const html = `<div style="width:${size}px;height:${size}px;background:${PROSPECTION_CLIENT_COLOR};border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.45);transform:rotate(45deg);"></div>`;
+  return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 4] });
+}
+
 function prospectionEscapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -4378,11 +4388,12 @@ function prospectionPopupHtml(p) {
   const late = prospectionRelanceState(p) === "late";
   const lines = [
     `<div style="min-width:200px;font-size:13px;line-height:1.45;color:#292524;">`,
+    p.client_existant ? `<span style="display:inline-block;margin-bottom:2px;border-radius:9999px;background:#e2e8f0;color:#334155;font-size:10px;font-weight:700;padding:1px 6px;">CLIENT EXISTANT</span><br/>` : "",
     `<b>${prospectionEscapeHtml(p.societe)}</b>`,
     `<div>${prospectionEscapeHtml([p.contact, p.tel].filter(Boolean).join(" · "))}</div>`,
     `<div style="color:#78716c;">${prospectionEscapeHtml([p.adresse, p.commune].filter(Boolean).join(", "))}</div>`,
-    `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
-    p.relance ? `<div style="${late ? "color:#be123c;" : ""}">Relance : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
+    p.client_existant ? "" : `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
+    !p.client_existant && p.relance ? `<div style="${late ? "color:#be123c;" : ""}">Relance : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
     `<div style="margin-top:8px;display:flex;gap:8px;">`,
     `<button data-prospect-open="${prospectionEscapeHtml(p.id)}" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
     `<a href="${prospectionMapsDirectionsUrl(p)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
@@ -4391,14 +4402,16 @@ function prospectionPopupHtml(p) {
   return lines.join("");
 }
 
-function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, showToast }) {
+function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
+  const [showClients, setShowClients] = useState(true);
   const [busy, setBusy] = useState("");
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
+  const clientMarkersRef = useRef(new Map());
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
 
@@ -4411,6 +4424,7 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
   const visible = prospects.filter((p) => !hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu"));
   const placed = visible.filter((p) => p.lat != null && p.lng != null);
   const missing = prospects.filter((p) => p.lat == null);
+  const clientsPlaced = showClients ? clients.filter((p) => p.lat != null && p.lng != null) : [];
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
   const legend = colorBy === "statut" ? PROSPECTION_STATUTS.map((s) => [s, PROSPECTION_STATUT_COLORS[s]]) : commerciaux.map((n) => [n, colorOfCommercial[n]]);
@@ -4433,10 +4447,10 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
     // applique ses classes juste après) : on force un recalcul juste après.
     setTimeout(() => map.invalidateSize(), 100);
     setTimeout(() => map.invalidateSize(), 400);
-    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); };
+    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); };
   }, []);
 
-  // Synchronise les marqueurs avec les prospects visibles.
+  // Synchronise les marqueurs des prospects visibles.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -4463,6 +4477,31 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placed, colorBy, selectedId, colorOfCommercial]);
 
+  // Synchronise les marqueurs des clients existants (calque séparé, jamais lié aux statuts du pipeline).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const seen = new Set();
+    clientsPlaced.forEach((p) => {
+      const icon = prospectionClientIcon({ selected: p.id === selectedId });
+      let marker = clientMarkersRef.current.get(p.id);
+      if (!marker) {
+        marker = L.marker([p.lat, p.lng], { icon }).addTo(map);
+        marker.on("click", () => setSelectedId(p.id));
+        marker.bindPopup(prospectionPopupHtml(p));
+        clientMarkersRef.current.set(p.id, marker);
+      } else {
+        marker.setLatLng([p.lat, p.lng]);
+        marker.setIcon(icon);
+        marker.setPopupContent(prospectionPopupHtml(p));
+      }
+      seen.add(p.id);
+    });
+    clientMarkersRef.current.forEach((marker, id) => {
+      if (!seen.has(id)) { map.removeLayer(marker); clientMarkersRef.current.delete(id); }
+    });
+  }, [clientsPlaced, selectedId]);
+
   const runGeocode = async () => {
     setBusy("0");
     const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`));
@@ -4484,6 +4523,12 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
           <input type="checkbox" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} className="accent-blue-700" />
           Masquer gagnés et perdus
         </label>
+        {clients.length > 0 && (
+          <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+            <input type="checkbox" checked={showClients} onChange={(e) => setShowClients(e.target.checked)} className="accent-blue-700" />
+            Afficher les clients existants ({clients.length})
+          </label>
+        )}
         {missing.length > 0 && (
           <button
             onClick={runGeocode}
@@ -4502,7 +4547,13 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
           <span key={l} className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full" style={{ background: c }} />{l}</span>
         ))}
         <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full border-2 border-rose-700" />Relance en retard (contour et point rouges)</span>
-        <span>{placed.length} prospect(s) affiché(s)</span>
+        {showClients && clients.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <i className="inline-block h-2.5 w-2.5" style={{ background: PROSPECTION_CLIENT_COLOR, transform: "rotate(45deg)" }} />
+            Client existant (losange)
+          </span>
+        )}
+        <span>{placed.length} prospect(s) affiché(s){clientsPlaced.length > 0 ? ` · ${clientsPlaced.length} client(s)` : ""}</span>
       </div>
     </div>
   );
@@ -4524,22 +4575,27 @@ function ProspectionRelancePill({ dark, p }) {
 function ProspectionTab({ dark, currentUserName, showToast }) {
   const data = useProspection();
   const { prospects, actions, loading, error } = data;
+  // Les clients existants (importés du CRM) ne font jamais partie du pipeline commercial —
+  // ils ne comptent dans aucune statistique et ne servent qu'à se repérer sur la carte.
+  const funnelProspects = useMemo(() => prospects.filter((p) => !p.client_existant), [prospects]);
+  const existingClients = useMemo(() => prospects.filter((p) => p.client_existant), [prospects]);
   const [vue, setVue] = useState("jour");
   const [scope, setScope] = useState("");
   const [openId, setOpenId] = useState(null);
   const [filters, setFilters] = useState({ q: "", statut: "", secteur: "" });
   const [importing, setImporting] = useState("");
+  const [importAsClient, setImportAsClient] = useState(false);
   const [pendingImport, setPendingImport] = useState(null); // { rows } en attente de confirmation
   const fileRef = useRef(null);
 
   const commerciaux = PROSPECTION_COMMERCIAUX;
   const team = useMemo(() => {
     const s = new Set(commerciaux);
-    prospects.forEach((p) => p.commercial && s.add(p.commercial));
+    funnelProspects.forEach((p) => p.commercial && s.add(p.commercial));
     return [...s];
-  }, [commerciaux, prospects]);
+  }, [commerciaux, funnelProspects]);
 
-  const scoped = scope ? prospects.filter((p) => p.commercial === scope) : prospects;
+  const scoped = scope ? funnelProspects.filter((p) => p.commercial === scope) : funnelProspects;
 
   const addAction = async (id, type, texte, par) => {
     await data.addAction(id, type, texte, par);
@@ -4572,12 +4628,13 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
     setPendingImport(null);
     try {
       setImporting("0");
-      const n = await data.bulkInsert(rows, (i, t) => setImporting(`${i}/${t}`));
-      showToast(`${n} prospect(s) importé(s)`);
+      const n = await data.bulkInsert(rows, (i, t) => setImporting(`${i}/${t}`), importAsClient ? { client_existant: true } : undefined);
+      showToast(importAsClient ? `${n} client(s) existant(s) importé(s)` : `${n} prospect(s) importé(s)`);
     } catch (e) {
       showToast(`Import interrompu — ${e.message}`, { type: "error" });
     } finally {
       setImporting("");
+      setImportAsClient(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -4722,9 +4779,13 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
 
       {pendingImport && (
         <div className={`mb-3 flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm ${dark ? "border-blue-700/40 bg-blue-500/10 text-blue-200" : "border-blue-200 bg-blue-50 text-blue-900"}`}>
-          <span>Importer {pendingImport.rows.length} prospect(s) ? Les adresses seront localisées automatiquement.</span>
+          <span>Importer {pendingImport.rows.length} {importAsClient ? "client(s) existant(s)" : "prospect(s)"} ? Les adresses seront localisées automatiquement.</span>
+          <label className="flex items-center gap-1.5 text-xs font-medium">
+            <input type="checkbox" checked={importAsClient} onChange={(e) => setImportAsClient(e.target.checked)} className="accent-blue-700" />
+            Ce sont des clients existants (CRM), pas des prospects
+          </label>
           <div className="ml-auto flex gap-2">
-            <button onClick={() => { setPendingImport(null); if (fileRef.current) fileRef.current.value = ""; }} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}>
+            <button onClick={() => { setPendingImport(null); setImportAsClient(false); if (fileRef.current) fileRef.current.value = ""; }} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}>
               Annuler
             </button>
             <button onClick={confirmImport} className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-bold text-white">Importer</button>
@@ -4852,7 +4913,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
       {vue === "jour" && vueJour()}
       {vue === "pipeline" && vuePipeline()}
       {vue === "liste" && vueListe()}
-      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} commerciaux={team} onOpen={setOpenId} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
+      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
       {vue === "equipe" && vueEquipe()}
 
       {openId && (
