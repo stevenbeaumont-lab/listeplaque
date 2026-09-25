@@ -9,6 +9,9 @@
 <!-- Tailwind (no build step — generates styles on the fly from class names) -->
 <script src="https://cdn.tailwindcss.com"></script>
 
+<!-- Leaflet (OpenStreetMap) styles, used by the Prospection module's map view -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+
 <!-- Import map: lets the browser resolve bare specifiers like "react" to real ES modules -->
 <script type="importmap">
 {
@@ -20,7 +23,8 @@
     "lucide-react": "https://cdn.jsdelivr.net/npm/lucide-react@0.383.0/+esm",
     "xlsx": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm",
     "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm",
-    "@vis.gl/react-google-maps": "https://cdn.jsdelivr.net/npm/@vis.gl/react-google-maps@1/+esm"
+    "leaflet": "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/+esm",
+    "react-leaflet": "https://cdn.jsdelivr.net/npm/react-leaflet@4.2.1/+esm"
   }
 }
 </script>

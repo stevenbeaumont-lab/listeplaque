@@ -6,13 +6,14 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, MapPin,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
-import { APIProvider, Map as GoogleMap, AdvancedMarker, Pin, InfoWindow } from "@vis.gl/react-google-maps";
+import { MapContainer, TileLayer, Marker, Popup, useMapEvent } from "react-leaflet";
+import L from "leaflet";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -3896,11 +3897,6 @@ const PROSPECTION_OBJECTIF_SEMAINE = 25;
 // liste à éditer ici en attendant un éventuel champ dédié. Signalé dans le récapitulatif de livraison.
 const PROSPECTION_COMMERCIAUX = ["Nom Prénom 1", "Nom Prénom 2", "Nom Prénom 3", "Nom Prénom 4"];
 
-// Clé Google Maps publique, restreinte par domaine (referrer HTTP) côté Google Cloud Console —
-// même principe que les autres clés publiques déjà utilisées dans ParcLive. À compléter.
-const GOOGLE_MAPS_API_KEY = "";
-const GOOGLE_MAPS_MAP_ID = "DEMO_MAP_ID";
-
 function prospectionTodayISO(d) {
   const base = d || new Date();
   const z = new Date(base.getTime() - base.getTimezoneOffset() * 60000);
@@ -4364,6 +4360,18 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   );
 }
 
+function prospectionMarkerIcon(color, { late, selected } = {}) {
+  const size = selected ? 34 : late ? 30 : 26;
+  const border = late ? "#B91C1C" : "#ffffff";
+  const html = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid ${border};box-shadow:0 1px 4px rgba(0,0,0,0.45);"></div>`;
+  return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
+}
+
+function ProspectionMapClickHandler({ onClick }) {
+  useMapEvent("click", onClick);
+  return null;
+}
+
 function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
@@ -4379,21 +4387,9 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
   const visible = prospects.filter((p) => !hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu"));
   const placed = visible.filter((p) => p.lat != null && p.lng != null);
   const missing = prospects.filter((p) => p.lat == null);
-  const selected = placed.find((p) => p.id === selectedId);
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
   const legend = colorBy === "statut" ? PROSPECTION_STATUTS.map((s) => [s, PROSPECTION_STATUT_COLORS[s]]) : commerciaux.map((n) => [n, colorOfCommercial[n]]);
-
-  if (!GOOGLE_MAPS_API_KEY) {
-    return (
-      <EmptyState
-        dark={dark}
-        icon={MapPin}
-        title="Carte non configurée"
-        subtitle="Ajoutez la clé Google Maps (GOOGLE_MAPS_API_KEY) dans le code pour afficher la carte."
-      />
-    );
-  }
 
   const runGeocode = async () => {
     setBusy("0");
@@ -4427,41 +4423,36 @@ function ProspectMap({ dark, prospects, commerciaux, onOpen, onGeocodeMissing, s
         )}
       </div>
 
-      <div className={`h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-        <APIProvider apiKey={GOOGLE_MAPS_API_KEY} language="fr" region="FR">
-          <GoogleMap
-            defaultCenter={PROSPECTION_CAEN_CENTER}
-            defaultZoom={11}
-            mapId={GOOGLE_MAPS_MAP_ID}
-            gestureHandling="greedy"
-            streetViewControl={false}
-            mapTypeControl={false}
-            onClick={() => setSelectedId(null)}
-          >
-            {placed.map((p) => {
-              const late = prospectionRelanceState(p) === "late";
-              return (
-                <AdvancedMarker key={p.id} position={{ lat: p.lat, lng: p.lng }} title={p.societe} onClick={() => setSelectedId(p.id)} zIndex={p.id === selectedId ? 1000 : late ? 500 : 1}>
-                  <Pin background={colorFor(p)} borderColor={late ? "#B91C1C" : "#ffffff"} glyphColor={late ? "#B91C1C" : "#ffffff"} scale={p.id === selectedId ? 1.3 : late ? 1.15 : 1} />
-                </AdvancedMarker>
-              );
-            })}
-            {selected && (
-              <InfoWindow position={{ lat: selected.lat, lng: selected.lng }} pixelOffset={[0, -38]} onCloseClick={() => setSelectedId(null)} headerContent={<b>{selected.societe}</b>}>
-                <div className="min-w-[200px] text-sm leading-snug text-stone-800">
-                  <div>{[selected.contact, selected.tel].filter(Boolean).join(" · ")}</div>
-                  <div className="text-stone-500">{[selected.adresse, selected.commune].filter(Boolean).join(", ")}</div>
-                  <div className="mt-1">{selected.statut}{selected.commercial ? ` · ${selected.commercial}` : ""}</div>
-                  {selected.relance && <div className={prospectionRelanceState(selected) === "late" ? "text-rose-700" : ""}>Relance : {prospectionFrDate(selected.relance)}</div>}
-                  <div className="mt-2 flex gap-2">
-                    <button onClick={() => onOpen(selected.id)} className="rounded bg-blue-700 px-2 py-1 text-white">Ouvrir la fiche</button>
-                    <a href={prospectionMapsDirectionsUrl(selected)} target="_blank" rel="noreferrer" className="rounded border border-stone-300 px-2 py-1">Itinéraire</a>
+      <div className={`h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`}>
+        <MapContainer center={PROSPECTION_CAEN_CENTER} zoom={11} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
+          <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <ProspectionMapClickHandler onClick={() => setSelectedId(null)} />
+          {placed.map((p) => {
+            const late = prospectionRelanceState(p) === "late";
+            return (
+              <Marker
+                key={p.id}
+                position={[p.lat, p.lng]}
+                icon={prospectionMarkerIcon(colorFor(p), { late, selected: p.id === selectedId })}
+                eventHandlers={{ click: () => setSelectedId(p.id) }}
+              >
+                <Popup>
+                  <div className="min-w-[200px] text-sm leading-snug text-stone-800">
+                    <b>{p.societe}</b>
+                    <div>{[p.contact, p.tel].filter(Boolean).join(" · ")}</div>
+                    <div className="text-stone-500">{[p.adresse, p.commune].filter(Boolean).join(", ")}</div>
+                    <div className="mt-1">{p.statut}{p.commercial ? ` · ${p.commercial}` : ""}</div>
+                    {p.relance && <div className={prospectionRelanceState(p) === "late" ? "text-rose-700" : ""}>Relance : {prospectionFrDate(p.relance)}</div>}
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={() => onOpen(p.id)} className="rounded bg-blue-700 px-2 py-1 text-white">Ouvrir la fiche</button>
+                      <a href={prospectionMapsDirectionsUrl(p)} target="_blank" rel="noreferrer" className="rounded border border-stone-300 px-2 py-1">Itinéraire</a>
+                    </div>
                   </div>
-                </div>
-              </InfoWindow>
-            )}
-          </GoogleMap>
-        </APIProvider>
+                </Popup>
+              </Marker>
+            );
+          })}
+        </MapContainer>
       </div>
 
       <div className={`flex flex-wrap gap-4 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>
@@ -5853,6 +5844,7 @@ export default function App() {
         .pl-interactive { transition: transform 0.15s ease, box-shadow 0.15s ease; }
         .pl-interactive:hover { transform: translateY(-1px) scale(1.008); }
         .pl-interactive:active { transform: scale(0.985); }
+        .prospection-map-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
       `}</style>
       <datalist id="vendeurs-datalist">
         {vendeursList.map((v) => (
