@@ -3962,6 +3962,36 @@ async function prospectionSuggestAdresses(q) {
   }
 }
 
+// Découverte d'entreprises à proximité, à partir des données OpenStreetMap elles-mêmes (Overpass) —
+// gratuit, sans clé. Ne renvoie que ce qui est dans le rectangle visible, d'où l'obligation de zoomer.
+const PROSPECTION_OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+const PROSPECTION_OSM_MIN_ZOOM = 15;
+async function prospectionSearchNearbyBusinesses(bounds) {
+  const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+  const query = `[out:json][timeout:15];(node["shop"](${bbox});node["office"](${bbox});node["craft"](${bbox}););out body 100;`;
+  try {
+    const r = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query) });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data.elements || [])
+      .filter((el) => el.tags?.name)
+      .map((el) => ({
+        osmId: String(el.id),
+        lat: el.lat,
+        lng: el.lon,
+        societe: el.tags.name,
+        secteur: el.tags.shop || el.tags.office || el.tags.craft || "",
+        adresse: [el.tags["addr:housenumber"], el.tags["addr:street"]].filter(Boolean).join(" "),
+        code_postal: el.tags["addr:postcode"] || "",
+        commune: el.tags["addr:city"] || "",
+        tel: el.tags.phone || el.tags["contact:phone"] || "",
+        email: el.tags.email || el.tags["contact:email"] || "",
+      }));
+  } catch (e) {
+    return [];
+  }
+}
+
 // Import/export CSV compatibles avec l'export de l'ancienne application de prospection (séparateur ";").
 const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
 function prospectionParseCsvLine(line, sep) {
@@ -4185,10 +4215,10 @@ function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
   );
 }
 
-function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, onClose, onSave, onDelete, onAddAction, showToast }) {
+function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, newPrefill, onClose, onSave, onDelete, onAddAction, showToast }) {
   // Toujours relu en direct par identifiant (jamais une copie figée) — se remonte automatiquement
   // avec les mises à jour temps réel de useProspection tant que le popup reste ouvert.
-  const prospect = prospectId === "new" ? { statut: "À contacter", commercial: "", relance: prospectionAddDaysISO(0) } : prospects.find((x) => x.id === prospectId);
+  const prospect = prospectId === "new" ? { statut: "À contacter", commercial: "", relance: prospectionAddDaysISO(0), ...newPrefill } : prospects.find((x) => x.id === prospectId);
   const isNew = prospectId === "new";
   const [p, setP] = useState(prospect);
   const [saving, setSaving] = useState(false);
@@ -4402,6 +4432,25 @@ function prospectionClientIcon({ selected } = {}) {
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 4] });
 }
 
+function prospectionOsmIcon({ selected } = {}) {
+  const size = selected ? 16 : 12;
+  const html = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#ffffff;border:2px solid #94a3b8;box-shadow:0 1px 3px rgba(0,0,0,0.35);"></div>`;
+  return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
+}
+
+function prospectionOsmPopupHtml(place) {
+  return [
+    `<div style="min-width:190px;font-size:13px;line-height:1.45;color:#292524;">`,
+    `<span style="display:inline-block;margin-bottom:2px;border-radius:9999px;background:#e2e8f0;color:#475569;font-size:10px;font-weight:700;padding:1px 6px;">OPENSTREETMAP</span><br/>`,
+    `<b>${prospectionEscapeHtml(place.societe)}</b>`,
+    place.secteur ? `<div style="color:#78716c;">${prospectionEscapeHtml(place.secteur)}</div>` : "",
+    `<div style="color:#78716c;">${prospectionEscapeHtml([place.adresse, place.commune].filter(Boolean).join(", "))}</div>`,
+    `<div style="margin-top:8px;">`,
+    `<button data-osm-add="${prospectionEscapeHtml(place.osmId)}" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ajouter comme prospect</button>`,
+    `</div></div>`,
+  ].join("");
+}
+
 function prospectionEscapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -4492,19 +4541,28 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeMissing, showToast }) {
+function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromOsm, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
+  const [showOsm, setShowOsm] = useState(true);
   const [busy, setBusy] = useState("");
   const [zoomTick, setZoomTick] = useState(0);
+  const [osmPlaces, setOsmPlaces] = useState([]);
+  const [osmLoading, setOsmLoading] = useState(false);
+  const [zoomTooFar, setZoomTooFar] = useState(true);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
   const clientMarkersRef = useRef(new Map());
+  const osmMarkersRef = useRef(new Map());
+  const osmPlacesRef = useRef(new Map());
+  const osmFetchTimer = useRef(null);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
+  const onAddFromOsmRef = useRef(onAddFromOsm);
+  onAddFromOsmRef.current = onAddFromOsm;
 
   const colorOfCommercial = useMemo(() => {
     const m = {};
@@ -4531,15 +4589,40 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeM
     map.on("click", () => setSelectedId(null));
     map.on("zoomend", () => setZoomTick((t) => t + 1));
     map.on("popupopen", (e) => {
-      const btn = e.popup.getElement()?.querySelector("[data-prospect-open]");
-      if (btn) btn.onclick = () => onOpenRef.current(btn.getAttribute("data-prospect-open"));
+      const el = e.popup.getElement();
+      const openBtn = el?.querySelector("[data-prospect-open]");
+      if (openBtn) openBtn.onclick = () => onOpenRef.current(openBtn.getAttribute("data-prospect-open"));
+      const addBtn = el?.querySelector("[data-osm-add]");
+      if (addBtn) {
+        addBtn.onclick = () => {
+          const place = osmPlacesRef.current.get(addBtn.getAttribute("data-osm-add"));
+          if (place) onAddFromOsmRef.current(place);
+        };
+      }
     });
+    const fetchNearby = () => {
+      const zoom = map.getZoom();
+      if (zoom < PROSPECTION_OSM_MIN_ZOOM) {
+        setZoomTooFar(true);
+        setOsmPlaces([]);
+        return;
+      }
+      setZoomTooFar(false);
+      clearTimeout(osmFetchTimer.current);
+      osmFetchTimer.current = setTimeout(async () => {
+        setOsmLoading(true);
+        const places = await prospectionSearchNearbyBusinesses(map.getBounds());
+        setOsmPlaces(places);
+        setOsmLoading(false);
+      }, 600);
+    };
+    map.on("moveend", fetchNearby);
     mapRef.current = map;
     // Le conteneur peut ne pas encore avoir sa taille finale au tout premier rendu (Tailwind CDN
     // applique ses classes juste après) : on force un recalcul juste après.
     setTimeout(() => map.invalidateSize(), 100);
     setTimeout(() => map.invalidateSize(), 400);
-    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); };
+    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); osmMarkersRef.current.clear(); osmPlacesRef.current.clear(); clearTimeout(osmFetchTimer.current); };
   }, []);
 
   // Synchronise les marqueurs des prospects visibles (regroupés visuellement quand ils sont proches).
@@ -4569,6 +4652,25 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeM
     });
   }, [clientsPlaced, selectedId, zoomTick]);
 
+  // Synchronise le calque de découverte OpenStreetMap (entreprises pas encore dans Prospection).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    osmPlacesRef.current = new Map(osmPlaces.map((p) => [p.osmId, p]));
+    if (!showOsm) {
+      osmMarkersRef.current.forEach((marker) => map.removeLayer(marker));
+      osmMarkersRef.current.clear();
+      return;
+    }
+    const clusters = prospectionClusterPoints(map, osmPlaces.map((p) => ({ ...p, id: p.osmId })), 36);
+    prospectionSyncClusterLayer(map, osmMarkersRef, clusters, {
+      buildIcon: (p) => prospectionOsmIcon({ selected: false }),
+      buildPopup: prospectionOsmPopupHtml,
+      onSingleClick: () => {},
+      buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#94a3b8" }),
+    });
+  }, [osmPlaces, showOsm]);
+
   const runGeocode = async () => {
     setBusy("0");
     const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`));
@@ -4596,6 +4698,18 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeM
             Afficher les clients existants ({clients.length})
           </label>
         )}
+        <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+          <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
+          Découvrir les entreprises alentour (OpenStreetMap)
+        </label>
+        {showOsm && zoomTooFar && (
+          <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
+            Zoomez (niveau rue) pour voir les entreprises alentour
+          </span>
+        )}
+        {showOsm && !zoomTooFar && osmLoading && (
+          <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Recherche en cours…</span>
+        )}
         {missing.length > 0 && (
           <button
             onClick={runGeocode}
@@ -4618,6 +4732,12 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeM
           <span className="flex items-center gap-1.5">
             <i className="inline-block h-2.5 w-2.5" style={{ background: PROSPECTION_CLIENT_COLOR, transform: "rotate(45deg)" }} />
             Client existant (losange)
+          </span>
+        )}
+        {showOsm && osmPlaces.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <i className={`inline-block h-2.5 w-2.5 rounded-full border-2 ${dark ? "border-slate-400" : "border-slate-400"}`} style={{ background: "#fff" }} />
+            Entreprise OpenStreetMap ({osmPlaces.length}) — cliquez pour ajouter
           </span>
         )}
         <span>Un chiffre = plusieurs points proches, cliquez pour zoomer</span>
@@ -4650,6 +4770,12 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   const [vue, setVue] = useState("jour");
   const [scope, setScope] = useState("");
   const [openId, setOpenId] = useState(null);
+  const [newPrefill, setNewPrefill] = useState(null);
+  const openNewFromOsm = (place) => {
+    setNewPrefill({ societe: place.societe, secteur: place.secteur, adresse: place.adresse, code_postal: place.code_postal, commune: place.commune, tel: place.tel, email: place.email, lat: place.lat, lng: place.lng, _coordsFromSuggestion: true });
+    setOpenId("new");
+  };
+  const closeFiche = () => { setOpenId(null); setNewPrefill(null); };
   const [filters, setFilters] = useState({ q: "", statut: "", secteur: "" });
   const [importing, setImporting] = useState("");
   const [importAsClient, setImportAsClient] = useState(false);
@@ -4997,7 +5123,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
       {vue === "jour" && vueJour()}
       {vue === "pipeline" && vuePipeline()}
       {vue === "liste" && vueListe()}
-      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
+      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
       {vue === "equipe" && vueEquipe()}
 
       {openId && (
@@ -5008,7 +5134,8 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           actions={actions}
           commerciaux={team}
           me={currentUserName}
-          onClose={() => setOpenId(null)}
+          newPrefill={newPrefill}
+          onClose={closeFiche}
           onSave={data.save}
           onDelete={data.remove}
           onAddAction={addAction}
