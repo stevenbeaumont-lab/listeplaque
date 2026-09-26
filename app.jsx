@@ -4238,13 +4238,31 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
     onClose();
   };
 
+  const toggleClientExistant = async () => {
+    const next = !p.client_existant;
+    try {
+      await onSave({ ...p, client_existant: next }, prospect);
+      setP((x) => ({ ...x, client_existant: next }));
+      showToast(next ? "Marqué comme client existant" : "Remis en prospect");
+    } catch (e) {
+      showToast(`Impossible de changer le statut — ${e.message}`, { type: "error" });
+    }
+  };
+
   const hist = actions.filter((a) => a.prospect_id === prospect.id);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" className={`pl-fade-in h-full w-full max-w-xl overflow-y-auto p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
         <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 className={`text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{isNew ? "Nouveau prospect" : prospect.societe}</h2>
+          <div>
+            <h2 className={`text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{isNew ? "Nouveau prospect" : prospect.societe}</h2>
+            {!isNew && p.client_existant && (
+              <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-200 text-stone-600"}`}>
+                Client existant
+              </span>
+            )}
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             {!isNew && (p.adresse || p.commune) && (
               <a
@@ -4338,7 +4356,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
         )}
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
-          <div>
+          <div className="flex flex-wrap items-center gap-2">
             {!isNew && (
               <button
                 onClick={() => (deleteConfirm ? doDelete() : setDeleteConfirm(true))}
@@ -4346,6 +4364,14 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${deleteConfirm ? "text-rose-500" : dark ? "text-rose-400 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}
               >
                 {deleteConfirm ? "Confirmer la suppression" : "Supprimer"}
+              </button>
+            )}
+            {!isNew && (
+              <button
+                onClick={toggleClientExistant}
+                className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+              >
+                {p.client_existant ? "Remettre en prospect" : "Marquer comme client existant"}
               </button>
             )}
           </div>
@@ -4402,12 +4428,70 @@ function prospectionPopupHtml(p) {
   return lines.join("");
 }
 
+function prospectionClusterPoints(map, points, cellPx) {
+  const cells = new Map();
+  points.forEach((p) => {
+    const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+    const key = `${Math.round(pt.x / cellPx)}:${Math.round(pt.y / cellPx)}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(p);
+  });
+  return [...cells.values()].map((items) => ({
+    lat: items.reduce((s, p) => s + p.lat, 0) / items.length,
+    lng: items.reduce((s, p) => s + p.lng, 0) / items.length,
+    items,
+    // La clé encode la composition du groupe : elle change automatiquement dès qu'un point rejoint
+    // ou quitte un groupe (zoom, filtre…), ce qui force la recréation propre du marqueur concerné.
+    key: items.length === 1 ? items[0].id : `cluster:${items.map((p) => p.id).sort().join(",")}`,
+  }));
+}
+
+function prospectionClusterIcon(count, { color, diamond } = {}) {
+  const size = Math.round(Math.min(30 + Math.sqrt(count) * 6, 56));
+  const shapeStyle = diamond ? "transform:rotate(45deg);" : "border-radius:50%;";
+  const textStyle = diamond ? "transform:rotate(-45deg);" : "";
+  return L.divIcon({
+    html: `<div style="width:${size}px;height:${size}px;background:${color};border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.45);${shapeStyle}display:flex;align-items:center;justify-content:center;"><span style="${textStyle}color:#fff;font-weight:700;font-size:12px;">${count}</span></div>`,
+    className: "",
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, buildClusterIcon }) {
+  const seen = new Set();
+  clusters.forEach((c) => {
+    seen.add(c.key);
+    const isCluster = c.items.length > 1;
+    const icon = isCluster ? buildClusterIcon(c.items.length) : buildIcon(c.items[0]);
+    let marker = markersRef.current.get(c.key);
+    if (!marker) {
+      marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
+      if (isCluster) {
+        marker.on("click", () => map.setView([c.lat, c.lng], Math.min(map.getZoom() + 2, 18)));
+      } else {
+        marker.on("click", () => onSingleClick(c.items[0]));
+        marker.bindPopup(buildPopup(c.items[0]));
+      }
+      markersRef.current.set(c.key, marker);
+    } else {
+      marker.setLatLng([c.lat, c.lng]);
+      marker.setIcon(icon);
+      if (!isCluster) marker.setPopupContent(buildPopup(c.items[0]));
+    }
+  });
+  markersRef.current.forEach((marker, key) => {
+    if (!seen.has(key)) { map.removeLayer(marker); markersRef.current.delete(key); }
+  });
+}
+
 function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
   const [busy, setBusy] = useState("");
+  const [zoomTick, setZoomTick] = useState(0);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
@@ -4438,6 +4522,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeM
       maxZoom: 19,
     }).addTo(map);
     map.on("click", () => setSelectedId(null));
+    map.on("zoomend", () => setZoomTick((t) => t + 1));
     map.on("popupopen", (e) => {
       const btn = e.popup.getElement()?.querySelector("[data-prospect-open]");
       if (btn) btn.onclick = () => onOpenRef.current(btn.getAttribute("data-prospect-open"));
@@ -4450,57 +4535,32 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeM
     return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); };
   }, []);
 
-  // Synchronise les marqueurs des prospects visibles.
+  // Synchronise les marqueurs des prospects visibles (regroupés visuellement quand ils sont proches).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const seen = new Set();
-    placed.forEach((p) => {
-      const late = prospectionRelanceState(p) === "late";
-      const icon = prospectionMarkerIcon(colorFor(p), { late, selected: p.id === selectedId });
-      let marker = markersRef.current.get(p.id);
-      if (!marker) {
-        marker = L.marker([p.lat, p.lng], { icon }).addTo(map);
-        marker.on("click", () => setSelectedId(p.id));
-        marker.bindPopup(prospectionPopupHtml(p));
-        markersRef.current.set(p.id, marker);
-      } else {
-        marker.setLatLng([p.lat, p.lng]);
-        marker.setIcon(icon);
-        marker.setPopupContent(prospectionPopupHtml(p));
-      }
-      seen.add(p.id);
-    });
-    markersRef.current.forEach((marker, id) => {
-      if (!seen.has(id)) { map.removeLayer(marker); markersRef.current.delete(id); }
+    const clusters = prospectionClusterPoints(map, placed, 52);
+    prospectionSyncClusterLayer(map, markersRef, clusters, {
+      buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId }),
+      buildPopup: prospectionPopupHtml,
+      onSingleClick: (p) => setSelectedId(p.id),
+      buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#1D4ED8" }),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placed, colorBy, selectedId, colorOfCommercial]);
+  }, [placed, colorBy, selectedId, colorOfCommercial, zoomTick]);
 
   // Synchronise les marqueurs des clients existants (calque séparé, jamais lié aux statuts du pipeline).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const seen = new Set();
-    clientsPlaced.forEach((p) => {
-      const icon = prospectionClientIcon({ selected: p.id === selectedId });
-      let marker = clientMarkersRef.current.get(p.id);
-      if (!marker) {
-        marker = L.marker([p.lat, p.lng], { icon }).addTo(map);
-        marker.on("click", () => setSelectedId(p.id));
-        marker.bindPopup(prospectionPopupHtml(p));
-        clientMarkersRef.current.set(p.id, marker);
-      } else {
-        marker.setLatLng([p.lat, p.lng]);
-        marker.setIcon(icon);
-        marker.setPopupContent(prospectionPopupHtml(p));
-      }
-      seen.add(p.id);
+    const clusters = prospectionClusterPoints(map, clientsPlaced, 44);
+    prospectionSyncClusterLayer(map, clientMarkersRef, clusters, {
+      buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId }),
+      buildPopup: prospectionPopupHtml,
+      onSingleClick: (p) => setSelectedId(p.id),
+      buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
     });
-    clientMarkersRef.current.forEach((marker, id) => {
-      if (!seen.has(id)) { map.removeLayer(marker); clientMarkersRef.current.delete(id); }
-    });
-  }, [clientsPlaced, selectedId]);
+  }, [clientsPlaced, selectedId, zoomTick]);
 
   const runGeocode = async () => {
     setBusy("0");
@@ -4553,6 +4613,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onGeocodeM
             Client existant (losange)
           </span>
         )}
+        <span>Un chiffre = plusieurs points proches, cliquez pour zoomer</span>
         <span>{placed.length} prospect(s) affiché(s){clientsPlaced.length > 0 ? ` · ${clientsPlaced.length} client(s)` : ""}</span>
       </div>
     </div>
@@ -4585,6 +4646,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   const [filters, setFilters] = useState({ q: "", statut: "", secteur: "" });
   const [importing, setImporting] = useState("");
   const [importAsClient, setImportAsClient] = useState(false);
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [pendingImport, setPendingImport] = useState(null); // { rows } en attente de confirmation
   const fileRef = useRef(null);
 
@@ -4620,12 +4682,17 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   const pickCsv = async (file) => {
     const rows = parseProspectsCsv(await file.text());
     if (!rows.length) { showToast('Aucun prospect trouvé dans ce fichier (colonne "societe" attendue)', { type: "error" }); return; }
-    setPendingImport({ rows });
+    const existingNames = new Set(prospects.map((p) => (p.societe || "").trim().toLowerCase()).filter(Boolean));
+    const rowsWithFlag = rows.map((r) => ({ ...r, _duplicate: existingNames.has((r.societe || "").trim().toLowerCase()) }));
+    const duplicateCount = rowsWithFlag.filter((r) => r._duplicate).length;
+    setPendingImport({ rows: rowsWithFlag, duplicateCount });
+    setSkipDuplicates(duplicateCount > 0);
   };
 
   const confirmImport = async () => {
-    const rows = pendingImport.rows;
+    const rows = (skipDuplicates ? pendingImport.rows.filter((r) => !r._duplicate) : pendingImport.rows).map(({ _duplicate, ...r }) => r);
     setPendingImport(null);
+    if (rows.length === 0) { showToast("Rien à importer — toutes les lignes étaient des doublons"); setSkipDuplicates(true); return; }
     try {
       setImporting("0");
       const n = await data.bulkInsert(rows, (i, t) => setImporting(`${i}/${t}`), importAsClient ? { client_existant: true } : undefined);
@@ -4635,6 +4702,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
     } finally {
       setImporting("");
       setImportAsClient(false);
+      setSkipDuplicates(true);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -4784,8 +4852,17 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
             <input type="checkbox" checked={importAsClient} onChange={(e) => setImportAsClient(e.target.checked)} className="accent-blue-700" />
             Ce sont des clients existants (CRM), pas des prospects
           </label>
+          {pendingImport.duplicateCount > 0 && (
+            <label className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-100 text-amber-800"}`}>
+              <input type="checkbox" checked={skipDuplicates} onChange={(e) => setSkipDuplicates(e.target.checked)} className="accent-blue-700" />
+              {pendingImport.duplicateCount} doublon(s) détecté(s) (société déjà présente) — les ignorer
+            </label>
+          )}
           <div className="ml-auto flex gap-2">
-            <button onClick={() => { setPendingImport(null); setImportAsClient(false); if (fileRef.current) fileRef.current.value = ""; }} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}>
+            <button
+              onClick={() => { setPendingImport(null); setImportAsClient(false); setSkipDuplicates(true); if (fileRef.current) fileRef.current.value = ""; }}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}
+            >
               Annuler
             </button>
             <button onClick={confirmImport} className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-bold text-white">Importer</button>
