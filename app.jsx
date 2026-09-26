@@ -4472,12 +4472,19 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       } else {
         marker.on("click", () => onSingleClick(c.items[0]));
         marker.bindPopup(buildPopup(c.items[0]));
+        marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
       }
       markersRef.current.set(c.key, marker);
     } else {
       marker.setLatLng([c.lat, c.lng]);
       marker.setIcon(icon);
-      if (!isCluster) marker.setPopupContent(buildPopup(c.items[0]));
+      if (!isCluster) {
+        marker.setPopupContent(buildPopup(c.items[0]));
+        if (marker.getTooltip()) marker.setTooltipContent(prospectionEscapeHtml(c.items[0].societe));
+        else marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+      } else if (marker.getTooltip()) {
+        marker.unbindTooltip();
+      }
     }
   });
   markersRef.current.forEach((marker, key) => {
@@ -6028,6 +6035,9 @@ export default function App() {
         .leaflet-container { background: #ddd; }
         .leaflet-container img.leaflet-tile { max-width: none !important; max-height: none !important; width: 256px !important; height: 256px !important; }
         .leaflet-container img.leaflet-marker-icon, .leaflet-container img.leaflet-marker-shadow { max-width: none !important; }
+        .prospection-label { background: #ffffff; color: #292524; border: 1px solid #e7e5e4; border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.25); white-space: nowrap; }
+        .prospection-label::before { display: none; }
+        .prospection-map-dark .prospection-label { background: #18181b; color: #f4f4f5; border-color: #3f3f46; }
       `}</style>
       <datalist id="vendeurs-datalist">
         {vendeursList.map((v) => (
