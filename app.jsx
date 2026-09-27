@@ -3967,6 +3967,39 @@ async function prospectionReverseGeocode(lat, lng) {
     return null;
   }
 }
+// Retrouve, si possible, l'entreprise/le lieu nommé exactement à l'endroit cliqué (appui long),
+// pour proposer directement son nom plutôt que de laisser le champ Société vide.
+async function prospectionFindPlaceAt(lat, lng, radiusM) {
+  const r = radiusM || 35;
+  const query = `[out:json][timeout:8];(node["name"](around:${r},${lat},${lng});way["name"](around:${r},${lat},${lng}););out center tags 8;`;
+  try {
+    const res = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    let best = null;
+    let bestDist = Infinity;
+    for (const el of data.elements || []) {
+      if (!el.tags?.name) continue;
+      const elat = el.center?.lat ?? el.lat;
+      const elng = el.center?.lon ?? el.lon;
+      if (elat == null || elng == null) continue;
+      const d = Math.hypot(elat - lat, elng - lng);
+      if (d < bestDist) { bestDist = d; best = el; }
+    }
+    if (!best) return null;
+    return {
+      societe: best.tags.name,
+      secteur: best.tags.shop || best.tags.office || best.tags.craft || best.tags.amenity || "",
+      adresse: [best.tags["addr:housenumber"], best.tags["addr:street"]].filter(Boolean).join(" ") || undefined,
+      code_postal: best.tags["addr:postcode"] || undefined,
+      commune: best.tags["addr:city"] || undefined,
+      tel: best.tags.phone || best.tags["contact:phone"] || "",
+      email: best.tags.email || best.tags["contact:email"] || "",
+    };
+  } catch (e) {
+    return null;
+  }
+}
 async function prospectionSuggestAdresses(q) {
   if (!q || q.trim().length < 4) return [];
   try {
@@ -5015,8 +5048,13 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   const openNewFromCoords = async (latlng) => {
     setNewPrefill({ lat: latlng.lat, lng: latlng.lng, _coordsFromSuggestion: true });
     setOpenId("new");
-    const addr = await prospectionReverseGeocode(latlng.lat, latlng.lng);
-    if (addr) setNewPrefill((p) => (p ? { ...p, ...addr } : p));
+    const [addr, place] = await Promise.all([
+      prospectionReverseGeocode(latlng.lat, latlng.lng),
+      prospectionFindPlaceAt(latlng.lat, latlng.lng),
+    ]);
+    const cleanPlace = place ? Object.fromEntries(Object.entries(place).filter(([, v]) => v !== undefined && v !== "")) : {};
+    const merged = { ...addr, ...cleanPlace }; // le nom/l'adresse du lieu identifié priment sur l'adresse générique
+    if (Object.keys(merged).length) setNewPrefill((p) => (p ? { ...p, ...merged } : p));
   };
   const closeFiche = () => { setOpenId(null); setNewPrefill(null); };
   const [filters, setFilters] = useState({ q: "", statut: "", secteur: "" });
