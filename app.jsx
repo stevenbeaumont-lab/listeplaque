@@ -4448,7 +4448,7 @@ function prospectionOsmPopupHtml(place) {
     place.secteur ? `<div style="color:#78716c;">${prospectionEscapeHtml(place.secteur)}</div>` : "",
     `<div style="color:#78716c;">${prospectionEscapeHtml([place.adresse, place.commune].filter(Boolean).join(", "))}</div>`,
     `<div style="margin-top:8px;">`,
-    `<button data-osm-add="${prospectionEscapeHtml(place.osmId)}" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ajouter comme prospect</button>`,
+    `<button data-action="1" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ajouter comme prospect</button>`,
     `</div></div>`,
   ].join("");
 }
@@ -4472,7 +4472,7 @@ function prospectionPopupHtml(p) {
     p.client_existant ? "" : `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
     !p.client_existant && p.relance ? `<div style="${late ? "color:#be123c;" : ""}">Relance : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
     `<div style="margin-top:8px;display:flex;gap:8px;">`,
-    `<button data-prospect-open="${prospectionEscapeHtml(p.id)}" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
+    `<button data-action="1" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
     `<a href="${prospectionMapsDirectionsUrl(p)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
     `</div></div>`,
   ];
@@ -4509,7 +4509,7 @@ function prospectionClusterIcon(count, { color, diamond } = {}) {
   });
 }
 
-function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, buildClusterIcon }) {
+function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, onPopupAction, buildClusterIcon }) {
   const seen = new Set();
   clusters.forEach((c) => {
     seen.add(c.key);
@@ -4518,15 +4518,25 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
     let marker = markersRef.current.get(c.key);
     if (!marker) {
       marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
+      marker._prospectionItem = c.items[0];
       if (isCluster) {
         marker.on("click", () => map.setView([c.lat, c.lng], Math.min(map.getZoom() + 2, 18)));
       } else {
         marker.on("click", () => onSingleClick(c.items[0]));
         marker.bindPopup(buildPopup(c.items[0]));
         marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+        // Le bouton d'action est relié directement à CE marqueur (pas via un écouteur global sur la
+        // carte) : il lit toujours l'item courant, jamais une valeur figée au moment de la création.
+        if (onPopupAction) {
+          marker.on("popupopen", (e) => {
+            const btn = e.popup.getElement()?.querySelector("[data-action]");
+            if (btn) btn.onclick = () => onPopupAction(marker._prospectionItem);
+          });
+        }
       }
       markersRef.current.set(c.key, marker);
     } else {
+      marker._prospectionItem = c.items[0];
       marker.setLatLng([c.lat, c.lng]);
       marker.setIcon(icon);
       if (!isCluster) {
@@ -4559,13 +4569,8 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const markersRef = useRef(new Map());
   const clientMarkersRef = useRef(new Map());
   const osmMarkersRef = useRef(new Map());
-  const osmPlacesRef = useRef(new Map());
   const osmFetchTimer = useRef(null);
   const osmAbortRef = useRef(null);
-  const onOpenRef = useRef(onOpen);
-  onOpenRef.current = onOpen;
-  const onAddFromOsmRef = useRef(onAddFromOsm);
-  onAddFromOsmRef.current = onAddFromOsm;
 
   const colorOfCommercial = useMemo(() => {
     const m = {};
@@ -4591,18 +4596,6 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     }).addTo(map);
     map.on("click", () => setSelectedId(null));
     map.on("zoomend", () => setZoomTick((t) => t + 1));
-    map.on("popupopen", (e) => {
-      const el = e.popup.getElement();
-      const openBtn = el?.querySelector("[data-prospect-open]");
-      if (openBtn) openBtn.onclick = () => onOpenRef.current(openBtn.getAttribute("data-prospect-open"));
-      const addBtn = el?.querySelector("[data-osm-add]");
-      if (addBtn) {
-        addBtn.onclick = () => {
-          const place = osmPlacesRef.current.get(addBtn.getAttribute("data-osm-add"));
-          if (place) onAddFromOsmRef.current(place);
-        };
-      }
-    });
     const fetchNearby = () => {
       const zoom = map.getZoom();
       if (zoom < PROSPECTION_OSM_MIN_ZOOM) {
@@ -4629,7 +4622,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     // applique ses classes juste après) : on force un recalcul juste après.
     setTimeout(() => map.invalidateSize(), 100);
     setTimeout(() => map.invalidateSize(), 400);
-    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); osmMarkersRef.current.clear(); osmPlacesRef.current.clear(); clearTimeout(osmFetchTimer.current); osmAbortRef.current?.abort(); };
+    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); osmMarkersRef.current.clear(); clearTimeout(osmFetchTimer.current); osmAbortRef.current?.abort(); };
   }, []);
 
   // Synchronise les marqueurs des prospects visibles (regroupés visuellement quand ils sont proches).
@@ -4641,6 +4634,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
+      onPopupAction: (p) => onOpen(p.id),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#1D4ED8" }),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4655,6 +4649,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
+      onPopupAction: (p) => onOpen(p.id),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
     });
   }, [clientsPlaced, selectedId, zoomTick]);
@@ -4663,7 +4658,6 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    osmPlacesRef.current = new Map(osmPlaces.map((p) => [p.osmId, p]));
     if (!showOsm) {
       osmMarkersRef.current.forEach((marker) => map.removeLayer(marker));
       osmMarkersRef.current.clear();
@@ -4674,6 +4668,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       buildIcon: (p) => prospectionOsmIcon({ selected: false }),
       buildPopup: prospectionOsmPopupHtml,
       onSingleClick: () => {},
+      onPopupAction: (p) => onAddFromOsm(p),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#94a3b8" }),
     });
   }, [osmPlaces, showOsm]);
