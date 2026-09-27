@@ -4026,6 +4026,37 @@ async function prospectionSearchNearbyBusinesses(bounds, signal) {
   }
 }
 
+// Recherche ponctuelle des zones d'activité / zones industrielles (ZA/ZI) dans un large rayon —
+// différente de la découverte de proximité (qui ne fonctionne qu'en zoomant de près) : ici on
+// interroge une seule fois tout le rayon demandé, quel que soit le niveau de zoom affiché.
+async function prospectionSearchIndustrialZones(center, radiusKm) {
+  const around = `around:${Math.round(radiusKm * 1000)},${center.lat},${center.lng}`;
+  const query = `[out:json][timeout:25];(way["landuse"="industrial"](${around});way["landuse"="commercial"](${around}););out center tags 300;`;
+  try {
+    const r = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query) });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data.elements || [])
+      .map((el) => {
+        const lat = el.center?.lat ?? el.lat;
+        const lng = el.center?.lon ?? el.lon;
+        if (lat == null || lng == null) return null;
+        const nom = el.tags?.name || el.tags?.["addr:city"] || null;
+        if (!nom) return null; // pas assez d'info pour identifier la zone sur la carte
+        return {
+          zoneId: `${el.type?.[0] || "w"}${el.id}`,
+          lat,
+          lng,
+          nom,
+          type: el.tags?.landuse === "commercial" ? "Zone commerciale" : "Zone industrielle",
+        };
+      })
+      .filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
 // Import/export CSV compatibles avec l'export de l'ancienne application de prospection (séparateur ";").
 const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
 function prospectionParseCsvLine(line, sep) {
@@ -4486,6 +4517,21 @@ function prospectionOsmIcon({ selected } = {}) {
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
 }
 
+const PROSPECTION_ZONE_COLOR = "#78350F";
+function prospectionZoneIcon() {
+  const html = `<div style="width:16px;height:16px;background:${PROSPECTION_ZONE_COLOR};border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>`;
+  return L.divIcon({ html, className: "", iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -10] });
+}
+
+function prospectionZonePopupHtml(z) {
+  return [
+    `<div style="min-width:170px;font-size:13px;line-height:1.45;color:#292524;">`,
+    `<span style="display:inline-block;margin-bottom:2px;border-radius:9999px;background:#fde68a;color:#78350f;font-size:10px;font-weight:700;padding:1px 6px;">${prospectionEscapeHtml(z.type.toUpperCase())}</span><br/>`,
+    `<b>${prospectionEscapeHtml(z.nom)}</b>`,
+    `</div>`,
+  ].join("");
+}
+
 function prospectionOsmPopupHtml(place) {
   return [
     `<div style="min-width:190px;font-size:13px;line-height:1.45;color:#292524;">`,
@@ -4571,7 +4617,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       } else {
         marker.on("click", () => onSingleClick(c.items[0]));
         marker.bindPopup(buildPopup(c.items[0]));
-        marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+        marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
         // Les boutons d'action sont reliés directement à CE marqueur (pas via un écouteur global sur
         // la carte) : ils lisent toujours l'item courant, jamais une valeur figée au moment de la création.
         if (onPopupAction) {
@@ -4589,8 +4635,8 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       marker.setIcon(icon);
       if (!isCluster) {
         marker.setPopupContent(buildPopup(c.items[0]));
-        if (marker.getTooltip()) marker.setTooltipContent(prospectionEscapeHtml(c.items[0].societe));
-        else marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+        if (marker.getTooltip()) marker.setTooltipContent(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom));
+        else marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
       } else if (marker.getTooltip()) {
         marker.unbindTooltip();
       }
@@ -4608,6 +4654,9 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const [showClients, setShowClients] = useState(true);
   const [showOsm, setShowOsm] = useState(true);
   const [showTeamZones, setShowTeamZones] = useState(true);
+  const [industrialZones, setIndustrialZones] = useState([]);
+  const [zonesLoading, setZonesLoading] = useState(false);
+  const [showIndustrialZones, setShowIndustrialZones] = useState(true);
   const [busy, setBusy] = useState("");
   const [mapFiltersOpen, setMapFiltersOpen] = useState(false);
   const [zoomTick, setZoomTick] = useState(0);
@@ -4619,6 +4668,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const markersRef = useRef(new Map());
   const clientMarkersRef = useRef(new Map());
   const osmMarkersRef = useRef(new Map());
+  const zoneMarkersRef = useRef(new Map());
   const osmFetchTimer = useRef(null);
   const osmAbortRef = useRef(null);
   const myLocationMarkerRef = useRef(null);
@@ -4765,6 +4815,25 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     });
   }, [osmPlaces, showOsm]);
 
+  // Synchronise le calque des zones d'activité (ZA/ZI), alimenté par une recherche ponctuelle
+  // sur un large rayon (bouton dédié), pas par le déplacement de la carte.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!showIndustrialZones) {
+      zoneMarkersRef.current.forEach((marker) => map.removeLayer(marker));
+      zoneMarkersRef.current.clear();
+      return;
+    }
+    const clusters = prospectionClusterPoints(map, industrialZones.map((z) => ({ ...z, id: z.zoneId })), 40);
+    prospectionSyncClusterLayer(map, zoneMarkersRef, clusters, {
+      buildIcon: () => prospectionZoneIcon(),
+      buildPopup: prospectionZonePopupHtml,
+      onSingleClick: () => {},
+      buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_ZONE_COLOR }),
+    });
+  }, [industrialZones, showIndustrialZones, zoomTick]);
+
   const locateMe = () => {
     if (!navigator.geolocation) { showToast("Localisation non disponible sur cet appareil", { type: "error" }); return; }
     navigator.geolocation.getCurrentPosition(
@@ -4777,6 +4846,18 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       () => showToast("Position indisponible — vérifiez que la localisation est autorisée", { type: "error" }),
       { enableHighAccuracy: true, timeout: 8000 }
     );
+  };
+
+  const searchIndustrialZones = async () => {
+    setZonesLoading(true);
+    const zones = await prospectionSearchIndustrialZones(PROSPECTION_CAEN_CENTER, 50);
+    setIndustrialZones(zones);
+    setShowIndustrialZones(true);
+    setZonesLoading(false);
+    if (zones.length > 0 && mapRef.current) {
+      mapRef.current.fitBounds(zones.map((z) => [z.lat, z.lng]), { padding: [30, 30], maxZoom: 12 });
+    }
+    showToast(`${zones.length} zone(s) d'activité identifiée(s) dans un rayon de 50 km`);
   };
 
   const runGeocode = async () => {
@@ -4831,6 +4912,21 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
                   <input type="checkbox" checked={showTeamZones} onChange={(e) => setShowTeamZones(e.target.checked)} className="accent-blue-700" />
                   Afficher les zones des équipes
                 </label>
+                <div className={`border-t pt-3 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+                  <button
+                    onClick={searchIndustrialZones}
+                    disabled={zonesLoading}
+                    className={`pl-interactive w-full rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+                  >
+                    {zonesLoading ? "Recherche en cours…" : "Identifier les zones industrielles (50 km)"}
+                  </button>
+                  {industrialZones.length > 0 && (
+                    <label className={`mt-2 flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                      <input type="checkbox" checked={showIndustrialZones} onChange={(e) => setShowIndustrialZones(e.target.checked)} className="accent-blue-700" />
+                      Afficher les zones trouvées ({industrialZones.length})
+                    </label>
+                  )}
+                </div>
                 {missing.length > 0 && (
                   <button
                     onClick={runGeocode}
@@ -4871,6 +4967,12 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
           <span className="flex items-center gap-1.5">
             <i className={`inline-block h-2.5 w-2.5 rounded-full border-2 ${dark ? "border-slate-400" : "border-slate-400"}`} style={{ background: "#fff" }} />
             Entreprise OpenStreetMap ({osmPlaces.length}) — cliquez pour ajouter
+          </span>
+        )}
+        {showIndustrialZones && industrialZones.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <i className="inline-block h-2.5 w-2.5" style={{ background: PROSPECTION_ZONE_COLOR }} />
+            Zone industrielle / d'activité ({industrialZones.length})
           </span>
         )}
         <span>Un chiffre = plusieurs points proches, cliquez pour zoomer</span>
