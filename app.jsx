@@ -3966,12 +3966,13 @@ async function prospectionSuggestAdresses(q) {
 // gratuit, sans clé. Ne renvoie que ce qui est dans le rectangle visible, d'où l'obligation de zoomer.
 const PROSPECTION_OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const PROSPECTION_OSM_MIN_ZOOM = 15;
-async function prospectionSearchNearbyBusinesses(bounds) {
+async function prospectionSearchNearbyBusinesses(bounds, signal) {
   const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-  const amenities = "car_rental|car_wash|fuel|bank|bureau_de_change|pharmacy|veterinary|driving_school|dentist|doctors|clinic|hospital|post_office|conference_centre|exhibition_centre";
-  const query = `[out:json][timeout:15];(node["shop"](${bbox});node["office"](${bbox});node["craft"](${bbox});node["amenity"~"${amenities}"](${bbox}););out body 120;`;
+  const amenities = ["car_rental", "car_wash", "fuel", "bank", "bureau_de_change", "pharmacy", "veterinary", "driving_school", "dentist", "doctors", "clinic", "hospital", "post_office"];
+  const clauses = [`node["shop"](${bbox});`, `node["office"](${bbox});`, `node["craft"](${bbox});`, ...amenities.map((a) => `node["amenity"="${a}"](${bbox});`)].join("");
+  const query = `[out:json][timeout:8];(${clauses});out body 60;`;
   try {
-    const r = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query) });
+    const r = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query), signal });
     if (!r.ok) return [];
     const data = await r.json();
     return (data.elements || [])
@@ -4560,6 +4561,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const osmMarkersRef = useRef(new Map());
   const osmPlacesRef = useRef(new Map());
   const osmFetchTimer = useRef(null);
+  const osmAbortRef = useRef(null);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const onAddFromOsmRef = useRef(onAddFromOsm);
@@ -4611,11 +4613,15 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       setZoomTooFar(false);
       clearTimeout(osmFetchTimer.current);
       osmFetchTimer.current = setTimeout(async () => {
+        osmAbortRef.current?.abort();
+        const controller = new AbortController();
+        osmAbortRef.current = controller;
         setOsmLoading(true);
-        const places = await prospectionSearchNearbyBusinesses(map.getBounds());
+        const places = await prospectionSearchNearbyBusinesses(map.getBounds(), controller.signal);
+        if (controller.signal.aborted) return; // une recherche plus récente a déjà pris le relais
         setOsmPlaces(places);
         setOsmLoading(false);
-      }, 600);
+      }, 400);
     };
     map.on("moveend", fetchNearby);
     mapRef.current = map;
@@ -4623,7 +4629,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     // applique ses classes juste après) : on force un recalcul juste après.
     setTimeout(() => map.invalidateSize(), 100);
     setTimeout(() => map.invalidateSize(), 400);
-    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); osmMarkersRef.current.clear(); osmPlacesRef.current.clear(); clearTimeout(osmFetchTimer.current); };
+    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); osmMarkersRef.current.clear(); osmPlacesRef.current.clear(); clearTimeout(osmFetchTimer.current); osmAbortRef.current?.abort(); };
   }, []);
 
   // Synchronise les marqueurs des prospects visibles (regroupés visuellement quand ils sont proches).
