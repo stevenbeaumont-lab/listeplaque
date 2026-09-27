@@ -3968,7 +3968,8 @@ const PROSPECTION_OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const PROSPECTION_OSM_MIN_ZOOM = 15;
 async function prospectionSearchNearbyBusinesses(bounds) {
   const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-  const query = `[out:json][timeout:15];(node["shop"](${bbox});node["office"](${bbox});node["craft"](${bbox}););out body 100;`;
+  const amenities = "car_rental|car_wash|fuel|bank|bureau_de_change|pharmacy|veterinary|driving_school|dentist|doctors|clinic|hospital|post_office|conference_centre|exhibition_centre";
+  const query = `[out:json][timeout:15];(node["shop"](${bbox});node["office"](${bbox});node["craft"](${bbox});node["amenity"~"${amenities}"](${bbox}););out body 120;`;
   try {
     const r = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query) });
     if (!r.ok) return [];
@@ -3980,7 +3981,7 @@ async function prospectionSearchNearbyBusinesses(bounds) {
         lat: el.lat,
         lng: el.lon,
         societe: el.tags.name,
-        secteur: el.tags.shop || el.tags.office || el.tags.craft || "",
+        secteur: el.tags.shop || el.tags.office || el.tags.craft || el.tags.amenity || "",
         adresse: [el.tags["addr:housenumber"], el.tags["addr:street"]].filter(Boolean).join(" "),
         code_postal: el.tags["addr:postcode"] || "",
         commune: el.tags["addr:city"] || "",
