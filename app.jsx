@@ -3898,7 +3898,7 @@ const PROSPECTION_OBJECTIF_SEMAINE = 25;
 // Aucun rôle ParcLive existant ne distingue les commerciaux B2B des autres vendeurs —
 // liste à éditer ici en attendant un éventuel champ dédié. Signalé dans le récapitulatif de livraison.
 const PROSPECTION_COMMERCIAUX = ["Anthony", "Thao", "Tom", "Julia"];
-// Binômes : Anthony + Thao (équipe A, zone nord), Tom + Julia (équipe B, zone sud).
+// Binômes : Anthony + Thao (équipe A, zone sud), Tom + Julia (équipe B, zone nord).
 // Thao et Julia sont les alternants respectifs d'Anthony et Tom.
 const PROSPECTION_TEAMS = { Anthony: "A", Thao: "A", Tom: "B", Julia: "B" };
 const PROSPECTION_TEAM_ZONE_LAT = 49.178; // ligne de partage nord/sud, au niveau de la Prairie de Caen
@@ -4785,13 +4785,13 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     const west = PROSPECTION_CAEN_CENTER.lng - span;
     const east = PROSPECTION_CAEN_CENTER.lng + span;
     const group = L.layerGroup();
-    L.rectangle([[lat, west], [lat + span, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.A.main, fillOpacity: 0.05, interactive: false }).addTo(group);
-    L.rectangle([[lat - span, west], [lat, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.B.main, fillOpacity: 0.05, interactive: false }).addTo(group);
+    L.rectangle([[lat, west], [lat + span, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.B.main, fillOpacity: 0.05, interactive: false }).addTo(group);
+    L.rectangle([[lat - span, west], [lat, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.A.main, fillOpacity: 0.05, interactive: false }).addTo(group);
     L.polyline([[lat, west], [lat, east]], { color: dark ? "#71717a" : "#a8a29e", weight: 2, dashArray: "6 6", interactive: false }).addTo(group);
     const labelIcon = (text, color) =>
       L.divIcon({ html: `<div style="background:${color};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${text}</div>`, className: "", iconSize: [0, 0] });
-    L.marker([lat + span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe A — Anthony & Thao", PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
-    L.marker([lat - span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe B — Tom & Julia", PROSPECTION_TEAM_COLORS.B.main), interactive: false }).addTo(group);
+    L.marker([lat + span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe B — Tom & Julia", PROSPECTION_TEAM_COLORS.B.main), interactive: false }).addTo(group);
+    L.marker([lat - span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe A — Anthony & Thao", PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
     group.addTo(map);
     teamZoneLayerRef.current = group;
   }, [showTeamZones, dark]);
