@@ -5003,7 +5003,8 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   // ils ne comptent dans aucune statistique et ne servent qu'à se repérer sur la carte.
   const funnelProspects = useMemo(() => prospects.filter((p) => !p.client_existant), [prospects]);
   const existingClients = useMemo(() => prospects.filter((p) => p.client_existant), [prospects]);
-  const [vue, setVue] = useState("jour");
+  const [vue, setVue] = useState(() => loadLocal("dsr:prospection-vue", "jour"));
+  useEffect(() => { saveLocal("dsr:prospection-vue", vue); }, [vue]);
   const [scope, setScope] = useState("");
   const [openId, setOpenId] = useState(null);
   const [newPrefill, setNewPrefill] = useState(null);
@@ -5169,7 +5170,10 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
     );
   };
 
-  const vuePipeline = () => (
+  const vuePipeline = () =>
+    scoped.length === 0 ? (
+      <EmptyState dark={dark} icon={Target} title="Aucun prospect pour l'instant" subtitle="Commencez par en ajouter un." />
+    ) : (
     <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
       {PROSPECTION_STATUTS.map((s) => {
         const items = scoped.filter((p) => p.statut === s);
@@ -5193,7 +5197,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         );
       })}
     </div>
-  );
+    );
 
   const vueListe = () => (
     <>
@@ -5288,41 +5292,61 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
 
   const vueEquipe = () => {
     const weekAgo = Date.now() - 7 * 864e5;
+    const groups = {};
+    team.forEach((n) => {
+      const t = PROSPECTION_TEAMS[n] || "Autres";
+      (groups[t] = groups[t] || []).push(n);
+    });
+    const teamOrder = Object.keys(groups).sort((a, b) => (a === "Autres" ? 1 : b === "Autres" ? -1 : a.localeCompare(b)));
+
     return (
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
-        {team.map((n) => {
-          const l = prospects.filter((p) => p.commercial === n);
-          const nbActions = actions.filter((a) => a.par === n && new Date(a.created_at).getTime() >= weekAgo).length;
-          const rdv = l.filter((p) => ["RDV fixé", "Offre envoyée", "Gagné"].includes(p.statut)).length;
-          const gagnes = l.filter((p) => p.statut === "Gagné");
-          const vehicules = gagnes.reduce((s, p) => s + (p.flotte || 0), 0);
-          const retard = l.filter((p) => prospectionRelanceState(p) === "late").length;
-          const pct = Math.min(100, Math.round((nbActions / PROSPECTION_OBJECTIF_SEMAINE) * 100));
-          return (
-            <div key={n} className={`p-4 ${cardCls}`}>
-              <h3 className={`mb-3 flex items-center gap-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-700 text-xs font-bold text-white">{prospectionInitials(n)}</span>
-                {n}
+      <div className="space-y-5">
+        {teamOrder.map((t) => (
+          <section key={t}>
+            {t !== "Autres" && (
+              <h3 className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                <i className="h-2.5 w-2.5 rounded-full" style={{ background: PROSPECTION_TEAM_COLORS[t]?.main }} />
+                Équipe {t}
               </h3>
-              <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
-                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Prospects en portefeuille</dt>
-                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length}</dd>
-                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>RDV obtenus</dt>
-                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{rdv}</dd>
-                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Affaires gagnées</dt>
-                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{gagnes.length}{vehicules ? ` (${vehicules} véh.)` : ""}</dd>
-                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Taux de transformation</dt>
-                <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length ? Math.round((gagnes.length / l.length) * 100) : 0} %</dd>
-                <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Relances en retard</dt>
-                <dd className={`text-right font-semibold ${retard ? "text-rose-500" : dark ? "text-zinc-100" : "text-stone-800"}`}>{retard}</dd>
-              </dl>
-              <div className={`mt-3 h-2 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
-                <div className="h-full rounded-full bg-blue-700" style={{ width: `${pct}%` }} />
-              </div>
-              <div className={`mt-1 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{nbActions} actions sur 7 jours, objectif {PROSPECTION_OBJECTIF_SEMAINE}</div>
+            )}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+              {groups[t].map((n, i) => {
+                const badgeColor = PROSPECTION_TEAM_COLORS[t] ? (i === 0 ? PROSPECTION_TEAM_COLORS[t].main : PROSPECTION_TEAM_COLORS[t].light) : "#1D4ED8";
+                const l = prospects.filter((p) => p.commercial === n);
+                const nbActions = actions.filter((a) => a.par === n && new Date(a.created_at).getTime() >= weekAgo).length;
+                const rdv = l.filter((p) => ["RDV fixé", "Offre envoyée", "Gagné"].includes(p.statut)).length;
+                const gagnes = l.filter((p) => p.statut === "Gagné");
+                const vehicules = gagnes.reduce((s, p) => s + (p.flotte || 0), 0);
+                const retard = l.filter((p) => prospectionRelanceState(p) === "late").length;
+                const pct = Math.min(100, Math.round((nbActions / PROSPECTION_OBJECTIF_SEMAINE) * 100));
+                return (
+                  <div key={n} className={`p-4 ${cardCls}`}>
+                    <h4 className={`mb-3 flex items-center gap-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+                      <span className="grid h-7 w-7 place-items-center rounded-full text-xs font-bold text-white" style={{ background: badgeColor }}>{prospectionInitials(n)}</span>
+                      {n}
+                    </h4>
+                    <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Prospects en portefeuille</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length}</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>RDV obtenus</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{rdv}</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Affaires gagnées</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{gagnes.length}{vehicules ? ` (${vehicules} véh.)` : ""}</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Taux de transformation</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length ? Math.round((gagnes.length / l.length) * 100) : 0} %</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Relances en retard</dt>
+                      <dd className={`text-right font-semibold ${retard ? "text-rose-500" : dark ? "text-zinc-100" : "text-stone-800"}`}>{retard}</dd>
+                    </dl>
+                    <div className={`mt-3 h-2 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: badgeColor }} />
+                    </div>
+                    <div className={`mt-1 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{nbActions} actions sur 7 jours, objectif {PROSPECTION_OBJECTIF_SEMAINE}</div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </section>
+        ))}
       </div>
     );
   };
@@ -5368,11 +5392,13 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         ))}
       </div>
 
-      {vue === "jour" && vueJour()}
-      {vue === "pipeline" && vuePipeline()}
-      {vue === "liste" && vueListe()}
-      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onQuickVisit={quickVisit} onCreateAtLocation={openNewFromCoords} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
-      {vue === "equipe" && vueEquipe()}
+      <div key={vue} className="pl-fade-in">
+        {vue === "jour" && vueJour()}
+        {vue === "pipeline" && vuePipeline()}
+        {vue === "liste" && vueListe()}
+        {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onQuickVisit={quickVisit} onCreateAtLocation={openNewFromCoords} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
+        {vue === "equipe" && vueEquipe()}
+      </div>
 
       {openId && (
         <ProspectFiche
