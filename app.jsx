@@ -4723,7 +4723,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
         )}
       </div>
 
-      <div ref={containerRef} className={`h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
+      <div ref={containerRef} className={`isolate relative z-0 h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
 
       <div className={`flex flex-wrap gap-4 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>
         {legend.map(([l, c]) => (
