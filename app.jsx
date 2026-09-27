@@ -3897,7 +3897,15 @@ const PROSPECTION_OBJECTIF_SEMAINE = 25;
 
 // Aucun rôle ParcLive existant ne distingue les commerciaux B2B des autres vendeurs —
 // liste à éditer ici en attendant un éventuel champ dédié. Signalé dans le récapitulatif de livraison.
-const PROSPECTION_COMMERCIAUX = ["Nom Prénom 1", "Nom Prénom 2", "Nom Prénom 3", "Nom Prénom 4"];
+const PROSPECTION_COMMERCIAUX = ["Anthony", "Thao", "Tom", "Julia"];
+// Binômes : Anthony + Thao (équipe A, zone nord), Tom + Julia (équipe B, zone sud).
+// Thao et Julia sont les alternants respectifs d'Anthony et Tom.
+const PROSPECTION_TEAMS = { Anthony: "A", Thao: "A", Tom: "B", Julia: "B" };
+const PROSPECTION_TEAM_ZONE_LAT = PROSPECTION_CAEN_CENTER.lat; // ligne de partage nord/sud
+const PROSPECTION_TEAM_COLORS = {
+  A: { main: "#1D4ED8", light: "#93C5FD" }, // Anthony (fonce) / Thao, alternante (clair)
+  B: { main: "#047857", light: "#6EE7B7" }, // Tom (fonce) / Julia, alternante (clair)
+};
 
 function prospectionTodayISO(d) {
   const base = d || new Date();
@@ -4599,6 +4607,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
   const [showOsm, setShowOsm] = useState(true);
+  const [showTeamZones, setShowTeamZones] = useState(true);
   const [busy, setBusy] = useState("");
   const [mapFiltersOpen, setMapFiltersOpen] = useState(false);
   const [zoomTick, setZoomTick] = useState(0);
@@ -4618,7 +4627,19 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
 
   const colorOfCommercial = useMemo(() => {
     const m = {};
-    commerciaux.forEach((n, i) => { m[n] = PROSPECTION_COMMERCIAL_COLORS[i % PROSPECTION_COMMERCIAL_COLORS.length]; });
+    const usedPerTeam = {};
+    commerciaux.forEach((n) => {
+      const team = PROSPECTION_TEAMS[n];
+      if (team && PROSPECTION_TEAM_COLORS[team]) {
+        const already = usedPerTeam[team] || 0;
+        m[n] = already === 0 ? PROSPECTION_TEAM_COLORS[team].main : PROSPECTION_TEAM_COLORS[team].light;
+        usedPerTeam[team] = already + 1;
+      }
+    });
+    let i = 0;
+    commerciaux.forEach((n) => {
+      if (!m[n]) m[n] = PROSPECTION_COMMERCIAL_COLORS[i++ % PROSPECTION_COMMERCIAL_COLORS.length];
+    });
     return m;
   }, [commerciaux]);
 
@@ -4702,6 +4723,29 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     });
   }, [clientsPlaced, selectedId, zoomTick]);
 
+  // Trace la ligne de partage nord/sud entre les deux binômes, avec une zone teintée de chaque côté.
+  const teamZoneLayerRef = useRef(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (teamZoneLayerRef.current) { map.removeLayer(teamZoneLayerRef.current); teamZoneLayerRef.current = null; }
+    if (!showTeamZones) return;
+    const lat = PROSPECTION_TEAM_ZONE_LAT;
+    const span = 0.35;
+    const west = PROSPECTION_CAEN_CENTER.lng - span;
+    const east = PROSPECTION_CAEN_CENTER.lng + span;
+    const group = L.layerGroup();
+    L.rectangle([[lat, west], [lat + span, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.A.main, fillOpacity: 0.05, interactive: false }).addTo(group);
+    L.rectangle([[lat - span, west], [lat, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.B.main, fillOpacity: 0.05, interactive: false }).addTo(group);
+    L.polyline([[lat, west], [lat, east]], { color: dark ? "#71717a" : "#a8a29e", weight: 2, dashArray: "6 6", interactive: false }).addTo(group);
+    const labelIcon = (text, color) =>
+      L.divIcon({ html: `<div style="background:${color};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${text}</div>`, className: "", iconSize: [0, 0] });
+    L.marker([lat + span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe A — Anthony & Thao", PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
+    L.marker([lat - span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe B — Tom & Julia", PROSPECTION_TEAM_COLORS.B.main), interactive: false }).addTo(group);
+    group.addTo(map);
+    teamZoneLayerRef.current = group;
+  }, [showTeamZones, dark]);
+
   // Synchronise le calque de découverte OpenStreetMap (entreprises pas encore dans Prospection).
   useEffect(() => {
     const map = mapRef.current;
@@ -4782,6 +4826,10 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
                 <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
                   <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
                   Découvrir les entreprises alentour (OSM)
+                </label>
+                <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                  <input type="checkbox" checked={showTeamZones} onChange={(e) => setShowTeamZones(e.target.checked)} className="accent-blue-700" />
+                  Afficher les zones des équipes
                 </label>
                 {missing.length > 0 && (
                   <button
