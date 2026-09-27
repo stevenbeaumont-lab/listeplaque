@@ -4065,6 +4065,21 @@ function prospectionCleanRow(p) {
   return row;
 }
 
+// Sur le terrain, le réseau peut couper un instant — on retente automatiquement avant d'abandonner,
+// plutôt que de faire perdre sa saisie au commercial pour un simple aléa de connexion.
+async function prospectionWithRetry(fn, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 function useProspection() {
   const [prospects, setProspects] = useState([]);
   const [actions, setActions] = useState([]);
@@ -4114,10 +4129,9 @@ function useProspection() {
       row.lat = g?.lat ?? null;
       row.lng = g?.lng ?? null;
     }
-    const q = p.id
-      ? supabase.from("prospects").update(row).eq("id", p.id).select().single()
-      : supabase.from("prospects").insert(row).select().single();
-    const { data, error: err } = await q;
+    const { data, error: err } = await prospectionWithRetry(() =>
+      p.id ? supabase.from("prospects").update(row).eq("id", p.id).select().single() : supabase.from("prospects").insert(row).select().single()
+    );
     if (err) throw err;
     lastSig.current = "";
     await load();
@@ -4125,21 +4139,21 @@ function useProspection() {
   }, [load]);
 
   const remove = useCallback(async (id) => {
-    const { error: err } = await supabase.from("prospects").delete().eq("id", id);
+    const { error: err } = await prospectionWithRetry(() => supabase.from("prospects").delete().eq("id", id));
     if (err) throw err;
     lastSig.current = "";
     await load();
   }, [load]);
 
   const addAction = useCallback(async (prospect_id, type, texte, par) => {
-    const { error: err } = await supabase.from("prospect_actions").insert({ prospect_id, type, texte, par });
+    const { error: err } = await prospectionWithRetry(() => supabase.from("prospect_actions").insert({ prospect_id, type, texte, par }));
     if (err) throw err;
     lastSig.current = "";
     await load();
   }, [load]);
 
   const patch = useCallback(async (id, fields) => {
-    const { error: err } = await supabase.from("prospects").update(fields).eq("id", id);
+    const { error: err } = await prospectionWithRetry(() => supabase.from("prospects").update(fields).eq("id", id));
     if (err) throw err;
     lastSig.current = "";
     await load();
@@ -4448,7 +4462,7 @@ function prospectionOsmPopupHtml(place) {
     place.secteur ? `<div style="color:#78716c;">${prospectionEscapeHtml(place.secteur)}</div>` : "",
     `<div style="color:#78716c;">${prospectionEscapeHtml([place.adresse, place.commune].filter(Boolean).join(", "))}</div>`,
     `<div style="margin-top:8px;">`,
-    `<button data-action="1" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ajouter comme prospect</button>`,
+    `<button data-action="add" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ajouter comme prospect</button>`,
     `</div></div>`,
   ].join("");
 }
@@ -4471,8 +4485,9 @@ function prospectionPopupHtml(p) {
     `<div style="color:#78716c;">${prospectionEscapeHtml([p.adresse, p.commune].filter(Boolean).join(", "))}</div>`,
     p.client_existant ? "" : `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
     !p.client_existant && p.relance ? `<div style="${late ? "color:#be123c;" : ""}">Relance : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
-    `<div style="margin-top:8px;display:flex;gap:8px;">`,
-    `<button data-action="1" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
+    `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">`,
+    `<button data-action="open" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
+    p.client_existant ? "" : `<button data-action="visit" style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">J'ai visité</button>`,
     `<a href="${prospectionMapsDirectionsUrl(p)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
     `</div></div>`,
   ];
@@ -4525,12 +4540,13 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
         marker.on("click", () => onSingleClick(c.items[0]));
         marker.bindPopup(buildPopup(c.items[0]));
         marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
-        // Le bouton d'action est relié directement à CE marqueur (pas via un écouteur global sur la
-        // carte) : il lit toujours l'item courant, jamais une valeur figée au moment de la création.
+        // Les boutons d'action sont reliés directement à CE marqueur (pas via un écouteur global sur
+        // la carte) : ils lisent toujours l'item courant, jamais une valeur figée au moment de la création.
         if (onPopupAction) {
           marker.on("popupopen", (e) => {
-            const btn = e.popup.getElement()?.querySelector("[data-action]");
-            if (btn) btn.onclick = () => onPopupAction(marker._prospectionItem);
+            e.popup.getElement()?.querySelectorAll("[data-action]").forEach((btn) => {
+              btn.onclick = () => onPopupAction(marker._prospectionItem, btn.getAttribute("data-action"));
+            });
           });
         }
       }
@@ -4553,13 +4569,14 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromOsm, onGeocodeMissing, showToast }) {
+function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
   const [showOsm, setShowOsm] = useState(true);
   const [busy, setBusy] = useState("");
+  const [mapFiltersOpen, setMapFiltersOpen] = useState(false);
   const [zoomTick, setZoomTick] = useState(0);
   const [osmPlaces, setOsmPlaces] = useState([]);
   const [osmLoading, setOsmLoading] = useState(false);
@@ -4571,6 +4588,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const osmMarkersRef = useRef(new Map());
   const osmFetchTimer = useRef(null);
   const osmAbortRef = useRef(null);
+  const myLocationMarkerRef = useRef(null);
 
   const colorOfCommercial = useMemo(() => {
     const m = {};
@@ -4634,7 +4652,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
-      onPopupAction: (p) => onOpen(p.id),
+      onPopupAction: (p, action) => (action === "visit" ? onQuickVisit(p) : onOpen(p.id)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#1D4ED8" }),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4673,6 +4691,20 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     });
   }, [osmPlaces, showOsm]);
 
+  const locateMe = () => {
+    if (!navigator.geolocation) { showToast("Localisation non disponible sur cet appareil", { type: "error" }); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        mapRef.current?.setView([latitude, longitude], 16);
+        if (myLocationMarkerRef.current) mapRef.current.removeLayer(myLocationMarkerRef.current);
+        myLocationMarkerRef.current = L.circleMarker([latitude, longitude], { radius: 8, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }).addTo(mapRef.current);
+      },
+      () => showToast("Position indisponible — vérifiez que la localisation est autorisée", { type: "error" }),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
   const runGeocode = async () => {
     setBusy("0");
     const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`));
@@ -4685,41 +4717,62 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3 text-sm">
-        <div className={`inline-flex overflow-hidden rounded-lg border ${dark ? "border-zinc-800" : "border-stone-300"}`}>
-          <button onClick={() => setColorBy("statut")} className={chipCls(colorBy === "statut")}>Couleur par statut</button>
-          <button onClick={() => setColorBy("commercial")} className={chipCls(colorBy === "commercial")}>Couleur par commercial</button>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <button
+          onClick={locateMe}
+          className={`pl-interactive flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+        >
+          <Target size={14} /> Me localiser
+        </button>
+        <div className="relative">
+          <button
+            onClick={() => setMapFiltersOpen((o) => !o)}
+            className={`pl-interactive flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+          >
+            <SlidersHorizontal size={14} /> Filtres
+          </button>
+          {mapFiltersOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMapFiltersOpen(false)} />
+              <div className={`absolute left-0 z-20 mt-1 w-72 space-y-3 rounded-xl border p-3.5 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+                <div className={`inline-flex w-full overflow-hidden rounded-lg border ${dark ? "border-zinc-800" : "border-stone-300"}`}>
+                  <button onClick={() => setColorBy("statut")} className={`flex-1 ${chipCls(colorBy === "statut")}`}>Par statut</button>
+                  <button onClick={() => setColorBy("commercial")} className={`flex-1 ${chipCls(colorBy === "commercial")}`}>Par commercial</button>
+                </div>
+                <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                  <input type="checkbox" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} className="accent-blue-700" />
+                  Masquer gagnés et perdus
+                </label>
+                {clients.length > 0 && (
+                  <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                    <input type="checkbox" checked={showClients} onChange={(e) => setShowClients(e.target.checked)} className="accent-blue-700" />
+                    Afficher les clients existants ({clients.length})
+                  </label>
+                )}
+                <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                  <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
+                  Découvrir les entreprises alentour (OSM)
+                </label>
+                {missing.length > 0 && (
+                  <button
+                    onClick={runGeocode}
+                    disabled={!!busy}
+                    className={`pl-interactive w-full rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+                  >
+                    {busy ? `Localisation… ${busy}` : `Localiser ${missing.length} prospect(s) sans position`}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
-        <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
-          <input type="checkbox" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} className="accent-blue-700" />
-          Masquer gagnés et perdus
-        </label>
-        {clients.length > 0 && (
-          <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
-            <input type="checkbox" checked={showClients} onChange={(e) => setShowClients(e.target.checked)} className="accent-blue-700" />
-            Afficher les clients existants ({clients.length})
-          </label>
-        )}
-        <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
-          <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
-          Découvrir les entreprises alentour (OpenStreetMap)
-        </label>
         {showOsm && zoomTooFar && (
           <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
-            Zoomez (niveau rue) pour voir les entreprises alentour
+            Zoomez pour voir les entreprises alentour
           </span>
         )}
         {showOsm && !zoomTooFar && osmLoading && (
           <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Recherche en cours…</span>
-        )}
-        {missing.length > 0 && (
-          <button
-            onClick={runGeocode}
-            disabled={!!busy}
-            className={`pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
-          >
-            {busy ? `Localisation… ${busy}` : `Localiser ${missing.length} prospect(s) sans position`}
-          </button>
         )}
       </div>
 
@@ -4803,6 +4856,11 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   const snooze = async (p, n) => {
     await data.patch(p.id, { relance: prospectionAddDaysISO(n), ...(p.statut === "À contacter" ? { statut: "Contacté" } : {}) });
     await data.addAction(p.id, "Relance", `Reportée de ${n} jours`, currentUserName);
+  };
+
+  const quickVisit = async (p) => {
+    await addAction(p.id, "Visite", "Visite sur le terrain", currentUserName);
+    showToast(`Visite notée pour ${p.societe}`, { type: "celebrate" });
   };
 
   const exportCsv = () => {
@@ -4890,6 +4948,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
             Itinéraire
           </a>
         )}
+        <button onClick={() => quickVisit(p)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-emerald-700 text-emerald-400" : "border-emerald-300 text-emerald-700"}`}>Visité</button>
         <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>
         <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>
         <button onClick={() => setOpenId(p.id)} className="rounded-lg bg-blue-700 px-2.5 py-1 text-sm font-semibold text-white">Ouvrir</button>
@@ -5125,7 +5184,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
       {vue === "jour" && vueJour()}
       {vue === "pipeline" && vuePipeline()}
       {vue === "liste" && vueListe()}
-      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
+      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onQuickVisit={quickVisit} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
       {vue === "equipe" && vueEquipe()}
 
       {openId && (
