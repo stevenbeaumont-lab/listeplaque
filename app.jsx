@@ -3944,6 +3944,21 @@ async function prospectionGeocode({ adresse, code_postal, commune }) {
     return null;
   }
 }
+async function prospectionReverseGeocode(lat, lng) {
+  try {
+    const r = await fetch(`https://data.geopf.fr/geocodage/reverse?lon=${lng}&lat=${lat}&limit=1`);
+    if (!r.ok) return null;
+    const f = (await r.json()).features?.[0];
+    if (!f) return null;
+    return {
+      adresse: f.properties.name || "",
+      code_postal: f.properties.postcode || "",
+      commune: f.properties.city || "",
+    };
+  } catch (e) {
+    return null;
+  }
+}
 async function prospectionSuggestAdresses(q) {
   if (!q || q.trim().length < 4) return [];
   try {
@@ -4578,7 +4593,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onGeocodeMissing, showToast }) {
+function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
@@ -4598,6 +4613,8 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const osmFetchTimer = useRef(null);
   const osmAbortRef = useRef(null);
   const myLocationMarkerRef = useRef(null);
+  const onCreateAtLocationRef = useRef(onCreateAtLocation);
+  onCreateAtLocationRef.current = onCreateAtLocation;
 
   const colorOfCommercial = useMemo(() => {
     const m = {};
@@ -4622,6 +4639,10 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       maxZoom: 19,
     }).addTo(map);
     map.on("click", () => setSelectedId(null));
+    map.on("contextmenu", (e) => {
+      L.DomEvent.preventDefault(e.originalEvent);
+      onCreateAtLocationRef.current(e.latlng);
+    });
     map.on("zoomend", () => setZoomTick((t) => t + 1));
     const fetchNearby = () => {
       const zoom = map.getZoom();
@@ -4805,6 +4826,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
           </span>
         )}
         <span>Un chiffre = plusieurs points proches, cliquez pour zoomer</span>
+        <span>Restez appuyé (ou clic droit) sur la carte pour ajouter un prospect à cet endroit</span>
         <span>{placed.length} prospect(s) affiché(s){clientsPlaced.length > 0 ? ` · ${clientsPlaced.length} client(s)` : ""}</span>
       </div>
     </div>
@@ -4838,6 +4860,12 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   const openNewFromOsm = (place) => {
     setNewPrefill({ societe: place.societe, secteur: place.secteur, adresse: place.adresse, code_postal: place.code_postal, commune: place.commune, tel: place.tel, email: place.email, lat: place.lat, lng: place.lng, _coordsFromSuggestion: true });
     setOpenId("new");
+  };
+  const openNewFromCoords = async (latlng) => {
+    setNewPrefill({ lat: latlng.lat, lng: latlng.lng, _coordsFromSuggestion: true });
+    setOpenId("new");
+    const addr = await prospectionReverseGeocode(latlng.lat, latlng.lng);
+    if (addr) setNewPrefill((p) => (p ? { ...p, ...addr } : p));
   };
   const closeFiche = () => { setOpenId(null); setNewPrefill(null); };
   const [filters, setFilters] = useState({ q: "", statut: "", secteur: "" });
@@ -5193,7 +5221,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
       {vue === "jour" && vueJour()}
       {vue === "pipeline" && vuePipeline()}
       {vue === "liste" && vueListe()}
-      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onQuickVisit={quickVisit} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
+      {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onQuickVisit={quickVisit} onCreateAtLocation={openNewFromCoords} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
       {vue === "equipe" && vueEquipe()}
 
       {openId && (
