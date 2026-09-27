@@ -3969,26 +3969,35 @@ const PROSPECTION_OSM_MIN_ZOOM = 15;
 async function prospectionSearchNearbyBusinesses(bounds, signal) {
   const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
   const amenities = ["car_rental", "car_wash", "fuel", "bank", "bureau_de_change", "pharmacy", "veterinary", "driving_school", "dentist", "doctors", "clinic", "hospital", "post_office"];
-  const clauses = [`node["shop"](${bbox});`, `node["office"](${bbox});`, `node["craft"](${bbox});`, ...amenities.map((a) => `node["amenity"="${a}"](${bbox});`)].join("");
-  const query = `[out:json][timeout:8];(${clauses});out body 60;`;
+  const tagFilters = ["shop", "office", "craft", ...amenities.map((a) => `amenity"="${a}`)];
+  // Beaucoup d'entreprises sont représentées par le contour de leur bâtiment ("way"), pas par un
+  // simple point ("node") — chercher uniquement les nodes en faisait manquer une bonne partie.
+  const clauses = tagFilters.flatMap((t) => [`node["${t}"](${bbox});`, `way["${t}"](${bbox});`]).join("");
+  const query = `[out:json][timeout:10];(${clauses});out center 90;`;
   try {
     const r = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query), signal });
     if (!r.ok) return [];
     const data = await r.json();
     return (data.elements || [])
       .filter((el) => el.tags?.name)
-      .map((el) => ({
-        osmId: String(el.id),
-        lat: el.lat,
-        lng: el.lon,
-        societe: el.tags.name,
-        secteur: el.tags.shop || el.tags.office || el.tags.craft || el.tags.amenity || "",
-        adresse: [el.tags["addr:housenumber"], el.tags["addr:street"]].filter(Boolean).join(" "),
-        code_postal: el.tags["addr:postcode"] || "",
-        commune: el.tags["addr:city"] || "",
-        tel: el.tags.phone || el.tags["contact:phone"] || "",
-        email: el.tags.email || el.tags["contact:email"] || "",
-      }));
+      .map((el) => {
+        const lat = el.lat ?? el.center?.lat;
+        const lng = el.lon ?? el.center?.lon;
+        if (lat == null || lng == null) return null;
+        return {
+          osmId: `${el.type?.[0] || "n"}${el.id}`,
+          lat,
+          lng,
+          societe: el.tags.name,
+          secteur: el.tags.shop || el.tags.office || el.tags.craft || el.tags.amenity || "",
+          adresse: [el.tags["addr:housenumber"], el.tags["addr:street"]].filter(Boolean).join(" "),
+          code_postal: el.tags["addr:postcode"] || "",
+          commune: el.tags["addr:city"] || "",
+          tel: el.tags.phone || el.tags["contact:phone"] || "",
+          email: el.tags.email || el.tags["contact:email"] || "",
+        };
+      })
+      .filter(Boolean);
   } catch (e) {
     return [];
   }
