@@ -3901,7 +3901,7 @@ const PROSPECTION_COMMERCIAUX = ["Anthony", "Thao", "Tom", "Julia"];
 // Binômes : Anthony + Thao (équipe A, zone nord), Tom + Julia (équipe B, zone sud).
 // Thao et Julia sont les alternants respectifs d'Anthony et Tom.
 const PROSPECTION_TEAMS = { Anthony: "A", Thao: "A", Tom: "B", Julia: "B" };
-const PROSPECTION_TEAM_ZONE_LAT = PROSPECTION_CAEN_CENTER.lat; // ligne de partage nord/sud
+const PROSPECTION_TEAM_ZONE_LAT = 49.178; // ligne de partage nord/sud, au niveau de la Prairie de Caen
 const PROSPECTION_TEAM_COLORS = {
   A: { main: "#1D4ED8", light: "#93C5FD" }, // Anthony (fonce) / Thao, alternante (clair)
   B: { main: "#047857", light: "#6EE7B7" }, // Tom (fonce) / Julia, alternante (clair)
