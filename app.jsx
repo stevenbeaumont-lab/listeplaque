@@ -3888,7 +3888,9 @@ const PROSPECTION_STATUT_COLORS = {
 const PROSPECTION_COMMERCIAL_COLORS = ["#1D4ED8", "#0D9488", "#7C3AED", "#DB2777", "#0891B2", "#65A30D"];
 // Couleur des clients existants (CRM) sur la carte — volontairement distincte de toutes les couleurs
 // de statut/commercial ci-dessus, et associée à une forme de marqueur différente (losange vs rond).
-const PROSPECTION_CLIENT_COLOR = "#334155";
+// Volontairement claire/discrète : avec plusieurs centaines de clients affichés en permanence,
+// une couleur sombre sature visuellement la carte et masque les prospects actifs.
+const PROSPECTION_CLIENT_COLOR = "#94A3B8";
 const PROSPECTION_SECTEURS = ["BTP", "Artisans", "Transport et logistique", "Agriculture", "Commerce", "Services", "Santé", "Collectivités", "Industrie", "Location / VTC"];
 const PROSPECTION_MODELES = ["Transit", "Transit Custom", "Transit Connect", "Transit Courier", "E-Transit", "Ranger", "Puma", "Kuga", "Explorer", "Mustang Mach-E", "Flotte mixte"];
 const PROSPECTION_TYPES_ACTION = ["Appel", "Email", "Visite", "RDV", "Relance", "Autre"];
@@ -4022,6 +4024,9 @@ async function prospectionSuggestAdresses(q) {
 // gratuit, sans clé. Ne renvoie que ce qui est dans le rectangle visible, d'où l'obligation de zoomer.
 const PROSPECTION_OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const PROSPECTION_OSM_MIN_ZOOM = 15;
+// En dessous de ce zoom (vue large de l'agglo), les clients existants sont masqués : à 582 clients,
+// les afficher sur toute la carte la rend illisible. Ils réapparaissent dès qu'on zoome sur un secteur.
+const PROSPECTION_CLIENT_MIN_ZOOM = 13;
 async function prospectionSearchNearbyBusinesses(bounds, signal) {
   const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
   const amenities = ["car_rental", "car_wash", "fuel", "bank", "bureau_de_change", "pharmacy", "veterinary", "driving_school", "dentist", "doctors", "clinic", "hospital", "post_office"];
@@ -4539,8 +4544,8 @@ function prospectionMarkerIcon(color, { late, selected } = {}) {
 }
 
 function prospectionClientIcon({ selected } = {}) {
-  const size = selected ? 22 : 18;
-  const html = `<div style="width:${size}px;height:${size}px;background:${PROSPECTION_CLIENT_COLOR};border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.45);transform:rotate(45deg);"></div>`;
+  const size = selected ? 15 : 11;
+  const html = `<div style="width:${size}px;height:${size}px;background:${PROSPECTION_CLIENT_COLOR};border:1.5px solid #ffffff;box-shadow:0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`;
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 4] });
 }
 
@@ -4624,14 +4629,51 @@ function prospectionClusterPoints(map, points, cellPx) {
 }
 
 function prospectionClusterIcon(count, { color, diamond } = {}) {
-  const size = Math.round(Math.min(30 + Math.sqrt(count) * 6, 56));
+  // Les regroupements "clients existants" (diamond) restent volontairement plus petits et
+  // plus discrets que ceux des prospects, pour ne jamais dominer visuellement la carte.
+  const size = diamond
+    ? Math.round(Math.min(20 + Math.sqrt(count) * 4, 38))
+    : Math.round(Math.min(30 + Math.sqrt(count) * 6, 56));
   const shapeStyle = diamond ? "transform:rotate(45deg);" : "border-radius:50%;";
   const textStyle = diamond ? "transform:rotate(-45deg);" : "";
+  const border = diamond ? "1.5px solid #ffffff" : "3px solid #ffffff";
+  const fontSize = diamond ? 10 : 12;
   return L.divIcon({
-    html: `<div style="width:${size}px;height:${size}px;background:${color};border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.45);${shapeStyle}display:flex;align-items:center;justify-content:center;"><span style="${textStyle}color:#fff;font-weight:700;font-size:12px;">${count}</span></div>`,
+    html: `<div style="width:${size}px;height:${size}px;background:${color};border:${border};box-shadow:0 1px 3px rgba(0,0,0,0.3);${shapeStyle}display:flex;align-items:center;justify-content:center;"><span style="${textStyle}color:#fff;font-weight:700;font-size:${fontSize}px;">${count}</span></div>`,
     className: "",
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
+  });
+}
+
+// Popup d'un regroupement : liste chaque fiche avec le même contenu/boutons que son popup individuel
+// (buildPopup), pour rester utilisable même quand le zoom ne peut plus séparer visuellement les points
+// (adresses identiques ou géocodées au même centre de commune — le zoom seul ne les sépare jamais).
+function prospectionClusterPopupHtml(items, buildPopup) {
+  const parts = items.map(
+    (item, i) =>
+      `<div data-item-idx="${i}" style="${i > 0 ? "margin-top:8px;padding-top:8px;border-top:1px solid #e7e5e4;" : ""}">${buildPopup(item)}</div>`
+  );
+  return `<div style="max-height:280px;overflow-y:auto;">${parts.join("")}</div>`;
+}
+
+// Câble les boutons d'action d'un popup une seule fois, par délégation sur son conteneur (qui reste
+// le même nœud DOM tant que le popup est ouvert). Contrairement à un branchement bouton par bouton,
+// ça survit à un rafraîchissement du contenu du popup (setPopupContent) pendant qu'il est ouvert —
+// par ex. quand le polling temps réel resynchronise la carte pendant que l'utilisateur regarde une
+// fiche : sans ça, les boutons redeviennent silencieusement inertes après le premier rafraîchissement.
+function prospectionWirePopupActions(marker, onPopupAction) {
+  marker.on("popupopen", (e) => {
+    const root = e.popup.getElement();
+    if (!root || root._prospectionWired) return;
+    root._prospectionWired = true;
+    root.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-action]");
+      if (!btn) return;
+      const wrap = ev.target.closest("[data-item-idx]");
+      const item = wrap ? marker._prospectionItems?.[Number(wrap.getAttribute("data-item-idx"))] : marker._prospectionItem;
+      if (item) onPopupAction(item, btn.getAttribute("data-action"));
+    });
   });
 }
 
@@ -4645,33 +4687,39 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
     if (!marker) {
       marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
       marker._prospectionItem = c.items[0];
+      marker._prospectionItems = c.items;
       if (isCluster) {
-        marker.on("click", () => map.setView([c.lat, c.lng], Math.min(map.getZoom() + 2, 18)));
+        // Zoomer rapproche les points, mais deux fiches à la même adresse (ou géocodées au centre
+        // de la même commune) restent confondues même au zoom maximum : dans ce cas, ou une fois
+        // le zoom maximum atteint, on ouvre directement la liste des fiches du groupe.
+        marker.on("click", () => {
+          const targetZoom = Math.min(map.getZoom() + 2, map.getMaxZoom());
+          if (targetZoom <= map.getZoom()) marker.openPopup();
+          else map.setView([c.lat, c.lng], targetZoom);
+        });
+        marker.bindPopup(prospectionClusterPopupHtml(marker._prospectionItems, buildPopup));
+        if (onPopupAction) prospectionWirePopupActions(marker, onPopupAction);
       } else {
         marker.on("click", () => onSingleClick(c.items[0]));
         marker.bindPopup(buildPopup(c.items[0]));
         marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
-        // Les boutons d'action sont reliés directement à CE marqueur (pas via un écouteur global sur
-        // la carte) : ils lisent toujours l'item courant, jamais une valeur figée au moment de la création.
-        if (onPopupAction) {
-          marker.on("popupopen", (e) => {
-            e.popup.getElement()?.querySelectorAll("[data-action]").forEach((btn) => {
-              btn.onclick = () => onPopupAction(marker._prospectionItem, btn.getAttribute("data-action"));
-            });
-          });
-        }
+        // Les boutons d'action sont reliés une seule fois par délégation (voir prospectionWirePopupActions) :
+        // ils lisent toujours l'item courant sur le marqueur, jamais une valeur figée à la création.
+        if (onPopupAction) prospectionWirePopupActions(marker, onPopupAction);
       }
       markersRef.current.set(c.key, marker);
     } else {
       marker._prospectionItem = c.items[0];
+      marker._prospectionItems = c.items;
       marker.setLatLng([c.lat, c.lng]);
       marker.setIcon(icon);
       if (!isCluster) {
         marker.setPopupContent(buildPopup(c.items[0]));
         if (marker.getTooltip()) marker.setTooltipContent(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom));
         else marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
-      } else if (marker.getTooltip()) {
-        marker.unbindTooltip();
+      } else {
+        marker.setPopupContent(prospectionClusterPopupHtml(marker._prospectionItems, buildPopup));
+        if (marker.getTooltip()) marker.unbindTooltip();
       }
     }
   });
@@ -4685,6 +4733,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
+  const [mapZoom, setMapZoom] = useState(11);
   const [showOsm, setShowOsm] = useState(true);
   const [showTeamZones, setShowTeamZones] = useState(true);
   const [industrialZones, setIndustrialZones] = useState([]);
@@ -4729,7 +4778,8 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const visible = prospects.filter((p) => !hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu"));
   const placed = visible.filter((p) => p.lat != null && p.lng != null);
   const missing = prospects.filter((p) => p.lat == null);
-  const clientsPlaced = showClients ? clients.filter((p) => p.lat != null && p.lng != null) : [];
+  const clientTooFar = mapZoom < PROSPECTION_CLIENT_MIN_ZOOM;
+  const clientsPlaced = showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null) : [];
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
   const legend = colorBy === "statut" ? PROSPECTION_STATUTS.map((s) => [s, PROSPECTION_STATUT_COLORS[s]]) : commerciaux.map((n) => [n, colorOfCommercial[n]]);
@@ -4747,7 +4797,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       L.DomEvent.preventDefault(e.originalEvent);
       onCreateAtLocationRef.current(e.latlng);
     });
-    map.on("zoomend", () => setZoomTick((t) => t + 1));
+    map.on("zoomend", () => { setZoomTick((t) => t + 1); setMapZoom(map.getZoom()); });
     const fetchNearby = () => {
       const zoom = map.getZoom();
       if (zoom < PROSPECTION_OSM_MIN_ZOOM) {
@@ -4796,7 +4846,10 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const clusters = prospectionClusterPoints(map, clientsPlaced, 44);
+    // Regroupement un peu plus large que celui des prospects (52px) : les clients existants restent
+    // une couche secondaire. Le vrai garde-fou contre la saturation est le masquage sous le zoom
+    // minimal (PROSPECTION_CLIENT_MIN_ZOOM) ; ce clustering ne sert qu'aux secteurs très denses.
+    const clusters = prospectionClusterPoints(map, clientsPlaced, 60);
     prospectionSyncClusterLayer(map, clientMarkersRef, clusters, {
       buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
@@ -4976,6 +5029,11 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
         {showOsm && zoomTooFar && (
           <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
             Zoomez pour voir les entreprises alentour
+          </span>
+        )}
+        {showClients && clientTooFar && clients.length > 0 && (
+          <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
+            Zoomez sur un secteur pour voir les {clients.length} clients existants
           </span>
         )}
         {showOsm && !zoomTooFar && osmLoading && (
