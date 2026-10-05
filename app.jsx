@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -455,7 +455,7 @@ function exportFullBackup(vehicles, dossiers, vendeursList) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-sauvegarde-complete-${stamp}.xlsx`);
 }
-const ROLES = ["Directeur de plaque", "Chef des ventes", "Responsable de site", "Vendeur", "Secrétariat", "Préparateur"];
+const ROLES = ["Directeur de plaque", "Chef des ventes", "Responsable de site", "Vendeur", "Secrétariat", "Préparateur", "Marketing"];
 const PERMISSION_KEYS = ["reserve", "reserveForOthers", "dashboard", "import", "dossiers", "accidentes", "vendeurs", "reset"];
 const ROLE_PERMISSIONS = {
   "Directeur de plaque": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
@@ -464,6 +464,8 @@ const ROLE_PERMISSIONS = {
   "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
   "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
   "Préparateur": { reserve: false, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: true, vendeurs: false, reset: false },
+  // Statut Marketing : consultation du stock et du tableau de bord ; l'onglet Marketing (bêta) est géré par marketing_members.
+  "Marketing": { reserve: false, reserveForOthers: false, dashboard: true, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
 };
 const DEFAULT_PERMISSIONS = ROLE_PERMISSIONS["Vendeur"];
 function isSuperAdmin(name) {
@@ -733,6 +735,7 @@ const NAV_ICONS = {
   logistique: Truck,
   convoyage: ArrowRightLeft,
   prospection: Target,
+  marketing: Megaphone,
   challenge: Trophy,
   dashboard: TrendingUp,
   dossiers: FileText,
@@ -742,7 +745,7 @@ const NAV_ICONS = {
   permissions: Lock,
   accidentes: AlertTriangle,
 };
-function buildNavItems(permissions, dossierUnmatchedCount, canProspect) {
+function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing) {
   return [
     { id: "vehicules", label: "Véhicules", group: "Stock" },
     { id: "logistique", label: "Logistique", group: "Stock" },
@@ -752,12 +755,13 @@ function buildNavItems(permissions, dossierUnmatchedCount, canProspect) {
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Performance" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
     { id: "documents", label: "Documents", group: "Gestion", beta: true },
+    canMarketing && { id: "marketing", label: "Marketing", group: "Gestion", beta: true },
     permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Gestion" },
     permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Gestion" },
   ].filter(Boolean);
 }
-function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect);
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing);
   let lastGroup = null;
   return (
     <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
@@ -779,7 +783,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
             >
               <Icon size={16} className="shrink-0" />
               <span className="flex-1 truncate text-left">{it.label}</span>
-              {it.beta && isSuperAdmin(vendorName) && (
+              {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing") && (
                 <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${active ? "bg-white/25 text-white" : dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-800"}`}>
                   Bêta
                 </span>
@@ -797,8 +801,8 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   );
 }
 
-function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect);
+function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing);
   let lastGroup = null;
   return (
     <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
@@ -819,7 +823,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
               }`}
             >
               {it.label}
-              {it.beta && isSuperAdmin(vendorName) && (
+              {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing") && (
                 <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tab === it.id ? "bg-white/25 text-white" : dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-800"}`}>
                   Bêta
                 </span>
@@ -5043,6 +5047,10 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
 
       <div ref={containerRef} className={`isolate relative z-0 h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
 
+      <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        Astuce : clic droit (ou appui long sur mobile) sur la carte pour ajouter un prospect à cet endroit — l'adresse et le nom se remplissent automatiquement si vous visez un commerce.
+      </div>
+
       <div className={`flex flex-wrap gap-4 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>
         {legend.map(([l, c]) => (
           <span key={l} className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full" style={{ background: c }} />{l}</span>
@@ -5509,6 +5517,1101 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           onSave={data.save}
           onDelete={data.remove}
           onAddAction={addAction}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Marketing (bêta) — logique pure (dates, modèles, récurrence). Testée hors navigateur.
+// ============================================================================
+const MARKETING_PROJECT_STATUTS = ["À lancer", "En cours", "En pause", "Terminé"];
+const MARKETING_TASK_STATUTS = ["À faire", "En cours", "Fait"];
+const MARKETING_CATEGORIES = ["Opération commerciale", "Événement", "Digital / réseaux sociaux", "Print / affichage", "Emailing / SMS", "Partenariat / presse", "Interne", "Autre"];
+const MARKETING_RECURRENCES = [["", "Aucune"], ["hebdo", "Chaque semaine"], ["mensuel", "Chaque mois"], ["trimestriel", "Chaque trimestre"]];
+const MARKETING_RECURRENCE_LABEL = { hebdo: "Hebdo", mensuel: "Mensuel", trimestriel: "Trimestriel" };
+const MARKETING_PROJECT_COLORS = { "À lancer": "#6B7280", "En cours": "#2563EB", "En pause": "#D97706", "Terminé": "#16A34A" };
+
+// Modèles de projet : chaque tâche est calée sur la deadline (offset en jours, négatif = avant),
+// avec une relance posée N jours avant l'échéance de la tâche.
+const MARKETING_TEMPLATES = [
+  {
+    id: "operation", label: "Opération commerciale", categorie: "Opération commerciale",
+    desc: "Offre, visuels, diffusion, briefing équipe, bilan",
+    tasks: [
+      { titre: "Définir l'offre, la cible et le budget", offset: -30 },
+      { titre: "Brief visuels / création", offset: -24 },
+      { titre: "Valider les visuels", offset: -17, haute: true },
+      { titre: "Préparer la diffusion (site, réseaux, emailing)", offset: -10 },
+      { titre: "Briefer l'équipe de vente", offset: -5 },
+      { titre: "Lancement / diffusion", offset: 0, haute: true, relance: 3 },
+      { titre: "Bilan : leads, RDV, ventes", offset: 14 },
+    ],
+  },
+  {
+    id: "evenement", label: "Portes ouvertes / événement", categorie: "Événement",
+    desc: "Invitations, logistique, animation, suivi des contacts",
+    tasks: [
+      { titre: "Fixer le programme et le budget", offset: -45 },
+      { titre: "Réserver prestataires et matériel", offset: -35 },
+      { titre: "Créer invitation et visuels", offset: -28 },
+      { titre: "Envoyer les invitations (clients + prospects)", offset: -21, haute: true },
+      { titre: "Relancer les invités (appel / SMS)", offset: -7 },
+      { titre: "Briefer l'équipe et préparer le site", offset: -2 },
+      { titre: "Jour J", offset: 0, haute: true, relance: 3 },
+      { titre: "Relancer les contacts de l'événement", offset: 3 },
+      { titre: "Bilan et retombées", offset: 14 },
+    ],
+  },
+  {
+    id: "lancement", label: "Lancement d'un modèle", categorie: "Opération commerciale",
+    desc: "Teasing, exposition showroom, communication, essais",
+    tasks: [
+      { titre: "Plan de communication du lancement", offset: -30 },
+      { titre: "Recevoir et valider les supports constructeur", offset: -21 },
+      { titre: "Teasing réseaux sociaux", offset: -14 },
+      { titre: "Mettre en scène le véhicule en showroom", offset: -3 },
+      { titre: "Emailing / SMS base clients", offset: -2, haute: true },
+      { titre: "Jour de lancement", offset: 0, haute: true, relance: 3 },
+      { titre: "Suivi des essais et leads", offset: 10 },
+    ],
+  },
+  {
+    id: "emailing", label: "Campagne emailing / SMS", categorie: "Emailing / SMS",
+    desc: "Segment, message, envoi, relance des non-ouverts",
+    tasks: [
+      { titre: "Choisir la cible et extraire la liste", offset: -10 },
+      { titre: "Rédiger le message et le visuel", offset: -7 },
+      { titre: "Valider (orthographe, offre, mentions légales)", offset: -3, haute: true },
+      { titre: "Envoi", offset: 0, haute: true },
+      { titre: "Relancer les non-ouverts", offset: 4 },
+      { titre: "Bilan : ouvertures, clics, RDV", offset: 10 },
+    ],
+  },
+];
+
+function marketingAddDays(iso, n) {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return prospectionTodayISO(d);
+}
+function marketingAddMonths(iso, n) {
+  const [y, m, day] = iso.split("-").map(Number);
+  const lastDay = new Date(y, m - 1 + n + 1, 0).getDate();
+  return prospectionTodayISO(new Date(y, m - 1 + n, Math.min(day, lastDay), 12));
+}
+function marketingDaysBetween(a, b) {
+  return Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000);
+}
+function marketingStepDate(iso, recurrence) {
+  if (recurrence === "hebdo") return marketingAddDays(iso, 7);
+  if (recurrence === "mensuel") return marketingAddMonths(iso, 1);
+  if (recurrence === "trimestriel") return marketingAddMonths(iso, 3);
+  return iso;
+}
+function marketingFrDate(iso, withWeekday) {
+  if (!iso) return "";
+  return new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", withWeekday ? { weekday: "short", day: "numeric", month: "short" } : { day: "numeric", month: "short" });
+}
+// Libellé relatif d'une date : "aujourd'hui", "demain", "dans 5 j", "en retard de 3 j".
+function marketingRelativeLabel(iso, today) {
+  const n = marketingDaysBetween(today, iso);
+  if (n === 0) return "aujourd'hui";
+  if (n === 1) return "demain";
+  if (n === -1) return "hier";
+  return n > 0 ? `dans ${n} j` : `en retard de ${-n} j`;
+}
+
+// Prochaine occurrence d'une tâche récurrente : première date de la série strictement après aujourd'hui,
+// en gardant le même écart entre échéance et relance.
+function marketingNextOccurrence(task, today) {
+  if (!task.recurrence) return null;
+  today = today || prospectionTodayISO();
+  let next = task.echeance || today;
+  let guard = 0;
+  do { next = marketingStepDate(next, task.recurrence); guard++; } while (next <= today && guard < 500);
+  const gap = task.relance && task.echeance ? marketingDaysBetween(task.relance, task.echeance) : null;
+  return {
+    project_id: task.project_id || null,
+    titre: task.titre,
+    notes: task.notes || null,
+    priorite: task.priorite || "Normale",
+    assignee: task.assignee || null,
+    recurrence: task.recurrence,
+    statut: "À faire",
+    echeance: next,
+    relance: gap != null ? marketingAddDays(next, -gap) : null,
+    done_at: null,
+  };
+}
+
+// Date la plus proche à traiter (échéance ou relance) d'une tâche ouverte.
+function marketingUrgencyDate(t) {
+  const ds = [t.echeance, t.relance].filter(Boolean).sort();
+  return ds[0] || null;
+}
+function marketingBucket(t, today, weekEnd) {
+  if (t.statut === "Fait") return "done";
+  const d = marketingUrgencyDate(t);
+  if (!d) return "nodate";
+  if (d < today) return "late";
+  if (d === today) return "today";
+  if (d <= weekEnd) return "week";
+  return "later";
+}
+function marketingProjectProgress(project, tasks) {
+  const mine = tasks.filter((t) => t.project_id === project.id);
+  const done = mine.filter((t) => t.statut === "Fait").length;
+  return { total: mine.length, done, open: mine.length - done, pct: mine.length ? Math.round((done / mine.length) * 100) : 0 };
+}
+function marketingBuildTemplateTasks(tpl, deadline, assignee) {
+  if (!tpl || !deadline) return [];
+  return tpl.tasks.map((tt) => {
+    const echeance = marketingAddDays(deadline, tt.offset);
+    return {
+      titre: tt.titre,
+      echeance,
+      relance: marketingAddDays(echeance, -(tt.relance ?? 2)),
+      assignee: assignee || null,
+      priorite: tt.haute ? "Haute" : "Normale",
+    };
+  });
+}
+function marketingMonthGrid(monthISO) {
+  const [y, m] = monthISO.split("-").map(Number);
+  const startOffset = (new Date(y, m - 1, 1).getDay() + 6) % 7; // lundi = 0
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const total = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  const cells = [];
+  for (let i = 0; i < total; i++) {
+    const d = new Date(y, m - 1, 1 - startOffset + i, 12);
+    cells.push({ iso: prospectionTodayISO(d), inMonth: d.getMonth() === m - 1, day: d.getDate() });
+  }
+  return cells;
+}
+
+const MARKETING_TASK_FIELDS = ["project_id", "titre", "notes", "statut", "priorite", "assignee", "echeance", "relance", "recurrence", "done_at"];
+function marketingCleanTask(t) {
+  const row = {};
+  for (const k of MARKETING_TASK_FIELDS) {
+    let v = t[k];
+    if (typeof v === "string") v = v.trim();
+    if (v === "" || v === undefined) v = null;
+    row[k] = v;
+  }
+  if (!row.statut) row.statut = "À faire";
+  if (!row.priorite) row.priorite = "Normale";
+  return row;
+}
+const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie"];
+function marketingCleanProject(p) {
+  const row = {};
+  for (const k of MARKETING_PROJECT_FIELDS) {
+    let v = p[k];
+    if (typeof v === "string") v = v.trim();
+    if (v === "" || v === undefined) v = null;
+    row[k] = v;
+  }
+  if (!row.statut) row.statut = "En cours";
+  return row;
+}
+// Exécute une requête Supabase ; ne retente que les vraies coupures réseau (pas les refus RLS/contraintes).
+async function marketingExec(fn, attempts = 3) {
+  for (let i = 0; ; i++) {
+    let res;
+    try { res = await fn(); } catch (e) { res = { error: e }; }
+    if (!res.error) return res.data;
+    const retryable = /fetch|network|timeout/i.test(res.error.message || "");
+    if (!retryable || i >= attempts - 1) throw res.error;
+    await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+  }
+}
+
+
+// Retourne le nom du membre (ex. "Ophélie") si le compte connecté est dans marketing_members, sinon "".
+// (RLS applique la vraie restriction côté base.)
+function useMarketingAccess(userId) {
+  const [nom, setNom] = useState("");
+  useEffect(() => {
+    let alive = true;
+    if (!userId) { setNom(""); return; }
+    supabase
+      .from("marketing_members")
+      .select("nom")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data }) => { if (alive) setNom(data?.nom || ""); });
+    return () => { alive = false; };
+  }, [userId]);
+  return nom;
+}
+
+function useMarketing() {
+  const [projects, setProjects] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const timer = useRef(null);
+  const lastSig = useRef("");
+
+  const load = useCallback(async () => {
+    const [p, t, m] = await Promise.all([
+      supabase.from("marketing_projects").select("*").order("deadline", { ascending: true, nullsFirst: false }),
+      supabase.from("marketing_tasks").select("*").order("echeance", { ascending: true, nullsFirst: false }).limit(5000),
+      supabase.from("marketing_members").select("nom").order("nom"),
+    ]);
+    const err = p.error || t.error || m.error;
+    if (err) { setError(err.message); setLoading(false); return; }
+    const maxU = (rows) => rows.reduce((a, r) => (r.updated_at > a ? r.updated_at : a), "");
+    const sig = `${p.data.length}:${maxU(p.data)}|${t.data.length}:${maxU(t.data)}|${m.data.map((x) => x.nom).join(",")}`;
+    if (sig !== lastSig.current) {
+      lastSig.current = sig;
+      setProjects(p.data);
+      setTasks(t.data);
+      setMembers(m.data.map((x) => x.nom));
+    }
+    setError(null);
+    setLoading(false);
+  }, []);
+
+  const scheduleLoad = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(load, 300);
+  }, [load]);
+
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel("marketing-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_projects" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_tasks" }, scheduleLoad)
+      .subscribe();
+    return () => { clearTimeout(timer.current); supabase.removeChannel(ch); };
+  }, [load, scheduleLoad]);
+
+  const refresh = useCallback(async () => { lastSig.current = ""; await load(); }, [load]);
+
+  // Crée ou met à jour un projet ; tasksToCreate = tâches issues d'un modèle (création uniquement).
+  const saveProject = useCallback(async (p, tasksToCreate) => {
+    const row = marketingCleanProject(p);
+    const data = await marketingExec(() =>
+      p.id ? supabase.from("marketing_projects").update(row).eq("id", p.id).select().single() : supabase.from("marketing_projects").insert(row).select().single()
+    );
+    if (!p.id && tasksToCreate?.length) {
+      const rows = tasksToCreate.map((t) => marketingCleanTask({ ...t, project_id: data.id }));
+      await marketingExec(() => supabase.from("marketing_tasks").insert(rows));
+    }
+    await refresh();
+    return data;
+  }, [refresh]);
+
+  const removeProject = useCallback(async (id) => {
+    await marketingExec(() => supabase.from("marketing_projects").delete().eq("id", id));
+    await refresh();
+  }, [refresh]);
+
+  // Crée ou met à jour une tâche. Quand une tâche récurrente passe à "Fait", la prochaine occurrence
+  // est créée automatiquement (et la récurrence est portée par la nouvelle tâche, pas par l'ancienne).
+  const saveTask = useCallback(async (t, previous) => {
+    const row = marketingCleanTask(t);
+    const nowDone = row.statut === "Fait";
+    row.done_at = nowDone ? (previous?.statut === "Fait" ? previous.done_at : new Date().toISOString()) : null;
+    let next = null;
+    if (nowDone && previous && previous.statut !== "Fait" && row.recurrence) {
+      next = marketingNextOccurrence(row);
+      await marketingExec(() => supabase.from("marketing_tasks").insert(marketingCleanTask(next)));
+      row.recurrence = null;
+    }
+    const data = await marketingExec(() =>
+      t.id ? supabase.from("marketing_tasks").update(row).eq("id", t.id).select().single() : supabase.from("marketing_tasks").insert(row).select().single()
+    );
+    await refresh();
+    return { data, next };
+  }, [refresh]);
+
+  const toggleDone = useCallback((task) => saveTask({ ...task, statut: task.statut === "Fait" ? "À faire" : "Fait" }, task), [saveTask]);
+
+  const patchTask = useCallback(async (id, fields) => {
+    await marketingExec(() => supabase.from("marketing_tasks").update(fields).eq("id", id));
+    await refresh();
+  }, [refresh]);
+
+  const removeTask = useCallback(async (id) => {
+    await marketingExec(() => supabase.from("marketing_tasks").delete().eq("id", id));
+    await refresh();
+  }, [refresh]);
+
+  return { projects, tasks, members, loading, error, saveProject, removeProject, saveTask, toggleDone, patchTask, removeTask, reload: refresh };
+}
+
+
+function marketingStyles(dark) {
+  return {
+    input: `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30 focus:border-blue-700/40" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20 focus:border-blue-500"}`,
+    label: `mb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`,
+    card: dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white",
+    title: dark ? "text-zinc-100" : "text-stone-800",
+    sub: dark ? "text-zinc-500" : "text-stone-400",
+    muted: dark ? "text-zinc-400" : "text-stone-500",
+    ghostBtn: `pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`,
+    primaryBtn: "pl-interactive rounded-lg bg-blue-700 px-3.5 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-50",
+  };
+}
+
+function MarketingDateChip({ dark, kind, iso, today, done }) {
+  if (!iso) return null;
+  const late = !done && iso < today;
+  const isToday = !done && iso === today;
+  const base = "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold";
+  let tone;
+  if (kind === "relance") {
+    tone = done ? (dark ? "bg-zinc-800 text-zinc-500" : "bg-stone-100 text-stone-400")
+      : late || isToday ? (dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800")
+      : dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600";
+  } else {
+    tone = done ? (dark ? "bg-zinc-800 text-zinc-500" : "bg-stone-100 text-stone-400")
+      : late ? (dark ? "bg-rose-500/20 text-rose-300" : "bg-rose-100 text-rose-700")
+      : isToday ? (dark ? "bg-blue-500/20 text-blue-300" : "bg-blue-100 text-blue-800")
+      : dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600";
+  }
+  return (
+    <span className={`${base} ${tone}`}>
+      {kind === "relance" ? <BellRing size={11} /> : <CalendarClock size={11} />}
+      {kind === "relance" ? "Relance " : ""}{marketingFrDate(iso)}
+    </span>
+  );
+}
+
+function MarketingTaskRow({ dark, t, project, today, onToggle, onOpen, onRelance, showProject = true }) {
+  const s = marketingStyles(dark);
+  const done = t.statut === "Fait";
+  const relanceDue = !done && t.relance && t.relance <= today;
+  return (
+    <div
+      onClick={() => onOpen(t.id)}
+      className={`pl-interactive flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 ${s.card} ${dark ? "hover:border-zinc-700" : "hover:border-stone-300"}`}
+    >
+      <button
+        type="button"
+        aria-label={done ? "Rouvrir la tâche" : "Marquer comme faite"}
+        onClick={(e) => { e.stopPropagation(); onToggle(t); }}
+        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${done ? "border-emerald-500 bg-emerald-500 text-white" : dark ? "border-zinc-600 hover:border-blue-500" : "border-stone-300 hover:border-blue-600"}`}
+      >
+        {done && <Check size={12} strokeWidth={3} />}
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className={`flex flex-wrap items-center gap-x-2 text-sm font-medium ${done ? "line-through " + s.sub : s.title}`}>
+          <span className="min-w-0 break-words">{t.titre}</span>
+          {t.priorite === "Haute" && !done && <Flag size={12} className="shrink-0 text-rose-500" aria-label="Priorité haute" />}
+          {t.recurrence && <Repeat size={12} className={`shrink-0 ${s.sub}`} aria-label={MARKETING_RECURRENCE_LABEL[t.recurrence]} />}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <MarketingDateChip dark={dark} kind="echeance" iso={t.echeance} today={today} done={done} />
+          <MarketingDateChip dark={dark} kind="relance" iso={t.relance} today={today} done={done} />
+          {showProject && project && (
+            <span className={`max-w-[200px] truncate rounded-full px-2 py-0.5 text-[11px] ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>{project.titre}</span>
+          )}
+        </div>
+        {relanceDue && onRelance && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]" onClick={(e) => e.stopPropagation()}>
+            <span className={s.sub}>Relancé ?</span>
+            {[["Reporter +2 j", 2], ["+1 sem", 7], ["Clore", 0]].map(([l, d]) => (
+              <button key={l} type="button" onClick={() => onRelance(t, d)} className={`rounded-md border px-2 py-0.5 font-semibold ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>{l}</button>
+            ))}
+          </div>
+        )}
+      </div>
+      {t.assignee ? (
+        <span title={t.assignee} className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${dark ? "bg-blue-500/20 text-blue-300" : "bg-blue-100 text-blue-800"}`}>{prospectionInitials(t.assignee)}</span>
+      ) : (
+        <span title="Non attribuée" className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed text-[10px] ${dark ? "border-zinc-700 text-zinc-600" : "border-stone-300 text-stone-400"}`}>?</span>
+      )}
+    </div>
+  );
+}
+
+function MarketingDrawer({ dark, onClose, z = "z-50", children, title, right }) {
+  const s = marketingStyles(dark);
+  return (
+    <div className={`fixed inset-0 ${z} flex justify-end bg-black/40`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" className={`pl-fade-in h-full w-full max-w-xl overflow-y-auto p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <h2 className={`min-w-0 break-words text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{title}</h2>
+          <div className="flex shrink-0 items-center gap-2">
+            {right}
+            <button onClick={onClose} aria-label="Fermer" className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}><X size={16} /></button>
+          </div>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, me, onClose, onSave, onDelete, showToast }) {
+  const s = marketingStyles(dark);
+  const isNew = taskId === "new";
+  const today = prospectionTodayISO();
+  // Relu en direct par identifiant : si l'autre personne supprime la tâche pendant qu'elle est ouverte, on ferme.
+  const live = isNew ? null : tasks.find((x) => x.id === taskId);
+  const [p, setP] = useState(() => (isNew ? { statut: "À faire", priorite: "Normale", assignee: me || "", ...prefill } : live));
+  const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  useEffect(() => { if (!isNew && !live) onClose(); }, [isNew, live, onClose]);
+  if (!p) return null;
+
+  const save = async () => {
+    if (!(p.titre || "").trim()) { showToast("Donnez un titre à la tâche", { type: "error" }); return; }
+    setSaving(true);
+    try {
+      const { next } = await onSave(p, isNew ? undefined : live);
+      showToast(next ? `Tâche enregistrée · prochaine occurrence le ${marketingFrDate(next.echeance)}` : "Tâche enregistrée");
+      onClose();
+    } catch (e) {
+      showToast(`Échec de l'enregistrement : ${e.message || e}`, { type: "error" });
+    } finally { setSaving(false); }
+  };
+  const del = async () => {
+    if (!deleteConfirm) { setDeleteConfirm(true); return; }
+    try { await onDelete(p.id); showToast("Tâche supprimée"); onClose(); }
+    catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const relanceAfter = p.relance && p.echeance && p.relance > p.echeance;
+
+  return (
+    <MarketingDrawer dark={dark} onClose={onClose} z="z-[60]" title={isNew ? "Nouvelle tâche" : "Tâche"}>
+      <div className="space-y-4">
+        <div>
+          <div className={s.label}>Titre *</div>
+          <input autoFocus={isNew} className={s.input} value={p.titre || ""} onChange={set("titre")} placeholder="Ex. Relancer l'agence pour les visuels" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className={s.label}>Projet</div>
+            <select className={s.input} value={p.project_id || ""} onChange={set("project_id")}>
+              <option value="">Sans projet</option>
+              {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.titre}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className={s.label}>Attribuée à</div>
+            <select className={s.input} value={p.assignee || ""} onChange={set("assignee")}>
+              <option value="">Non attribuée</option>
+              {members.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className={s.label}>Statut</div>
+            <select className={s.input} value={p.statut} onChange={set("statut")}>
+              {MARKETING_TASK_STATUTS.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className={s.label}>Priorité</div>
+            <select className={s.input} value={p.priorite} onChange={set("priorite")}>
+              <option>Normale</option>
+              <option>Haute</option>
+            </select>
+          </div>
+          <div>
+            <div className={s.label}>Échéance</div>
+            <input type="date" className={s.input} value={p.echeance || ""} onChange={set("echeance")} />
+          </div>
+          <div>
+            <div className={s.label}>Relance</div>
+            <input type="date" className={s.input} value={p.relance || ""} onChange={set("relance")} />
+          </div>
+        </div>
+        <div className="-mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className={s.sub}>Relance rapide :</span>
+          {[["Demain", 1], ["+3 j", 3], ["+1 sem", 7]].map(([l, d]) => (
+            <button key={l} type="button" onClick={() => setP((x) => ({ ...x, relance: marketingAddDays(today, d) }))} className={`rounded-md border px-2 py-0.5 font-semibold ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>{l}</button>
+          ))}
+          {p.relance && <button type="button" onClick={() => setP((x) => ({ ...x, relance: "" }))} className={`rounded-md px-2 py-0.5 font-semibold ${s.muted} underline`}>Effacer</button>}
+        </div>
+        {relanceAfter && <div className={`text-xs ${dark ? "text-amber-400" : "text-amber-700"}`}>La relance est après l'échéance : pensez à la rapprocher.</div>}
+        <div>
+          <div className={s.label}>Répéter</div>
+          <select className={s.input} value={p.recurrence || ""} onChange={set("recurrence")}>
+            {MARKETING_RECURRENCES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          {p.recurrence && <div className={`mt-1 text-xs ${s.sub}`}>Quand vous la cochez « Fait », la suivante se crée toute seule (même écart pour la relance).</div>}
+        </div>
+        <div>
+          <div className={s.label}>Notes</div>
+          <textarea rows={4} className={s.input} value={p.notes || ""} onChange={set("notes")} placeholder="Détails, liens, contacts…" />
+        </div>
+        <div className="flex items-center gap-2 pt-2">
+          <button onClick={save} disabled={saving} className={s.primaryBtn}>{saving ? "Enregistrement…" : "Enregistrer"}</button>
+          <button onClick={onClose} className={s.ghostBtn}>Annuler</button>
+          {!isNew && (
+            <button onClick={del} className={`ml-auto rounded-lg px-3 py-1.5 text-sm font-semibold ${deleteConfirm ? "bg-rose-600 text-white" : dark ? "text-rose-400 hover:bg-zinc-800" : "text-rose-600 hover:bg-rose-50"}`}>
+              {deleteConfirm ? "Confirmer la suppression" : "Supprimer"}
+            </button>
+          )}
+        </div>
+      </div>
+    </MarketingDrawer>
+  );
+}
+
+
+function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, blocked, onClose, onSave, onDelete, onOpenTask, onNewTask, onToggleTask, onQuickAddTask, showToast }) {
+  const s = marketingStyles(dark);
+  const isNew = projectId === "new";
+  const today = prospectionTodayISO();
+  const live = isNew ? null : projects.find((x) => x.id === projectId);
+  const [p, setP] = useState(() => (isNew ? { statut: "À lancer", responsable: me || "", deadline: "", categorie: "" } : live));
+  const [tplId, setTplId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [quick, setQuick] = useState("");
+  const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && !blocked) onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, blocked]);
+  useEffect(() => { if (!isNew && !live) onClose(); }, [isNew, live, onClose]);
+  if (!p) return null;
+
+  const tpl = MARKETING_TEMPLATES.find((t) => t.id === tplId) || null;
+  const tplTasks = isNew ? marketingBuildTemplateTasks(tpl, p.deadline, p.responsable) : [];
+  const lateTplCount = tplTasks.filter((t) => t.echeance < today).length;
+  const myTasks = isNew ? [] : tasks.filter((t) => t.project_id === projectId);
+  const sorted = [...myTasks].sort((a, b) => (a.statut === "Fait") - (b.statut === "Fait") || (a.echeance || "9999").localeCompare(b.echeance || "9999"));
+  const prog = isNew ? null : marketingProjectProgress(live, tasks);
+
+  const pickTemplate = (id) => {
+    setTplId(id);
+    const t = MARKETING_TEMPLATES.find((x) => x.id === id);
+    if (t) setP((x) => ({ ...x, categorie: x.categorie || t.categorie, titre: x.titre || t.label }));
+  };
+  const save = async () => {
+    if (!(p.titre || "").trim()) { showToast("Donnez un titre au projet", { type: "error" }); return; }
+    if (tpl && !p.deadline) { showToast("Indiquez la deadline pour caler les tâches du modèle", { type: "error" }); return; }
+    setSaving(true);
+    try {
+      await onSave(p, tplTasks);
+      showToast(isNew && tplTasks.length ? `Projet créé avec ${tplTasks.length} tâches` : "Projet enregistré");
+      onClose();
+    } catch (e) {
+      showToast(`Échec de l'enregistrement : ${e.message || e}`, { type: "error" });
+    } finally { setSaving(false); }
+  };
+  const del = async () => {
+    if (!deleteConfirm) { setDeleteConfirm(true); return; }
+    try { await onDelete(p.id); showToast("Projet supprimé"); onClose(); }
+    catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const addQuick = async () => {
+    const titre = quick.trim();
+    if (!titre) return;
+    setQuick("");
+    try { await onQuickAddTask(projectId, titre, p.responsable || me); }
+    catch (e) { setQuick(titre); showToast(`Ajout impossible : ${e.message || e}`, { type: "error" }); }
+  };
+
+  return (
+    <MarketingDrawer dark={dark} onClose={onClose} title={isNew ? "Nouveau projet" : live.titre}>
+      <div className="space-y-4">
+        {isNew && (
+          <div>
+            <div className={s.label}>Partir d'un modèle (optionnel)</div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[{ id: "", label: "Projet vide", desc: "Vous ajoutez vos tâches vous-même" }, ...MARKETING_TEMPLATES].map((t) => (
+                <button
+                  key={t.id || "vide"}
+                  type="button"
+                  onClick={() => (t.id ? pickTemplate(t.id) : setTplId(""))}
+                  className={`pl-interactive rounded-xl border p-3 text-left ${tplId === t.id ? "border-blue-600 ring-2 ring-blue-600/20" : dark ? "border-zinc-800 hover:border-zinc-700" : "border-stone-200 hover:border-stone-300"} ${dark ? "bg-zinc-900/40" : "bg-white"}`}
+                >
+                  <div className={`text-sm font-semibold ${s.title}`}>{t.label}</div>
+                  <div className={`mt-0.5 text-xs ${s.sub}`}>{t.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div className={s.label}>Titre *</div>
+          <input autoFocus={isNew} className={s.input} value={p.titre || ""} onChange={set("titre")} placeholder="Ex. Portes ouvertes Transit — novembre" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className={s.label}>Deadline</div>
+            <input type="date" className={s.input} value={p.deadline || ""} onChange={set("deadline")} />
+          </div>
+          <div>
+            <div className={s.label}>Statut</div>
+            <select className={s.input} value={p.statut} onChange={set("statut")}>
+              {MARKETING_PROJECT_STATUTS.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className={s.label}>Responsable</div>
+            <select className={s.input} value={p.responsable || ""} onChange={set("responsable")}>
+              <option value="">—</option>
+              {members.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className={s.label}>Catégorie</div>
+            <select className={s.input} value={p.categorie || ""} onChange={set("categorie")}>
+              <option value="">—</option>
+              {MARKETING_CATEGORIES.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <div className={s.label}>Description</div>
+          <textarea rows={3} className={s.input} value={p.description || ""} onChange={set("description")} placeholder="Objectif, cible, budget, liens…" />
+        </div>
+
+        {isNew && tpl && (
+          <div className={`rounded-xl border p-3 ${s.card}`}>
+            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Tâches qui seront créées ({tpl.tasks.length})</div>
+            {!p.deadline ? (
+              <div className={`text-sm ${s.muted}`}>Choisissez la deadline : les dates des tâches et des relances se calent dessus automatiquement.</div>
+            ) : (
+              <>
+                <ul className="space-y-1">
+                  {tplTasks.map((t, i) => (
+                    <li key={i} className="flex items-center justify-between gap-3 text-sm">
+                      <span className={`min-w-0 truncate ${s.title}`}>{t.titre}</span>
+                      <span className={`shrink-0 text-xs ${t.echeance < today ? "text-rose-500" : s.sub}`}>{marketingFrDate(t.echeance)}</span>
+                    </li>
+                  ))}
+                </ul>
+                {lateTplCount > 0 && <div className={`mt-2 text-xs ${dark ? "text-amber-400" : "text-amber-700"}`}>{lateTplCount} tâche(s) tomberont déjà en retard avec cette deadline — vous pourrez ajuster leurs dates ensuite.</div>}
+              </>
+            )}
+          </div>
+        )}
+
+        {!isNew && (
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className={`text-xs font-bold uppercase tracking-widest ${s.sub}`}>To-do list · {prog.done}/{prog.total}</div>
+              <button type="button" onClick={() => onNewTask(projectId)} className={`text-xs font-semibold underline ${s.muted}`}>Tâche détaillée</button>
+            </div>
+            {prog.total > 0 && (
+              <div className={`mb-3 h-2 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${prog.pct}%` }} />
+              </div>
+            )}
+            <div className="space-y-2">
+              {sorted.map((t) => (
+                <MarketingTaskRow key={t.id} dark={dark} t={t} today={today} showProject={false} onToggle={onToggleTask} onOpen={onOpenTask} />
+              ))}
+              {sorted.length === 0 && <div className={`text-sm ${s.sub}`}>Aucune tâche pour l'instant.</div>}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                className={s.input}
+                value={quick}
+                onChange={(e) => setQuick(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addQuick()}
+                placeholder="Ajouter une tâche (Entrée pour valider)"
+              />
+              <button type="button" onClick={addQuick} className={s.primaryBtn} aria-label="Ajouter"><Plus size={16} /></button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 pt-2">
+          <button onClick={save} disabled={saving} className={s.primaryBtn}>{saving ? "Enregistrement…" : isNew ? "Créer le projet" : "Enregistrer"}</button>
+          <button onClick={onClose} className={s.ghostBtn}>Fermer</button>
+          {!isNew && (
+            <button onClick={del} className={`ml-auto rounded-lg px-3 py-1.5 text-sm font-semibold ${deleteConfirm ? "bg-rose-600 text-white" : dark ? "text-rose-400 hover:bg-zinc-800" : "text-rose-600 hover:bg-rose-50"}`}>
+              {deleteConfirm ? `Supprimer avec ses ${prog.total} tâches ?` : "Supprimer"}
+            </button>
+          )}
+        </div>
+      </div>
+    </MarketingDrawer>
+  );
+}
+
+
+function MarketingTab({ dark, me, showToast }) {
+  const s = marketingStyles(dark);
+  const data = useMarketing();
+  const { projects, tasks, members, loading, error } = data;
+  const today = prospectionTodayISO();
+  const weekEnd = marketingAddDays(today, 7);
+
+  const [vue, setVue] = useState(() => loadLocal("dsr:marketing-vue", "jour"));
+  useEffect(() => { saveLocal("dsr:marketing-vue", vue); }, [vue]);
+  const [scope, setScope] = useState(() => loadLocal("dsr:marketing-scope", ""));
+  useEffect(() => { saveLocal("dsr:marketing-scope", scope); }, [scope]);
+  const [openProject, setOpenProject] = useState(null);
+  const [openTask, setOpenTask] = useState(null);
+  const [taskPrefill, setTaskPrefill] = useState(null);
+  const [projFilter, setProjFilter] = useState("actifs");
+  const [taskFilter, setTaskFilter] = useState({ statut: "ouvertes", project: "", q: "" });
+  const [calMonth, setCalMonth] = useState(() => today.slice(0, 7) + "-01");
+  const [calSel, setCalSel] = useState(today);
+
+  const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const scoped = useMemo(
+    () => tasks.filter((t) => !scope || (scope === "__none" ? !t.assignee : t.assignee === scope)),
+    [tasks, scope]
+  );
+
+  const closeTask = useCallback(() => { setOpenTask(null); setTaskPrefill(null); }, []);
+  const closeProject = useCallback(() => setOpenProject(null), []);
+  const newTask = (prefill) => { setTaskPrefill(prefill || null); setOpenTask("new"); };
+
+  const onToggle = async (t) => {
+    const wasDone = t.statut === "Fait";
+    try {
+      const { next } = await data.toggleDone(t);
+      if (!wasDone) showToast(next ? `Fait ! Prochaine occurrence le ${marketingFrDate(next.echeance)}` : "Tâche terminée", { type: "celebrate" });
+    } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const onRelance = async (t, days) => {
+    try {
+      await data.patchTask(t.id, { relance: days > 0 ? marketingAddDays(today, days) : null });
+      showToast(days > 0 ? `Relance reportée au ${marketingFrDate(marketingAddDays(today, days))}` : "Relance clôturée");
+    } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const quickAddTask = async (project_id, titre, assignee) => {
+    await data.saveTask({ project_id, titre, assignee, statut: "À faire", priorite: "Normale" });
+  };
+
+  const row = (t, extra = {}) => (
+    <MarketingTaskRow key={t.id} dark={dark} t={t} project={projectById.get(t.project_id)} today={today} onToggle={onToggle} onOpen={setOpenTask} onRelance={onRelance} {...extra} />
+  );
+
+  // ───────────── Vue "Aujourd'hui" ─────────────
+  const buckets = useMemo(() => {
+    const b = { late: [], today: [], week: [], later: [], nodate: [], done: [] };
+    scoped.forEach((t) => b[marketingBucket(t, today, weekEnd)].push(t));
+    const byDate = (x, y) => (marketingUrgencyDate(x) || "").localeCompare(marketingUrgencyDate(y) || "");
+    ["late", "today", "week"].forEach((k) => b[k].sort(byDate));
+    return b;
+  }, [scoped, today, weekEnd]);
+  const dueCount = buckets.late.length + buckets.today.length;
+
+  const watchedProjects = useMemo(
+    () => projects
+      .filter((p) => p.statut !== "Terminé" && p.deadline && p.deadline <= marketingAddDays(today, 21))
+      .sort((a, b) => a.deadline.localeCompare(b.deadline)),
+    [projects, today]
+  );
+
+  const vueJour = () => {
+    const section = (title, tone, items) =>
+      items.length === 0 ? null : (
+        <section key={title}>
+          <div className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest ${tone}`}>{title}<span className="rounded-full bg-black/10 px-1.5 text-[10px]">{items.length}</span></div>
+          <div className="space-y-2">{items.map((t) => row(t))}</div>
+        </section>
+      );
+    const kpi = (label, value, tone) => (
+      <div className={`rounded-xl border px-4 py-3 ${s.card}`}>
+        <div className={`text-2xl font-bold ${tone || s.title}`}>{value}</div>
+        <div className={`text-xs ${s.sub}`}>{label}</div>
+      </div>
+    );
+    const relancesDues = scoped.filter((t) => t.statut !== "Fait" && t.relance && t.relance <= today).length;
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {kpi("En retard", buckets.late.length, buckets.late.length ? "text-rose-500" : "")}
+          {kpi("À traiter aujourd'hui", buckets.today.length)}
+          {kpi("Relances à faire", relancesDues, relancesDues ? (dark ? "text-amber-300" : "text-amber-700") : "")}
+          {kpi("Projets actifs", projects.filter((p) => p.statut !== "Terminé").length)}
+        </div>
+        {dueCount + buckets.week.length === 0 && (
+          <EmptyState dark={dark} icon={CheckCircle2} title="Rien d'urgent cette semaine" subtitle="Les tâches et relances des 7 prochains jours apparaissent ici." />
+        )}
+        {section("En retard", dark ? "text-rose-400" : "text-rose-600", buckets.late)}
+        {section("Aujourd'hui", dark ? "text-blue-400" : "text-blue-800", buckets.today)}
+        {section("Cette semaine", s.sub, buckets.week)}
+        {watchedProjects.length > 0 && (
+          <section>
+            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Deadlines de projets à 3 semaines</div>
+            <div className="grid gap-2 sm:grid-cols-2">{watchedProjects.map((p) => projectCard(p))}</div>
+          </section>
+        )}
+      </div>
+    );
+  };
+
+  // ───────────── Vue "Projets" ─────────────
+  function projectCard(p) {
+    const prog = marketingProjectProgress(p, tasks);
+    const late = p.statut !== "Terminé" && p.deadline && p.deadline < today;
+    return (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => setOpenProject(p.id)}
+        className={`pl-interactive rounded-2xl border p-4 text-left ${s.card} ${dark ? "hover:border-zinc-700" : "hover:border-stone-300"}`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className={`min-w-0 break-words text-sm font-bold ${s.title}`}>{p.titre}</div>
+          <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" style={{ background: MARKETING_PROJECT_COLORS[p.statut] }}>{p.statut}</span>
+        </div>
+        <div className={`mt-1 flex flex-wrap items-center gap-x-2 text-xs ${s.sub}`}>
+          {p.categorie && <span>{p.categorie}</span>}
+          {p.responsable && <span>· {p.responsable}</span>}
+        </div>
+        <div className="mt-3 flex items-center justify-between text-xs">
+          <span className={late ? "font-semibold text-rose-500" : s.muted}>
+            {p.deadline ? `Deadline ${marketingFrDate(p.deadline, true)} · ${p.statut === "Terminé" ? "terminé" : marketingRelativeLabel(p.deadline, today)}` : "Sans deadline"}
+          </span>
+          <span className={s.sub}>{prog.done}/{prog.total} tâches</span>
+        </div>
+        <div className={`mt-2 h-2 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
+          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${prog.pct}%` }} />
+        </div>
+      </button>
+    );
+  }
+  const vueProjets = () => {
+    const list = projects
+      .filter((p) => (projFilter === "actifs" ? p.statut !== "Terminé" : projFilter === "termines" ? p.statut === "Terminé" : true))
+      .filter((p) => {
+        if (!scope) return true;
+        if (scope === "__none") return !p.responsable;
+        return p.responsable === scope || tasks.some((t) => t.project_id === p.id && t.assignee === scope);
+      })
+      .sort((a, b) => (a.deadline || "9999").localeCompare(b.deadline || "9999"));
+    return (
+      <div className="space-y-4">
+        <div className="flex gap-1.5">
+          {[["actifs", "En cours"], ["termines", "Terminés"], ["tous", "Tous"]].map(([k, l]) => (
+            <button key={k} onClick={() => setProjFilter(k)} className={`pl-interactive rounded-lg px-3 py-1.5 text-sm font-medium ${projFilter === k ? (dark ? "bg-zinc-800 text-zinc-100" : "bg-stone-200 text-stone-900") : s.muted}`}>{l}</button>
+          ))}
+        </div>
+        {list.length === 0 ? (
+          <EmptyState dark={dark} icon={Megaphone} title="Aucun projet ici" subtitle="Créez un projet vide ou partez d'un modèle (opération commerciale, portes ouvertes…)." />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{list.map(projectCard)}</div>
+        )}
+      </div>
+    );
+  };
+
+  // ───────────── Vue "Tâches" ─────────────
+  const vueTaches = () => {
+    const q = taskFilter.q.trim().toLowerCase();
+    const list = scoped
+      .filter((t) => (taskFilter.statut === "ouvertes" ? t.statut !== "Fait" : taskFilter.statut === "faites" ? t.statut === "Fait" : true))
+      .filter((t) => !taskFilter.project || (taskFilter.project === "__none" ? !t.project_id : t.project_id === taskFilter.project))
+      .filter((t) => !q || t.titre.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q))
+      .sort((a, b) => (marketingUrgencyDate(a) || "9999").localeCompare(marketingUrgencyDate(b) || "9999"));
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input className={`${s.input} !w-56`} placeholder="Rechercher une tâche…" value={taskFilter.q} onChange={(e) => setTaskFilter((f) => ({ ...f, q: e.target.value }))} />
+          <select className={`${s.input} !w-auto`} value={taskFilter.statut} onChange={(e) => setTaskFilter((f) => ({ ...f, statut: e.target.value }))}>
+            <option value="ouvertes">Ouvertes</option>
+            <option value="faites">Terminées</option>
+            <option value="toutes">Toutes</option>
+          </select>
+          <select className={`${s.input} !w-auto`} value={taskFilter.project} onChange={(e) => setTaskFilter((f) => ({ ...f, project: e.target.value }))}>
+            <option value="">Tous les projets</option>
+            <option value="__none">Sans projet</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.titre}</option>)}
+          </select>
+        </div>
+        {list.length === 0 ? (
+          <EmptyState dark={dark} icon={List} title="Aucune tâche" subtitle="Ajustez les filtres ou créez une tâche." />
+        ) : (
+          <div className="space-y-2">{list.slice(0, 300).map((t) => row(t))}</div>
+        )}
+        {list.length > 300 && <div className={`text-xs ${s.sub}`}>300 premières tâches affichées — affinez avec les filtres.</div>}
+      </div>
+    );
+  };
+
+  // ───────────── Vue "Calendrier" ─────────────
+  const vueCalendrier = () => {
+    const cells = marketingMonthGrid(calMonth);
+    const events = new Map();
+    const push = (iso, ev) => { if (!events.has(iso)) events.set(iso, []); events.get(iso).push(ev); };
+    projects.forEach((p) => { if (p.deadline && p.statut !== "Terminé") push(p.deadline, { kind: "deadline", label: p.titre, project: p }); });
+    scoped.forEach((t) => {
+      const done = t.statut === "Fait";
+      if (t.echeance) push(t.echeance, { kind: "echeance", label: t.titre, task: t, done });
+      if (t.relance && !done) push(t.relance, { kind: "relance", label: t.titre, task: t });
+    });
+    const chipTone = (ev) => ev.kind === "deadline" ? (dark ? "bg-violet-500/25 text-violet-200" : "bg-violet-100 text-violet-800")
+      : ev.kind === "relance" ? (dark ? "bg-amber-500/25 text-amber-200" : "bg-amber-100 text-amber-800")
+      : ev.done ? (dark ? "bg-zinc-800 text-zinc-500 line-through" : "bg-stone-100 text-stone-400 line-through")
+      : (dark ? "bg-blue-500/25 text-blue-200" : "bg-blue-100 text-blue-800");
+    const prefix = (ev) => (ev.kind === "deadline" ? "⚑ " : ev.kind === "relance" ? "↺ " : "");
+    const openEv = (ev) => (ev.project ? setOpenProject(ev.project.id) : setOpenTask(ev.task.id));
+    const monthLabel = new Date(calMonth + "T12:00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    const shift = (n) => setCalMonth(marketingAddMonths(calMonth, n));
+    const selEvents = events.get(calSel) || [];
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <button onClick={() => shift(-1)} aria-label="Mois précédent" className={`rounded-lg border p-1.5 ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}><ChevronLeft size={16} /></button>
+          <button onClick={() => shift(1)} aria-label="Mois suivant" className={`rounded-lg border p-1.5 ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}><ChevronRight size={16} /></button>
+          <div className={`text-base font-bold capitalize ${s.title}`}>{monthLabel}</div>
+          <button onClick={() => { setCalMonth(today.slice(0, 7) + "-01"); setCalSel(today); }} className={`${s.ghostBtn} ml-auto`}>Aujourd'hui</button>
+        </div>
+        <div className="flex flex-wrap gap-3 text-[11px]">
+          <span className={`rounded-full px-2 py-0.5 ${chipTone({ kind: "deadline" })}`}>⚑ Deadline projet</span>
+          <span className={`rounded-full px-2 py-0.5 ${chipTone({ kind: "echeance" })}`}>Échéance tâche</span>
+          <span className={`rounded-full px-2 py-0.5 ${chipTone({ kind: "relance" })}`}>↺ Relance</span>
+        </div>
+        <div className={`overflow-hidden rounded-2xl border ${s.card}`}>
+          <div className={`grid grid-cols-7 border-b text-center text-[10px] font-bold uppercase tracking-widest ${dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-400"}`}>
+            {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => <div key={d} className="py-2">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7">
+            {cells.map((c, i) => {
+              const evs = events.get(c.iso) || [];
+              const isSel = c.iso === calSel;
+              return (
+                <button
+                  key={c.iso}
+                  type="button"
+                  onClick={() => setCalSel(c.iso)}
+                  className={`min-h-[64px] border-b border-r p-1 text-left align-top sm:min-h-[92px] sm:p-1.5 ${i % 7 === 6 ? "border-r-0" : ""} ${dark ? "border-zinc-800" : "border-stone-200"} ${isSel ? (dark ? "bg-blue-500/10" : "bg-blue-50") : ""} ${c.inMonth ? "" : "opacity-40"}`}
+                >
+                  <div className={`mb-0.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-semibold ${c.iso === today ? "bg-blue-700 text-white" : s.muted}`}>{c.day}</div>
+                  <div className="space-y-0.5">
+                    {evs.slice(0, 3).map((ev, j) => (
+                      <div key={j} className={`hidden truncate rounded px-1 text-[10px] leading-4 sm:block ${chipTone(ev)}`}>{prefix(ev)}{ev.label}</div>
+                    ))}
+                    {evs.length > 0 && (
+                      <div className={`text-[10px] font-semibold ${s.sub} sm:hidden`}>{evs.length} ●</div>
+                    )}
+                    {evs.length > 3 && <div className={`hidden text-[10px] ${s.sub} sm:block`}>+{evs.length - 3}</div>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <div className={`text-sm font-bold capitalize ${s.title}`}>{marketingFrDate(calSel, true)}{calSel === today ? " · aujourd'hui" : ""}</div>
+            <button onClick={() => newTask({ echeance: calSel })} className={s.ghostBtn}>+ Tâche ce jour</button>
+          </div>
+          {selEvents.length === 0 ? (
+            <div className={`text-sm ${s.sub}`}>Rien de prévu ce jour-là.</div>
+          ) : (
+            <div className="space-y-2">
+              {selEvents.map((ev, i) => (
+                <button key={i} type="button" onClick={() => openEv(ev)} className={`pl-interactive flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm ${s.card}`}>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${chipTone(ev)}`}>{ev.kind === "deadline" ? "Deadline" : ev.kind === "relance" ? "Relance" : "Échéance"}</span>
+                  <span className={`min-w-0 flex-1 truncate ${ev.done ? "line-through " + s.sub : s.title}`}>{ev.label}</span>
+                  {ev.task?.assignee && <span className={`shrink-0 text-xs ${s.sub}`}>{ev.task.assignee}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const VUES = [["jour", "Aujourd'hui"], ["projets", "Projets"], ["taches", "Tâches"], ["calendrier", "Calendrier"]];
+
+  if (error) {
+    return (
+      <EmptyState dark={dark} icon={AlertTriangle} title="Impossible de charger le module Marketing" subtitle={`${error} — vérifiez que le script marketing.sql a bien été exécuté dans Supabase.`} />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${s.muted}`}>
+          <Megaphone size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
+          Marketing · Ford Caen
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`}>
+            <option value="">Toute l'équipe</option>
+            {members.map((m) => <option key={m}>{m}</option>)}
+            <option value="__none">Non attribuées</option>
+          </select>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => newTask()} className={s.ghostBtn}>Nouvelle tâche</button>
+            <button onClick={() => setOpenProject("new")} className={s.primaryBtn}>Nouveau projet</button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+        {VUES.map(([k, l]) => (
+          <button
+            key={k}
+            onClick={() => setVue(k)}
+            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vue === k ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
+          >
+            {l}
+            {k === "jour" && dueCount > 0 && (
+              <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${vue === k ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>{dueCount}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex h-40 items-center justify-center"><RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={20} /></div>
+      ) : (
+        <div key={vue} className="pl-fade-in">
+          {vue === "jour" && vueJour()}
+          {vue === "projets" && vueProjets()}
+          {vue === "taches" && vueTaches()}
+          {vue === "calendrier" && vueCalendrier()}
+        </div>
+      )}
+
+      {openProject && (
+        <MarketingProjectFiche
+          dark={dark}
+          projectId={openProject}
+          projects={projects}
+          tasks={tasks}
+          members={members}
+          me={me}
+          blocked={!!openTask}
+          onClose={closeProject}
+          onSave={data.saveProject}
+          onDelete={data.removeProject}
+          onOpenTask={setOpenTask}
+          onNewTask={(project_id) => newTask({ project_id })}
+          onToggleTask={onToggle}
+          onQuickAddTask={quickAddTask}
+          showToast={showToast}
+        />
+      )}
+      {openTask && (
+        <MarketingTaskFiche
+          dark={dark}
+          taskId={openTask}
+          tasks={tasks}
+          projects={projects}
+          members={members}
+          prefill={taskPrefill}
+          me={me}
+          onClose={closeTask}
+          onSave={data.saveTask}
+          onDelete={data.removeTask}
           showToast={showToast}
         />
       )}
@@ -6433,6 +7536,8 @@ export default function App() {
 
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
   const canProspect = useProspectionAccess(authUserId);
+  const marketingMe = useMarketingAccess(authUserId);
+  const canMarketing = !!marketingMe;
 
   const mySiteScope = useMemo(() => {
     if (isSuperAdmin(vendorName)) return null;
@@ -6607,7 +7712,7 @@ export default function App() {
       ) : (
         <div className="p-4 md:p-6">
           <div className="mb-6 lg:hidden">
-            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} />
+            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} canMarketing={canMarketing} />
           </div>
           <div className="flex items-start gap-6">
             <div className="hidden lg:block">
@@ -6620,6 +7725,7 @@ export default function App() {
                 permissions={permissions}
                 vendorName={vendorName}
                 canProspect={canProspect}
+                canMarketing={canMarketing}
               />
             </div>
             <div key={tab} className="pl-fade-in min-w-0 flex-1 space-y-6">
@@ -6642,6 +7748,10 @@ export default function App() {
           ) : tab === "prospection" ? (
             canProspect ? (
               <ProspectionTab dark={dark} currentUserName={vendorName} showToast={showToast} />
+            ) : null
+          ) : tab === "marketing" ? (
+            canMarketing ? (
+              <MarketingTab dark={dark} me={marketingMe} showToast={showToast} />
             ) : null
           ) : tab === "challenge" ? (
             <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} challengeConfig={challengeConfig} challengeEntries={challengeEntries} onOpenVehicle={openInVehicules} />
