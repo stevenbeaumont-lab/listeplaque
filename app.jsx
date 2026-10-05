@@ -739,7 +739,7 @@ function StatusBadge({ vehicle, dark }) {
   const meta = STATUS_META[vehicle.baseStatus];
   const label = vehicle.baseStatus === "reserve" && vehicle.reservation?.statut ? vehicle.reservation.statut : meta.label;
   return (
-    <span title={label} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${dark ? meta.bgDark + " " + meta.textDark : meta.bg + " " + meta.text}`}>
+    <span title={label} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${dark ? meta.bgDark + " " + meta.textDark : meta.bg + " " + meta.text}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
       {label}
     </span>
@@ -757,6 +757,15 @@ function VehicleTypeIcon({ vu, dark, size }) {
     >
       <Icon size={iconSize} />
     </span>
+  );
+}
+
+function PageHeader({ dark, title, subtitle }) {
+  return (
+    <div className="min-w-0 pb-1">
+      <h1 className={`text-[26px] font-semibold leading-8 tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>{title}</h1>
+      {subtitle && <p className={`mt-0.5 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>{subtitle}</p>}
+    </div>
   );
 }
 
@@ -780,21 +789,20 @@ function KPICard({ label, value, dark, onClick, size }) {
   return (
     <Tag
       onClick={onClick}
-      className={`w-full rounded-2xl border text-left transition-colors ${compact ? "p-3" : "p-4"} ${
-        dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"
-      } ${onClick ? `pl-interactive ${dark ? "hover:border-blue-700/50 hover:bg-zinc-900 cursor-pointer" : "hover:border-blue-500 hover:bg-blue-50/30 cursor-pointer"}` : ""}`}
-      style={dark ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" } : { boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}
+      className={`w-full rounded-2xl border text-left transition-all ${compact ? "px-3.5 py-3" : "px-5 py-4"} ${
+        dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200 shadow-sm"
+      } ${onClick ? `pl-interactive cursor-pointer ${dark ? "hover:border-zinc-700 hover:bg-zinc-900" : "hover:border-stone-300 hover:shadow-md"}` : ""}`}
     >
-      <div className={`font-semibold uppercase tracking-widest ${compact ? "text-[10px]" : "text-[11px]"} ${dark ? "text-zinc-500" : "text-stone-400"}`}>{label}</div>
-      <div className={`font-display mt-1 font-semibold tabular-nums ${compact ? "text-xl" : "text-3xl mt-1.5"} ${dark ? "text-zinc-50" : "text-stone-900"}`}>{value}</div>
+      <div className={`font-medium ${compact ? "text-xs" : "text-[13px]"} ${dark ? "text-zinc-400" : "text-stone-500"}`}>{label}</div>
+      <div className={`font-display font-semibold tabular-nums ${compact ? "mt-0.5 text-xl" : "mt-1 text-[32px] leading-9"} ${dark ? "text-zinc-50" : "text-stone-900"}`}>{value}</div>
     </Tag>
   );
 }
 function DashboardSection({ dark, icon: Icon, title, children }) {
   return (
     <div className="space-y-3">
-      <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-        <Icon size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
+      <div className={`flex items-center gap-2 text-[15px] font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
+        <Icon size={16} className={dark ? "text-zinc-500" : "text-stone-400"} />
         {title}
       </div>
       {children}
@@ -834,7 +842,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing);
   let lastGroup = null;
   return (
-    <nav className={`sticky top-20 flex w-56 shrink-0 flex-col gap-1 self-start rounded-2xl border p-2 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+    <nav className="sticky top-20 flex w-52 shrink-0 flex-col gap-0.5 self-start">
       {items.map((it) => {
         const Icon = NAV_ICONS[it.id];
         const active = tab === it.id;
@@ -843,23 +851,23 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
         return (
           <div key={it.id}>
             {showGroupLabel && (
-              <div className={`px-3 pb-1 pt-2.5 text-[10px] font-bold uppercase tracking-widest first:pt-1 ${dark ? "text-zinc-600" : "text-stone-400"}`}>{it.group}</div>
+              <div className={`px-3 pb-1.5 pt-6 text-[11px] font-medium first:pt-0 ${dark ? "text-zinc-500" : "text-stone-400"}`}>{it.group}</div>
             )}
             <button
               onClick={() => setTab(it.id)}
-              className={`pl-interactive flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${
-                active ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200" : "text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+              className={`pl-interactive flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors ${
+                active ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"
               }`}
             >
               <Icon size={16} className="shrink-0" />
               <span className="flex-1 truncate text-left">{it.label}</span>
               {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing") && (
-                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${active ? "bg-white/25 text-white" : dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-800"}`}>
+                <span className={`rounded-full px-1.5 py-px text-[9px] font-semibold ${dark ? "bg-blue-500/15 text-blue-300" : "bg-blue-100/70 text-blue-700"}`}>
                   Bêta
                 </span>
               )}
               {!!it.count && (
-                <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>
+                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
                   {it.count}
                 </span>
               )}
@@ -875,7 +883,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
   const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing);
   let lastGroup = null;
   return (
-    <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} style={{ scrollbarWidth: "none" }}>
+    <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200 shadow-sm"}`} style={{ scrollbarWidth: "none" }}>
       {items.map((it) => {
         const showDivider = it.group !== lastGroup && lastGroup !== null;
         lastGroup = it.group;
@@ -886,7 +894,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
               onClick={() => setTab(it.id)}
               className={`pl-interactive flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium sm:px-4 ${
                 tab === it.id
-                  ? "bg-blue-700 text-white"
+                  ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700")
                   : dark
                   ? "text-zinc-400 hover:text-zinc-200"
                   : "text-stone-500 hover:text-stone-800"
@@ -913,16 +921,18 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
 
 function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const btnCls = `flex h-9 items-center justify-center rounded-lg border transition-colors ${dark ? "border-zinc-800 text-zinc-300 hover:bg-zinc-800/70 hover:border-zinc-700" : "border-stone-200 text-stone-600 hover:bg-stone-100"}`;
+  const btnCls = `flex h-9 items-center justify-center rounded-lg transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"}`;
+  const btnOutline = `border ${dark ? "border-zinc-800 hover:border-zinc-700" : "border-stone-200 hover:border-stone-300"}`;
   return (
-    <div className={`sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-t-2xl border-b px-4 py-3 md:px-6 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
-      <div className="flex items-center gap-2.5">
-        <span className="relative inline-flex h-2.5 w-2.5">
-          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${dark ? "bg-emerald-400" : "bg-emerald-500"}`} />
-          <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dark ? "bg-emerald-400" : "bg-emerald-500"}`} />
+    <div className={`sticky top-0 z-20 border-b backdrop-blur-md ${dark ? "border-zinc-800/80 bg-zinc-950/80" : "border-stone-200/70 bg-white/80"}`}>
+    <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-1.5 px-4 py-2.5 md:px-8">
+      <div className="mr-2 flex items-center gap-2.5">
+        <span className="relative flex h-8 w-8 items-center justify-center rounded-[10px] bg-gradient-to-br from-blue-500 to-blue-800 text-white shadow-md">
+          <Car size={16} />
+          <span className={`absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 rounded-full border-2 ${dark ? "border-zinc-950 bg-emerald-400" : "border-white bg-emerald-500"}`} title="Synchronisé en direct" />
         </span>
-        <span className={`font-display text-xl font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>
-          Parc<span className={dark ? "text-blue-500" : "text-blue-800"}>Live</span>
+        <span className={`text-[17px] font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>
+          Parc<span className={dark ? "text-blue-400" : "text-blue-700"}>Live</span>
         </span>
       </div>
       <div className={`hidden text-xs sm:block ${dark ? "text-zinc-500" : "text-stone-400"}`}>
@@ -941,11 +951,11 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
         <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
       </button>
       {canImport && (
-        <button onClick={onImport} className={`gap-1.5 px-3 text-sm font-medium ${btnCls}`}>
-          <Upload size={14} /> Importer
+        <button onClick={onImport} title="Importer" className={`gap-1.5 px-2.5 text-sm font-medium sm:px-3 ${btnCls} ${btnOutline}`}>
+          <Upload size={14} /> <span className="hidden sm:inline">Importer</span>
         </button>
       )}
-      <div className="relative">
+      <div className="relative hidden sm:block">
         <button onClick={() => setLegendOpen((o) => !o)} className={`w-9 ${btnCls}`} title="Légende & aide">
           <Info size={16} />
         </button>
@@ -982,8 +992,8 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
         {dark ? <Sun size={16} /> : <Moon size={16} />}
       </button>
       <div className="relative">
-        <button onClick={() => setUserMenuOpen((o) => !o)} className={`gap-2 px-3 text-sm font-medium ${btnCls}`}>
-          <User size={14} /> {vendorName || "Compte non relié"}
+        <button onClick={() => setUserMenuOpen((o) => !o)} className={`gap-2 px-2.5 text-sm font-medium sm:px-3 ${btnCls} ${btnOutline}`}>
+          <User size={14} /> <span className="hidden max-w-[180px] truncate sm:inline">{vendorName || "Compte non relié"}</span>
         </button>
         {userMenuOpen && (
           <>
@@ -1004,6 +1014,7 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );
@@ -1180,17 +1191,17 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
     <tr
       onClick={() => onSelect(v)}
       className={`group cursor-pointer border-t transition-colors ${baseBg} ${
-        expanded ? (dark ? "border-zinc-800 bg-zinc-900/70" : "border-stone-200 bg-blue-50/60") : dark ? "border-zinc-800 hover:bg-zinc-800/70" : "border-stone-200 hover:bg-blue-50/40"
+        expanded ? (dark ? "border-zinc-800 bg-zinc-900/70" : "border-stone-100 bg-blue-50/50") : dark ? "border-zinc-800/70 hover:bg-zinc-800/50" : "border-stone-100 hover:bg-stone-50"
       }`}
-      style={{ boxShadow: `inset 4px 0 0 ${hasAlert ? "#E11D48" : STATUS_ACCENT[v.baseStatus] || "transparent"}` }}
+      style={{ boxShadow: `inset 3px 0 0 ${hasAlert ? "#E11D48" : STATUS_ACCENT[v.baseStatus] || "transparent"}` }}
     >
-      <td className="px-3 py-2 text-center">
+      <td className="px-3 py-3 text-center">
         <VehicleTypeIcon vu={v.vu} dark={dark} size="sm" />
         <div className={`mt-1 truncate font-mono text-[11px] font-semibold transition-colors ${dark ? "text-zinc-300 group-hover:text-blue-500" : "text-stone-600 group-hover:text-blue-800"}`}>
           {v.orderNumber}
         </div>
       </td>
-      <td className="px-2 py-2" title={v.description}>
+      <td className="px-2 py-3" title={v.description}>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <ModelYearLabel v={v} dark={dark} className={`truncate font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`} />
@@ -1208,7 +1219,7 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
           <div className={`truncate text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`} title={meta}>{meta}</div>
         </div>
       </td>
-      <td className="px-2 py-2">
+      <td className="px-2 py-3">
         <div className="flex flex-col items-start gap-1">
           <div className="flex items-center gap-1.5">
             <StatusBadge vehicle={v} dark={dark} />
@@ -1257,9 +1268,9 @@ function VehicleRow({ v, dark, onSelect, expanded, zebra }) {
 
 
 function VehicleTable({ dark, vehicles, expandedOrder, onSelect }) {
-  const thCls = `sticky top-0 z-10 py-2.5 text-left text-xs font-bold uppercase tracking-widest ${dark ? "bg-zinc-900 text-zinc-300 border-b-2 border-zinc-800" : "bg-stone-100 text-stone-600 border-b-2 border-stone-200"}`;
+  const thCls = `sticky top-0 z-10 py-3 text-left text-xs font-medium ${dark ? "bg-zinc-900 text-zinc-400 border-b border-zinc-800" : "bg-white text-stone-500 border-b border-stone-200"}`;
   return (
-    <div className={`overflow-hidden rounded-2xl border-2 shadow-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+    <div className={`overflow-hidden rounded-2xl border shadow-sm ${dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white"}`}>
       <div className="max-h-[640px] overflow-auto">
         <table className="w-full table-fixed text-sm">
           <colgroup>
@@ -1280,7 +1291,7 @@ function VehicleTable({ dark, vehicles, expandedOrder, onSelect }) {
           </thead>
           <tbody>
             {vehicles.map((v, i) => (
-              <VehicleRow key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} zebra={i % 2 === 1} />
+              <VehicleRow key={v.orderNumber} v={v} dark={dark} onSelect={onSelect} expanded={v.orderNumber === expandedOrder} zebra={false} />
             ))}
             {vehicles.length === 0 && (
               <tr>
@@ -3639,7 +3650,7 @@ function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSet
             <button
               onClick={() => setSettingsTab(it.id)}
               className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${
-                settingsTab === it.id ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+                settingsTab === it.id ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
               }`}
             >
               <it.icon size={14} />
@@ -3818,22 +3829,23 @@ function LoginScreen({ dark, onLogin }) {
     else setResetSent(true);
   }
 
-  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  const inputCls = `w-full rounded-lg border px-3.5 py-2.5 text-left text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   return (
-    <div className="flex min-h-[520px] items-center justify-center p-6">
-      <div className={`w-full max-w-sm rounded-2xl border p-6 text-center shadow-sm ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
-        <div className="mb-4 flex justify-center">
-          <span className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${dark ? "bg-blue-700/10 text-blue-500 ring-blue-700/20" : "bg-blue-50 text-blue-800 ring-blue-200"}`}>
-            <Lock size={20} />
+    <div className="flex min-h-[85vh] items-center justify-center p-6">
+      <div className={`w-full max-w-sm rounded-2xl border p-8 text-center ${dark ? "bg-zinc-900 border-zinc-800 shadow-xl" : "bg-white border-stone-200 shadow-lg"}`}>
+        <div className="mb-6 flex flex-col items-center">
+          <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-800 text-white shadow-lg">
+            <Car size={22} />
           </span>
-        </div>
-        <div className={`font-display text-lg font-semibold ${dark ? "text-zinc-50" : "text-stone-900"}`}>
-          Parc<span className={dark ? "text-blue-500" : "text-blue-800"}>Live</span>
+          <div className={`text-2xl font-semibold tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>
+            Parc<span className={dark ? "text-blue-400" : "text-blue-700"}>Live</span>
+          </div>
+          <div className={`mt-1 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Le parc Ford Caen, en temps réel</div>
         </div>
         {mode === "login" ? (
           <>
-            <p className={`mb-4 mt-1 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Connectez-vous avec votre adresse professionnelle.</p>
+            <p className={`mb-4 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Connectez-vous avec votre adresse professionnelle.</p>
             <input
               type="email"
               value={email}
@@ -3920,7 +3932,7 @@ function SetNewPasswordScreen({ dark, onDone }) {
     else onDone();
   }
 
-  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-center text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  const inputCls = `w-full rounded-lg border px-3.5 py-2.5 text-left text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
 
   return (
     <div className="flex min-h-[520px] items-center justify-center p-6">
@@ -5639,7 +5651,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           <button
             key={k}
             onClick={() => setVue(k)}
-            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vue === k ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
+            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vue === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
           >
             {l}
             {k === "jour" && dueCount > 0 && (
@@ -7449,10 +7461,7 @@ function MarketingTab({ dark, me, showToast }) {
     <div className="space-y-4">
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${s.muted}`}>
-            <Megaphone size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
-            Marketing · Ford Caen
-          </div>
+          <h1 className={`text-[26px] font-semibold leading-8 tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>Marketing</h1>
           <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${dark ? "border-amber-400/40 bg-amber-400/10 text-amber-300" : "border-amber-400/60 bg-amber-50 text-amber-800"}`}>
             <Sparkles size={12} />Premium
           </span>
@@ -7478,7 +7487,7 @@ function MarketingTab({ dark, me, showToast }) {
           <button
             key={k}
             onClick={() => changeVue(k)}
-            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vueEff === k ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
+            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vueEff === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
           >
             {l}
             {k === "jour" && dueCount > 0 && (
@@ -8559,17 +8568,15 @@ export default function App() {
 
   return (
     <div
-      className={`mx-auto w-full max-w-[1500px] overflow-hidden rounded-2xl border font-sans ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}
+      className={`min-h-screen w-full font-sans ${dark ? "bg-zinc-950 text-zinc-200" : "bg-stone-50 text-stone-800"}`}
       style={{
-        minHeight: 640,
         backgroundImage: dark
-          ? "radial-gradient(900px circle at 100% 0%, rgba(59,130,246,0.08), transparent 45%), radial-gradient(700px circle at 0% 100%, rgba(56,189,248,0.06), transparent 45%)"
-          : "radial-gradient(900px circle at 100% 0%, rgba(29,78,216,0.06), transparent 45%)",
+          ? "radial-gradient(1100px circle at 85% -15%, rgba(59,130,246,0.09), transparent 55%)"
+          : "radial-gradient(1100px circle at 85% -15%, rgba(37,99,235,0.05), transparent 55%)",
+        backgroundRepeat: "no-repeat",
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
-        .font-display { font-family: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif; }
         @keyframes plFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         .pl-fade-in { animation: plFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes plPop { 0% { transform: scale(0.85); opacity: 0; } 60% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); } }
@@ -8577,7 +8584,7 @@ export default function App() {
         @keyframes plCelebrate { 0%, 100% { transform: scale(1) rotate(0deg); } 25% { transform: scale(1.15) rotate(-8deg); } 50% { transform: scale(1.1) rotate(6deg); } 75% { transform: scale(1.15) rotate(-4deg); } }
         .pl-celebrate { animation: plCelebrate 0.6s ease-in-out; }
         .pl-interactive { transition: transform 0.15s ease, box-shadow 0.15s ease; }
-        .pl-interactive:hover { transform: translateY(-1px) scale(1.008); }
+        .pl-interactive:hover { transform: none; }
         .pl-interactive:active { transform: scale(0.985); }
         .prospection-map-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
         .leaflet-container { background: #ddd; }
@@ -8632,16 +8639,16 @@ export default function App() {
         canImport={permissions.import}
       />
       {dbStatus === "error" && (
-        <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-6 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
+        <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-8 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
           <AlertTriangle size={13} /> Connexion à la base de données impossible — vérifiez que la table Supabase existe (voir README) et que la clé API est correcte. Rien ne sera sauvegardé tant que ce n'est pas résolu.
         </div>
       )}
       {showWelcome && vendorName && (
-        <div className={`flex flex-wrap items-center gap-2 px-4 py-2 text-xs font-medium md:px-6 ${dark ? "bg-blue-700/10 text-blue-300" : "bg-blue-50 text-blue-900"}`}>
+        <div className={`flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs font-medium md:px-8 ${dark ? "border-zinc-800 bg-zinc-900/50 text-zinc-400" : "border-stone-200/70 bg-stone-100/60 text-stone-600"}`}>
           <Info size={13} className="shrink-0" />
           <span>
             Bienvenue {vendorName} — vous êtes connecté avec le rôle <span className="font-semibold">{isSuperAdmin(vendorName) ? "Accès complet" : (findVendeur(vendeursList, vendorName)?.role || "Vendeur")}</span>.
-            {" "}Certaines fonctionnalités sont réservées aux rôles de gestion.
+            <span className="hidden sm:inline"> Certaines fonctionnalités sont réservées aux rôles de gestion.</span>
           </span>
           <button onClick={() => { setShowWelcome(false); saveLocal("dsr:welcome-seen", true); }} className="ml-auto shrink-0 underline-offset-2 hover:underline">
             Ne plus afficher
@@ -8656,11 +8663,11 @@ export default function App() {
       ) : ordersData.length === 0 ? (
         <ImportGate dark={dark} onImport={handleImport} onImportDossiers={handleImportDossiers} />
       ) : (
-        <div className="p-4 md:p-6">
+        <div className="mx-auto w-full max-w-[1400px] px-4 pb-12 pt-6 md:px-8">
           <div className="mb-6 lg:hidden">
             <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} canMarketing={canMarketing} />
           </div>
-          <div className="flex items-start gap-6">
+          <div className="flex items-start gap-8">
             <div className="hidden lg:block">
               <Sidebar
                 dark={dark}
@@ -8675,6 +8682,17 @@ export default function App() {
               />
             </div>
             <div key={tab} className="pl-fade-in min-w-0 flex-1 space-y-6">
+          {(() => {
+            const meta = {
+              vehicules: ["Véhicules", `${dashboardStats.total} véhicules · ${dashboardStats.disponibles} disponibles · ${dashboardStats.reserves} réservés`],
+              logistique: ["Logistique", "Stock, véhicules en transit et non sérialisés"],
+              dashboard: ["Tableau de bord", "Vue d'ensemble et tendances du parc"],
+              dossiers: ["Dossiers", "Import MyAna et attribution des ventes"],
+              accidentes: ["Accidentés", "Véhicules signalés hors service"],
+              reglages: ["Réglages", "Vendeurs, sites, alertes et sauvegardes"],
+            }[tab];
+            return meta ? <PageHeader dark={dark} title={meta[0]} subtitle={meta[1]} /> : null;
+          })()}
 
           {tab === "logistique" ? (
             <LogisticsTab dark={dark} vehicles={logisticsVehicles} vendeursList={mySiteScope ? vendeursList.filter((v) => v.site === mySiteScope) : vendeursList} sitesList={sitesList} onOpenVehicle={openInVehicules} simpleMode={myRole === "Vendeur" && !!mySiteScope} onSave={handleReservationSave} vendorName={vendorName} onUpdateVehicleSite={handleUpdateVehicleSite} onAddComment={handleAddVehicleComment} onDeleteComment={handleDeleteVehicleComment} />
@@ -8777,7 +8795,7 @@ export default function App() {
                     key={it.id}
                     onClick={() => setDossiersSubTab(it.id)}
                     className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${
-                      dossiersSubTab === it.id ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
+                      dossiersSubTab === it.id ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"
                     }`}
                   >
                     {it.label}

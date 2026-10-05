@@ -4,6 +4,7 @@
 import { build } from "esbuild";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const html = readFileSync("index.html", "utf8");
 
@@ -45,8 +46,20 @@ swap(/<script type="text\/babel"[^>]*src="\.\/app\.jsx"><\/script>/, `<script ty
 swap(/<style>/, `${preload}\n\n<style>`, "the <style> tag");
 
 rmSync("dist", { recursive: true, force: true });
-mkdirSync("dist", { recursive: true });
+mkdirSync("dist/fonts", { recursive: true });
+
+// ---- styles: Tailwind compiled once (no more runtime CDN script) + self-hosted Inter ----
+for (const f of ["inter-latin-wght-normal.woff2", "inter-latin-ext-wght-normal.woff2"]) {
+  copyFileSync(`node_modules/@fontsource-variable/inter/files/${f}`, `dist/fonts/${f}`);
+}
+execFileSync("node_modules/.bin/tailwindcss", ["-c", "tailwind.config.cjs", "-i", "styles.src.css", "-o", "dist/styles.tmp.css", "--minify"], { stdio: "pipe" });
+const css = readFileSync("dist/styles.tmp.css", "utf8");
+rmSync("dist/styles.tmp.css");
+const cssName = `styles.${createHash("sha256").update(css).digest("hex").slice(0, 10)}.css`;
+writeFileSync(`dist/${cssName}`, css);
+swap(/<!-- Tailwind[\s\S]*?-->\s*<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, `<link rel="preload" href="./fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />\n<link rel="stylesheet" href="./${cssName}" />`, "the Tailwind CDN <script>");
+
 writeFileSync(`dist/${jsName}`, code);
 writeFileSync("dist/index.html", out);
 if (existsSync(".nojekyll")) copyFileSync(".nojekyll", "dist/.nojekyll");
-console.log(`build ok: dist/${jsName} (${(code.length / 1024).toFixed(0)} KB, was ${(readFileSync("app.jsx").length / 1024).toFixed(0)} KB source)`);
+console.log(`build ok: dist/${jsName} (${(code.length / 1024).toFixed(0)} KB JS) + dist/${cssName} (${(css.length / 1024).toFixed(0)} KB CSS)`);

@@ -6,7 +6,7 @@
 <title>ParcLive</title>
 <link rel="icon" href="data:,">
 
-<!-- Tailwind (no build step — generates styles on the fly from class names) -->
+<!-- Tailwind: replaced at build time by the compiled stylesheet (see build.mjs). This CDN tag is only a fallback for opening the unbuilt file. -->
 <script src="https://cdn.tailwindcss.com"></script>
 
 <!-- Leaflet (OpenStreetMap) styles, used by the Prospection module's map view -->
@@ -33,8 +33,7 @@
 
 <style>
   html, body { height: 100%; margin: 0; background: #fafaf9; }
-  #root { min-height: 100%; padding: 20px; box-sizing: border-box; }
-  @media (min-width: 768px) { #root { padding: 32px; } }
+  #root { min-height: 100%; }
   #boot-fallback { display: flex; align-items: center; justify-content: center; height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; color: #78716c; font-size: 14px; }
 </style>
 </head>

@@ -49,6 +49,7 @@ Ouvrez l'adresse ci-dessus, entrez le code **Legrand27**, importez vos deux fich
 
 - `index.html` charge React, Tailwind et les autres librairies depuis un CDN (jsDelivr).
 - `app.jsx` est **compilé une seule fois à chaque déploiement** (`build.mjs`, esbuild, lancé automatiquement par GitHub Actions à chaque push sur `main`) : les navigateurs reçoivent un fichier déjà prêt (`dist/app.<hash>.js`) au lieu de compiler le code à chaque ouverture. Pour tester en local : `npm install && npm run build`.
+- **Design** : le thème (couleurs, typographie Inter auto-hébergée, rayons, ombres) est défini dans `tailwind.config.cjs` et `styles.src.css`. Tailwind est compilé au déploiement (plus de script CDN à l'exécution). `index.html` est un modèle : le site publié est le dossier `dist/` produit par `npm run build`.
 - Les écritures sur les données partagées sont **protégées contre les écrasements** : chaque sauvegarde vérifie que personne n'a modifié la donnée entre-temps, sinon elle relit et recommence sur la version la plus récente (`sPatch` dans `app.jsx`).
 - `sql/parclive_history.sql` (à lancer une fois dans Supabase) active l'historique des versions : écran Réglages > Général > « Restaurer une version ».
 - Les données partagées (imports, réservations, accidentés) passent maintenant par **Supabase** au lieu du système propre à Claude — c'est ce qui permet à toute l'équipe de voir les mêmes données en temps réel, peu importe qui ouvre le lien.

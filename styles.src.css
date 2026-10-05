@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Inter, self-hosted (copied to dist/fonts by build.mjs) */
+@font-face { font-family: "Inter Variable"; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url("./fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Inter Variable"; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url("./fonts/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  body { font-feature-settings: "cv11", "ss03"; letter-spacing: -0.006em; }
+  ::selection { background: #c7d7fe; }
+  * { scrollbar-width: thin; scrollbar-color: #cbd2dc transparent; }
+  input, select, textarea, button { font-family: inherit; }
+  :focus-visible { outline: 2px solid #3b6cf5; outline-offset: 2px; }
+}
+
+/* ---- Calmer, easier-to-read typography across the whole app ---- */
+.font-display { font-family: inherit; letter-spacing: -0.025em; }
+/* upper-case + wide tracking everywhere was visual noise: sentence case instead */
+.uppercase { text-transform: none !important; }
+.tracking-widest, .tracking-wider, .tracking-wide { letter-spacing: 0 !important; }
+/* tiny type is hard to read on a showroom screen: nudge the smallest sizes up */
+.text-\[9px\] { font-size: 10.5px !important; }
+.text-\[10px\] { font-size: 11px !important; }
+.text-\[11px\] { font-size: 12px !important; }
+.text-xs { font-size: 12.5px; line-height: 1.1rem; }
+/* bold small labels feel shouty — one step lighter */
+.text-xs.font-bold, .text-\[10px\].font-bold, .text-\[11px\].font-bold, .text-\[9px\].font-bold { font-weight: 600; }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* modal backdrops: soft blur instead of a flat dark veil */
+.fixed.inset-0[class*="bg-black"], .fixed.inset-0[class*="bg-zinc-950/"], .fixed.inset-0[class*="bg-stone-900/"] { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
