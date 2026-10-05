@@ -5727,90 +5727,6 @@ async function marketingExec(fn, attempts = 3) {
 }
 
 // ───────── Premium : saisie rapide, brouillons de tâches, point hebdo ─────────
-function marketingNorm(x) {
-  return String(x || "").replace(/[’‘]/g, "'").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
-const MARKETING_WEEKDAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
-
-// Lit une expression de date à partir du mot i : renvoie { iso, used } (used = nombre de mots consommés) ou null.
-function marketingParseDateAt(tokens, i, today) {
-  if (tokens[i] == null) return null;
-  const clean = (x) => marketingNorm(x).replace(/[.,;]+$/, "");
-  const w = clean(tokens[i]);
-  const n1 = clean(tokens[i + 1] || "");
-  const n2 = clean(tokens[i + 2] || "");
-  const todayDay = new Date(today + "T12:00:00").getDay();
-  if (w === "aujourd'hui" || w === "aujourdhui" || w === "auj") return { iso: today, used: 1 };
-  if (w === "demain") return { iso: marketingAddDays(today, 1), used: 1 };
-  if (w === "apres-demain" || w === "apresdemain") return { iso: marketingAddDays(today, 2), used: 1 };
-  const wd = MARKETING_WEEKDAYS.indexOf(w);
-  if (wd >= 0) return { iso: marketingAddDays(today, ((wd - todayDay + 7) % 7) || 7), used: n1 === "prochain" ? 2 : 1 };
-  if (w === "semaine" && n1 === "prochaine") return { iso: marketingAddDays(today, ((1 - todayDay + 7) % 7) || 7), used: 2 };
-  let m = w.match(/^\+(\d+)(j|jour|jours|d)$/);
-  if (m) return { iso: marketingAddDays(today, Number(m[1])), used: 1 };
-  m = w.match(/^\+(\d+)(s|sem|semaine|semaines)$/);
-  if (m) return { iso: marketingAddDays(today, Number(m[1]) * 7), used: 1 };
-  if (w === "dans" && /^\d+$/.test(n1)) {
-    if (/^(j|jour|jours)$/.test(n2)) return { iso: marketingAddDays(today, Number(n1)), used: 3 };
-    if (/^(s|sem|semaine|semaines)$/.test(n2)) return { iso: marketingAddDays(today, Number(n1) * 7), used: 3 };
-  }
-  m = w.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
-  if (m) {
-    const d = Number(m[1]), mo = Number(m[2]);
-    if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
-    let y = m[3] ? Number(m[3]) : Number(today.slice(0, 4));
-    if (m[3] && y < 100) y += 2000;
-    let iso = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    if (new Date(iso + "T12:00:00").getDate() !== d) return null; // 31/02 etc.
-    if (!m[3] && iso < today) iso = `${y + 1}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    return { iso, used: 1 };
-  }
-  return null;
-}
-
-// « Relancer l'agence visuels demain @Ophélie #black ! relance vendredi » → champs d'une tâche.
-//  @prénom = attribution · #mot = projet · ! = priorité haute · date = échéance · « relance <date> » · hebdo/mensuel/chaque mois = récurrence
-function marketingParseQuick(input, ctx) {
-  const members = ctx.members || [], projects = ctx.projects || [], today = ctx.today || prospectionTodayISO();
-  const tokens = String(input || "").trim().split(/\s+/).filter(Boolean);
-  const out = { titre: "", echeance: null, relance: null, assignee: null, project_id: null, priorite: "Normale", recurrence: null };
-  const keep = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const tk = tokens[i];
-    const n = marketingNorm(tk).replace(/[.,;]+$/, "");
-    const n1 = marketingNorm(tokens[i + 1] || "");
-    if (tk === "!" || tk === "!!") { out.priorite = "Haute"; continue; }
-    if (tk.startsWith("@") && tk.length > 1) {
-      const q = marketingNorm(tk.slice(1));
-      const m = members.find((x) => marketingNorm(x).startsWith(q));
-      if (m) { out.assignee = m; continue; }
-    }
-    if (tk.startsWith("#") && tk.length > 1) {
-      const q = marketingNorm(tk.slice(1)).replace(/[-_]/g, " ");
-      const p = projects.find((x) => x.statut !== "Terminé" && marketingNorm(x.titre).includes(q)) || projects.find((x) => marketingNorm(x.titre).includes(q));
-      if (p) { out.project_id = p.id; continue; }
-    }
-    if (n === "hebdo" || n === "hebdomadaire") { out.recurrence = "hebdo"; continue; }
-    if (n === "mensuel" || n === "mensuelle") { out.recurrence = "mensuel"; continue; }
-    if (n === "trimestriel" || n === "trimestrielle") { out.recurrence = "trimestriel"; continue; }
-    if (n === "chaque" && ["semaine", "mois", "trimestre"].includes(n1)) {
-      out.recurrence = n1 === "semaine" ? "hebdo" : n1 === "mois" ? "mensuel" : "trimestriel";
-      i += 1; continue;
-    }
-    if ((n === "relance" || n === "rappel") && !out.relance) {
-      const d = marketingParseDateAt(tokens, i + 1, today);
-      if (d) { out.relance = d.iso; i += d.used; continue; }
-    }
-    if (!out.echeance) {
-      const d = marketingParseDateAt(tokens, i, today);
-      if (d) { out.echeance = d.iso; i += d.used - 1; continue; }
-    }
-    keep.push(tk);
-  }
-  out.titre = keep.join(" ").trim();
-  return out;
-}
-
 let marketingKeySeq = 0;
 const marketingKey = () => "k" + ++marketingKeySeq;
 // Brouillon de tâche (avant création du projet) : offset/gap gardent le calage sur la deadline.
@@ -6271,7 +6187,6 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
   const myTasks = isNew ? [] : tasks.filter((t) => t.project_id === projectId);
   const sorted = [...myTasks].sort((a, b) => (a.statut === "Fait") - (b.statut === "Fait") || (a.echeance || "9999").localeCompare(b.echeance || "9999"));
   const prog = isNew ? null : marketingProjectProgress(live, tasks);
-  const ctx = { members, projects, today };
 
   const changeDeadline = (e) => {
     const deadline = e.target.value;
@@ -6293,11 +6208,7 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
   const addDraft = () => {
     const raw = draftInput.trim();
     if (!raw) return;
-    let item = { titre: raw, echeance: "", relance: "", assignee: p.responsable || "", priorite: "Normale" };
-    if (premium) {
-      const q = marketingParseQuick(raw, ctx);
-      if (q.titre) item = { titre: q.titre, echeance: q.echeance || "", relance: q.relance || "", assignee: q.assignee || p.responsable || "", priorite: q.priorite };
-    }
+    const item = { titre: raw, echeance: "", relance: "", assignee: p.responsable || "", priorite: "Normale" };
     setDraft((d) => [...d, { k: marketingKey(), offset: null, gap: null, dateEdited: true, ...item }]);
     setDraftInput("");
   };
@@ -6323,11 +6234,7 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
     const raw = quick.trim();
     if (!raw) return;
     setQuick("");
-    let fields = { titre: raw, assignee: p.responsable || me };
-    if (premium) {
-      const q = marketingParseQuick(raw, ctx);
-      if (q.titre) fields = { titre: q.titre, echeance: q.echeance, relance: q.relance, priorite: q.priorite, recurrence: q.recurrence, assignee: q.assignee || p.responsable || me };
-    }
+    const fields = { titre: raw, assignee: p.responsable || me };
     try { await onQuickAddTask(projectId, fields); }
     catch (e) { setQuick(raw); showToast(`Ajout impossible : ${e.message || e}`, { type: "error" }); }
   };
@@ -6420,7 +6327,7 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
                 value={draftInput}
                 onChange={(e) => setDraftInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addDraft()}
-                placeholder={premium ? "Ajouter une tâche… ex. « Valider visuels vendredi @Ophélie »" : "Ajouter une tâche (Entrée pour valider)"}
+                placeholder="Ajouter une tâche (Entrée pour valider)"
               />
               <button type="button" onClick={addDraft} className={s.primaryBtn} aria-label="Ajouter la tâche"><Plus size={16} /></button>
             </div>
@@ -6451,7 +6358,7 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
                 value={quick}
                 onChange={(e) => setQuick(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addQuick()}
-                placeholder={premium ? "Ajouter une tâche… ex. « Relancer agence demain ! »" : "Ajouter une tâche (Entrée pour valider)"}
+                placeholder="Ajouter une tâche (Entrée pour valider)"
               />
               <button type="button" onClick={addQuick} className={s.primaryBtn} aria-label="Ajouter"><Plus size={16} /></button>
             </div>
@@ -6480,8 +6387,7 @@ function MarketingTab({ dark, me, showToast }) {
   const today = prospectionTodayISO();
   const weekEnd = marketingAddDays(today, 7);
 
-  const [premium, setPremium] = useState(() => loadLocal("dsr:marketing-premium", true));
-  useEffect(() => { saveLocal("dsr:marketing-premium", premium); }, [premium]);
+  const premium = true; // mode Premium permanent
   const [vue, setVue] = useState(() => loadLocal("dsr:marketing-vue", "jour"));
   useEffect(() => { saveLocal("dsr:marketing-vue", vue); }, [vue]);
   const vueEff = !premium && vue === "tableau" ? "jour" : vue;
@@ -6496,9 +6402,7 @@ function MarketingTab({ dark, me, showToast }) {
   const [calMonth, setCalMonth] = useState(() => today.slice(0, 7) + "-01");
   const [calSel, setCalSel] = useState(today);
   const [selected, setSelected] = useState([]);
-  const [quickText, setQuickText] = useState("");
   const [dragId, setDragId] = useState(null);
-  const quickRef = useRef(null);
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const scoped = useMemo(
@@ -6543,17 +6447,7 @@ function MarketingTab({ dark, me, showToast }) {
     } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
   };
 
-  // ── Premium : saisie rapide ──
-  const parsed = useMemo(() => (quickText.trim() ? marketingParseQuick(quickText, { members, projects, today }) : null), [quickText, members, projects, today]);
-  const submitQuick = async () => {
-    if (!parsed) return;
-    if (!parsed.titre) { showToast("Il manque le titre de la tâche", { type: "error" }); return; }
-    try {
-      await data.saveTask({ ...parsed, assignee: parsed.assignee || me, statut: "À faire" });
-      showToast(`Tâche ajoutée${parsed.echeance ? " · échéance " + marketingFrDate(parsed.echeance) : ""}`);
-      setQuickText("");
-    } catch (e) { showToast(`Ajout impossible : ${e.message || e}`, { type: "error" }); }
-  };
+  // ── Premium : point de la semaine ──
   const copyDigest = async () => {
     const txt = marketingDigest({ tasks: scoped, projects, today, scopeLabel: scope && scope !== "__none" ? scope : "" });
     try {
@@ -6582,7 +6476,6 @@ function MarketingTab({ dark, me, showToast }) {
       const k = e.key.toLowerCase();
       if (k === "n") { e.preventDefault(); newTask(); }
       else if (k === "p") { e.preventDefault(); newProject(); }
-      else if (k === "q") { e.preventDefault(); quickRef.current?.focus(); }
       else if (VUE_KEYS[k]) { e.preventDefault(); setVue(VUE_KEYS[k]); setSelected([]); }
     };
     document.addEventListener("keydown", onKey);
@@ -6959,16 +6852,9 @@ function MarketingTab({ dark, me, showToast }) {
             <Megaphone size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
             Marketing · Ford Caen
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={premium}
-            onClick={() => setPremium((v) => !v)}
-            title="Active la saisie rapide, le tableau, les actions groupées, les raccourcis clavier et le point de la semaine"
-            className={`pl-interactive flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${premium ? "border-amber-400/60 bg-gradient-to-r from-amber-400/20 to-orange-400/20 " + (dark ? "text-amber-300" : "text-amber-800") : dark ? "border-zinc-700 text-zinc-500" : "border-stone-300 text-stone-400"}`}
-          >
-            <Sparkles size={12} />Premium {premium ? "activé" : "désactivé"}
-          </button>
+          <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${dark ? "border-amber-400/40 bg-amber-400/10 text-amber-300" : "border-amber-400/60 bg-amber-50 text-amber-800"}`}>
+            <Sparkles size={12} />Premium
+          </span>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
           <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par personne">
@@ -6984,39 +6870,7 @@ function MarketingTab({ dark, me, showToast }) {
         </div>
       </div>
 
-      {premium && (
-        <div className={`rounded-2xl border p-3 ${dark ? "border-amber-500/30 bg-amber-500/5" : "border-amber-300/70 bg-amber-50/60"}`}>
-          <div className="flex gap-2">
-            <input
-              ref={quickRef}
-              value={quickText}
-              onChange={(e) => setQuickText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submitQuick(); else if (e.key === "Escape") { setQuickText(""); e.target.blur(); } }}
-              placeholder="Ajout rapide : « Relancer l'agence visuels demain @Ophélie #black ! »"
-              aria-label="Ajout rapide d'une tâche"
-              className={s.input}
-            />
-            <button type="button" onClick={submitQuick} disabled={!parsed} className={s.primaryBtn}>Ajouter</button>
-          </div>
-          <div className={`mt-2 flex min-h-[20px] flex-wrap items-center gap-1.5 text-[11px] ${s.sub}`}>
-            {parsed ? (
-              <>
-                <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>{parsed.titre || "⚠ titre manquant"}</span>
-                {parsed.echeance && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-blue-500/20 text-blue-300" : "bg-blue-100 text-blue-800"}`}>Échéance {marketingFrDate(parsed.echeance, true)}</span>}
-                {parsed.relance && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Relance {marketingFrDate(parsed.relance, true)}</span>}
-                <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>→ {parsed.assignee || me || "non attribuée"}</span>
-                {parsed.project_id && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>Projet : {projectById.get(parsed.project_id)?.titre}</span>}
-                {parsed.priorite === "Haute" && <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">Priorité haute</span>}
-                {parsed.recurrence && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>↻ {MARKETING_RECURRENCE_LABEL[parsed.recurrence]}</span>}
-                <span>· Entrée pour créer</span>
-              </>
-            ) : (
-              <span>@prénom pour attribuer · #projet · ! priorité · « demain », « vendredi », « 12/11 », « +3j » pour l'échéance · « relance lundi » · « chaque semaine »</span>
-            )}
-          </div>
-          <div className={`mt-1 hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : <b>Q</b> ajout rapide · <b>N</b> nouvelle tâche · <b>P</b> nouveau projet · <b>1–5</b> changer de vue</div>
-        </div>
-      )}
+      <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : <b>N</b> nouvelle tâche · <b>P</b> nouveau projet · <b>1–5</b> changer de vue</div>
 
       <div className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
         {VUES.map(([k, l]) => (
