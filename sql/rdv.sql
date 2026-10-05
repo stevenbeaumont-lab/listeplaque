@@ -1,5 +1,6 @@
 -- ParcLive · Rapports RDV (BÊTA) — Ford Caen
--- Steven (administrateur) crée les rendez-vous ; chaque commercial ne voit que les siens et ne remplit que le suivi.
+-- Steven (administrateur) crée les rendez-vous ; chaque commercial ne voit que les siens et remplit le suivi.
+-- Un commercial peut aussi planifier la SUITE d'un de ses rendez-vous honorés ou absents (2e rendez-vous du même client).
 -- À exécuter une fois dans Supabase > SQL Editor. Sans risque de le relancer (idempotent).
 -- Données clients : tables protégées par RLS (rien n'est lisible sans compte autorisé).
 
@@ -89,6 +90,13 @@ create index if not exists rdv_commercial_date_idx on public.rdv (commercial, da
 create index if not exists rdv_date_idx on public.rdv (date_rdv);
 create index if not exists rdv_deleted_idx on public.rdv (deleted_at) where deleted_at is not null;
 
+-- Suite d'un rendez-vous : parent_id = rendez-vous précédent, affaire_id = 1er rendez-vous de la chaîne (le parcours du client).
+alter table public.rdv add column if not exists parent_id uuid references public.rdv(id) on delete set null;
+alter table public.rdv add column if not exists affaire_id uuid;
+update public.rdv set affaire_id = id where affaire_id is null;
+alter table public.rdv alter column affaire_id set not null;
+create index if not exists rdv_affaire_idx on public.rdv (affaire_id);
+
 create table if not exists public.rdv_history (
   id bigint generated always as identity primary key,
   rdv_id uuid not null references public.rdv(id) on delete cascade,
@@ -125,9 +133,22 @@ create table if not exists public.rdv_archive_mensuel (
 -- 3. Règles d'écriture (déclencheurs) -------------------------------------------
 create or replace function public.rdv_before_write() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare par record;
 begin
   if tg_op = 'INSERT' then
-    if not public.rdv_is_admin() then raise exception 'Seul l''administrateur peut créer un rendez-vous'; end if;
+    if new.parent_id is not null then
+      select affaire_id into par from public.rdv where id = new.parent_id;
+      new.affaire_id := coalesce(par.affaire_id, new.parent_id);
+    else
+      new.affaire_id := new.id;
+    end if;
+    if not public.rdv_is_admin() then
+      -- Un vendeur ne crée que la suite d'un de ses rendez-vous (la policy vérifie le rendez-vous parent).
+      if new.parent_id is null then raise exception 'Seul l''administrateur peut créer un rendez-vous'; end if;
+      new.commercial := public.rdv_my_nom();
+      new.statut := 'À venir'; new.commentaire := null; new.relance := null; new.motif_perte := null;
+      new.dossier_numero := null; new.deleted_at := null;
+    end if;
     new.created_by := auth.uid();
     new.created_at := now();
     new.venu := new.statut in ('Honoré', 'Vendu');
@@ -135,12 +156,13 @@ begin
   else
     -- Un commercial ne peut modifier que le suivi : tout le reste est figé.
     if not public.rdv_is_admin() then
-      if (new.client_nom, new.tel, new.commercial, new.date_rdv, new.type_rdv, new.source, new.vehicule_vise, new.vehicule_ref, new.consigne, new.deleted_at, new.created_by, new.created_at)
+      if (new.client_nom, new.tel, new.commercial, new.date_rdv, new.type_rdv, new.source, new.vehicule_vise, new.vehicule_ref, new.consigne, new.deleted_at, new.created_by, new.created_at, new.parent_id)
          is distinct from
-         (old.client_nom, old.tel, old.commercial, old.date_rdv, old.type_rdv, old.source, old.vehicule_vise, old.vehicule_ref, old.consigne, old.deleted_at, old.created_by, old.created_at) then
+         (old.client_nom, old.tel, old.commercial, old.date_rdv, old.type_rdv, old.source, old.vehicule_vise, old.vehicule_ref, old.consigne, old.deleted_at, old.created_by, old.created_at, old.parent_id) then
         raise exception 'Seul le suivi (statut, commentaire, relance, motif, dossier) est modifiable';
       end if;
     end if;
+    new.affaire_id := old.affaire_id;
     new.created_by := old.created_by;
     new.created_at := old.created_at;
     new.venu := case
@@ -162,7 +184,7 @@ declare diff jsonb; act text;
 begin
   if tg_op = 'INSERT' then
     insert into public.rdv_history (rdv_id, by_user, by_nom, action, changes)
-    values (new.id, auth.uid(), coalesce(public.rdv_my_nom(), 'Administrateur'), 'création', '{}'::jsonb);
+    values (new.id, auth.uid(), coalesce(public.rdv_my_nom(), 'Administrateur'), case when new.parent_id is null then 'création' else 'création (suite)' end, '{}'::jsonb);
     return new;
   end if;
   select coalesce(jsonb_object_agg(n.key, jsonb_build_array(o.value, n.value)), '{}'::jsonb) into diff
@@ -210,7 +232,15 @@ create policy "rdv_select" on public.rdv for select to authenticated
   using (public.rdv_is_admin() or (deleted_at is null and commercial = public.rdv_my_nom()));
 drop policy if exists "rdv_insert" on public.rdv;
 create policy "rdv_insert" on public.rdv for insert to authenticated
-  with check (public.rdv_is_admin());
+  with check (
+    public.rdv_is_admin()
+    or (
+      parent_id is not null
+      and commercial = public.rdv_my_nom()
+      and exists (select 1 from public.rdv p
+                  where p.id = rdv.parent_id and p.commercial = public.rdv_my_nom() and p.deleted_at is null and p.statut in ('Honoré', 'Absent'))
+    )
+  );
 drop policy if exists "rdv_update" on public.rdv;
 create policy "rdv_update" on public.rdv for update to authenticated
   using (public.rdv_is_admin() or (deleted_at is null and commercial = public.rdv_my_nom()))
@@ -232,6 +262,79 @@ create policy "rdv_objectifs_admin_write" on public.rdv_objectifs for all to aut
 drop policy if exists "rdv_archive_select" on public.rdv_archive_mensuel;
 create policy "rdv_archive_select" on public.rdv_archive_mensuel for select to authenticated
   using (public.rdv_is_admin());
+
+-- 4 bis. Journal de suivi (appels, SMS, e-mails, visites, notes), planning (repos, absences) -----------------
+create table if not exists public.rdv_notes (
+  id bigint generated always as identity primary key,
+  rdv_id uuid not null references public.rdv(id) on delete cascade,
+  affaire_id uuid,
+  at timestamptz not null default now(),
+  by_user uuid,
+  by_nom text,
+  type text not null default 'Note' check (type in ('Appel', 'SMS', 'E-mail', 'Visite', 'Note')),
+  texte text,
+  check (type <> 'Note' or length(trim(coalesce(texte, ''))) > 0)
+);
+create index if not exists rdv_notes_affaire_idx on public.rdv_notes (affaire_id, at desc);
+create index if not exists rdv_notes_at_idx on public.rdv_notes (at);
+
+create or replace function public.rdv_notes_before_insert() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.at := now();
+  new.by_user := auth.uid();
+  new.by_nom := coalesce(public.rdv_my_nom(), 'Administrateur');
+  select affaire_id into new.affaire_id from public.rdv where id = new.rdv_id;
+  return new;
+end;
+$$;
+revoke all on function public.rdv_notes_before_insert() from public, anon, authenticated;
+drop trigger if exists rdv_notes_before_insert_trg on public.rdv_notes;
+create trigger rdv_notes_before_insert_trg before insert on public.rdv_notes
+  for each row execute function public.rdv_notes_before_insert();
+
+-- Jours de repos hebdomadaires (0 = dimanche … 6 = samedi) et absences / congés par vendeur.
+create table if not exists public.rdv_planning (
+  commercial text primary key,
+  repos smallint[] not null default '{}',
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.rdv_absences (
+  id uuid primary key default gen_random_uuid(),
+  commercial text not null,
+  du date not null,
+  au date not null check (au >= du),
+  note text,
+  created_at timestamptz not null default now()
+);
+create index if not exists rdv_absences_idx on public.rdv_absences (commercial, du);
+
+alter table public.rdv_notes enable row level security;
+alter table public.rdv_planning enable row level security;
+alter table public.rdv_absences enable row level security;
+
+drop policy if exists "rdv_notes_select" on public.rdv_notes;
+create policy "rdv_notes_select" on public.rdv_notes for select to authenticated
+  using (public.rdv_is_admin() or exists (
+    select 1 from public.rdv r where r.affaire_id = rdv_notes.affaire_id and r.deleted_at is null and r.commercial = public.rdv_my_nom()));
+drop policy if exists "rdv_notes_insert" on public.rdv_notes;
+create policy "rdv_notes_insert" on public.rdv_notes for insert to authenticated
+  with check (public.rdv_is_admin() or exists (
+    select 1 from public.rdv r where r.id = rdv_notes.rdv_id and r.deleted_at is null and r.commercial = public.rdv_my_nom()));
+-- Le journal ne se modifie pas : aucune policy de mise à jour ni de suppression.
+
+drop policy if exists "rdv_planning_select" on public.rdv_planning;
+create policy "rdv_planning_select" on public.rdv_planning for select to authenticated
+  using (public.rdv_is_admin() or commercial = public.rdv_my_nom());
+drop policy if exists "rdv_planning_admin_write" on public.rdv_planning;
+create policy "rdv_planning_admin_write" on public.rdv_planning for all to authenticated
+  using (public.rdv_is_admin()) with check (public.rdv_is_admin());
+drop policy if exists "rdv_absences_select" on public.rdv_absences;
+create policy "rdv_absences_select" on public.rdv_absences for select to authenticated
+  using (public.rdv_is_admin() or commercial = public.rdv_my_nom());
+drop policy if exists "rdv_absences_admin_write" on public.rdv_absences;
+create policy "rdv_absences_admin_write" on public.rdv_absences for all to authenticated
+  using (public.rdv_is_admin()) with check (public.rdv_is_admin());
 
 -- 5. Purge : rendez-vous > 24 mois (statistiques mensuelles conservées) et corbeille > 30 jours ----
 create or replace function public.rdv_purge() returns integer
@@ -262,6 +365,15 @@ grant execute on function public.rdv_purge() to authenticated;
 -- 6. Temps réel ----------------------------------------------------------------
 do $$ begin
   alter publication supabase_realtime add table public.rdv;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.rdv_notes;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.rdv_planning;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.rdv_absences;
 exception when duplicate_object then null; end $$;
 
 -- 7. Donner l'accès administrateur à Steven (les commerciaux s'ajoutent depuis l'onglet, section « Gestion ») ----

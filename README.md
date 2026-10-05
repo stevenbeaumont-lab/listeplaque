@@ -87,3 +87,5 @@ Les vendeurs s'ajoutent ensuite depuis l'onglet, section « Gestion » (le vende
 <!-- retry 1783194223 -->
 <!-- retry 1783237299 -->
 <!-- retry 1783328275 -->
+
+Suivi complet : un client revenu plusieurs fois forme une **affaire** (RDV n°1, n°2…) ; le vendeur (ou l'administrateur) planifie « la suite » d'un rendez-vous honoré/absent. Vue **Pipeline** (Planifié → À saisir → En cours → À relancer → Vendu / Perdu), journal de contact (appel, SMS, e-mail, visite, note), **planning** des vendeurs (jours de repos + absences, section Gestion) : alerte à la création, relances reportées au premier jour de présence. Le sélecteur de vendeur se filtre aux premières lettres. Ré-exécuter `sql/rdv.sql` pour ces tables (relançable).
