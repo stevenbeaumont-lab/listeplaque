@@ -830,12 +830,12 @@ function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarke
   return [
     { id: "vehicules", label: "Véhicules", group: "Stock" },
     { id: "logistique", label: "Logistique", group: "Stock" },
-    canProspect && { id: "prospection", label: "Prospection", group: "Stock", beta: true },
-    permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Performance" },
-    permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
-    canMarketing && { id: "marketing", label: "Marketing", group: "Gestion", beta: true },
-    permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Gestion" },
-    permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Gestion" },
+    permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Stock" },
+    canProspect && { id: "prospection", label: "Prospection", group: "Commercial", beta: true },
+    permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Commercial" },
+    canMarketing && { id: "marketing", label: "Marketing", group: "Commercial", beta: true },
+    permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Pilotage" },
+    permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Administration" },
   ].filter(Boolean);
 }
 function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing }) {
@@ -843,7 +843,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   let lastGroup = null;
   return (
     <nav className="sticky top-20 flex w-52 shrink-0 flex-col gap-0.5 self-start">
-      {items.map((it) => {
+      {items.map((it, idx) => {
         const Icon = NAV_ICONS[it.id];
         const active = tab === it.id;
         const showGroupLabel = it.group !== lastGroup;
@@ -851,7 +851,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
         return (
           <div key={it.id}>
             {showGroupLabel && (
-              <div className={`px-3 pb-1.5 pt-6 text-[11px] font-medium first:pt-0 ${dark ? "text-zinc-500" : "text-stone-400"}`}>{it.group}</div>
+              <div className={`px-3 pb-1.5 text-[11px] font-medium ${idx === 0 ? "pt-0" : "pt-5"} ${dark ? "text-zinc-500" : "text-stone-400"}`}>{it.group}</div>
             )}
             <button
               onClick={() => setTab(it.id)}
@@ -976,12 +976,11 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
               <ul className={`space-y-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Véhicules</span> — parc complet, recherche, réservation</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Logistique</span> — en stock, en transit, non sérialisés</li>
-                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Convoyage</span> — transferts entre sites, localisation du stock</li>
-                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Challenge</span> — stock ancien à écouler, primes et classement</li>
-                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Tableau de bord</span> — statistiques et tendances</li>
-                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers</span> — import MyAna, attribution des ventes</li>
-                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Documents</span> — dossier Google Drive partagé</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Accidentés</span> — véhicules signalés HS</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Prospection</span> — carte et suivi des prospects B2B</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers</span> — import MyAna, attribution des ventes</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Marketing</span> — projets, tâches et relances</li>
+                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Tableau de bord</span> — statistiques et tendances</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Réglages</span> — vendeurs, sites, rôles & permissions</li>
               </ul>
             </div>
