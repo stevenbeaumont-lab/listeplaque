@@ -47,8 +47,10 @@ Ouvrez l'adresse ci-dessus, entrez le code **Legrand27**, importez vos deux fich
 
 ## Comment ça marche techniquement
 
-- `index.html` charge React, Tailwind et les autres librairies directement depuis un CDN (esm.sh / unpkg) — pas d'étape de build, pas de `npm install`, ça tourne tel quel sur GitHub Pages.
-- `app.jsx` est transformé en JavaScript directement dans le navigateur au chargement de la page (via Babel), donc vous pouvez éditer ce fichier tel quel si besoin plus tard.
+- `index.html` charge React, Tailwind et les autres librairies depuis un CDN (jsDelivr).
+- `app.jsx` est **compilé une seule fois à chaque déploiement** (`build.mjs`, esbuild, lancé automatiquement par GitHub Actions à chaque push sur `main`) : les navigateurs reçoivent un fichier déjà prêt (`dist/app.<hash>.js`) au lieu de compiler le code à chaque ouverture. Pour tester en local : `npm install && npm run build`.
+- Les écritures sur les données partagées sont **protégées contre les écrasements** : chaque sauvegarde vérifie que personne n'a modifié la donnée entre-temps, sinon elle relit et recommence sur la version la plus récente (`sPatch` dans `app.jsx`).
+- `sql/parclive_history.sql` (à lancer une fois dans Supabase) active l'historique des versions : écran Réglages > Général > « Restaurer une version ».
 - Les données partagées (imports, réservations, accidentés) passent maintenant par **Supabase** au lieu du système propre à Claude — c'est ce qui permet à toute l'équipe de voir les mêmes données en temps réel, peu importe qui ouvre le lien.
 - Le thème (clair/sombre), le nom du vendeur et le déverrouillage du code d'accès restent en local sur chaque navigateur (`localStorage`) — pas besoin de les partager.
 

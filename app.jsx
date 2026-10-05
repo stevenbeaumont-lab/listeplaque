@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
-import * as XLSX from "xlsx";
 import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
@@ -76,6 +75,24 @@ function saveLocal(key, value) {
   } catch (e) {}
 }
 
+// Version (updated_at, exactly as the database returned it) of each shared store as last read or
+// written by THIS tab. Writes are conditional on it, so a save never silently overwrites a change
+// a colleague made in the meantime (optimistic concurrency / compare-and-swap).
+const STORE_ABSENT = "__absent__";
+const storeVersions = {};
+
+async function sGetVersioned(key) {
+  try {
+    const { data, error } = await supabase.from(TABLE).select("value, updated_at").eq("key", key).maybeSingle();
+    if (error) return { ok: false, raw: null, version: undefined };
+    if (!data) { storeVersions[key] = STORE_ABSENT; return { ok: true, raw: null, version: STORE_ABSENT }; }
+    storeVersions[key] = data.updated_at;
+    return { ok: true, raw: JSON.stringify(data.value), version: data.updated_at };
+  } catch (e) {
+    console.error("supabase get failed", key, e);
+    return { ok: false, raw: null, version: undefined };
+  }
+}
 async function sGet(key, shared) {
   if (!shared) {
     try {
@@ -84,14 +101,7 @@ async function sGet(key, shared) {
       return null;
     }
   }
-  try {
-    const { data, error } = await supabase.from(TABLE).select("value").eq("key", key).maybeSingle();
-    if (error || !data) return null;
-    return JSON.stringify(data.value);
-  } catch (e) {
-    console.error("supabase get failed", key, e);
-    return null;
-  }
+  return (await sGetVersioned(key)).raw;
 }
 async function sGetTableMeta() {
   // Lightweight poll: only key + updated_at (a few bytes per row), so a background refresh
@@ -107,7 +117,32 @@ async function sGetTableMeta() {
     return null;
   }
 }
-async function sSet(key, value, shared) {
+// Low-level write. expected === undefined -> unconditional upsert (last write wins);
+// STORE_ABSENT -> insert only if the row does not exist yet; otherwise update only if the row's
+// updated_at still equals `expected`. Returns "ok" | "conflict" | "error".
+async function sWriteIf(key, value, expected) {
+  try {
+    const parsed = JSON.parse(value);
+    const now = new Date().toISOString();
+    let res;
+    if (expected === undefined) {
+      res = await supabase.from(TABLE).upsert({ key, value: parsed, updated_at: now }).select("updated_at");
+    } else if (expected === STORE_ABSENT) {
+      res = await supabase.from(TABLE).insert({ key, value: parsed, updated_at: now }).select("updated_at");
+      if (res.error && res.error.code === "23505") return "conflict";
+    } else {
+      res = await supabase.from(TABLE).update({ value: parsed, updated_at: now }).eq("key", key).eq("updated_at", expected).select("updated_at");
+      if (!res.error && (!res.data || res.data.length === 0)) return "conflict";
+    }
+    if (res.error) { console.error("supabase set failed", key, res.error); return "error"; }
+    storeVersions[key] = (res.data && res.data[0] && res.data[0].updated_at) || now;
+    return "ok";
+  } catch (e) {
+    console.error("supabase set failed", key, e);
+    return "error";
+  }
+}
+async function sSet(key, value, shared, opts) {
   if (!shared) {
     try {
       localStorage.setItem(key, value);
@@ -116,19 +151,52 @@ async function sSet(key, value, shared) {
       return false;
     }
   }
-  try {
-    const { error } = await supabase.from(TABLE).upsert({ key, value: JSON.parse(value), updated_at: new Date().toISOString() });
-    if (error) console.error("supabase set failed", key, error);
-    return !error;
-  } catch (e) {
-    console.error("supabase set failed", key, e);
-    return false;
+  // force: deliberate full replacement (imports, reset) -> last write wins, as before.
+  const expected = opts && opts.force ? undefined : storeVersions[key];
+  const r = await sWriteIf(key, value, expected);
+  if (r === "conflict") {
+    delete storeVersions[key];
+    try { window.dispatchEvent(new CustomEvent("parclive:conflict", { detail: { key } })); } catch (e) {}
   }
+  return r === "ok";
+}
+// Read-modify-write that cannot lose a colleague's change: reads the latest value, applies
+// `updater`, and writes only if nobody else wrote in between; otherwise re-reads and re-applies
+// (up to `retries` times). `updater` returns the new value, or undefined to cancel the write.
+async function sPatch(key, updater, fallback, retries = 5) {
+  for (let i = 0; i < retries; i++) {
+    const cur = await sGetVersioned(key);
+    if (!cur.ok) return { ok: false, next: null, aborted: false };
+    const fresh = cur.raw === null ? fallback : JSON.parse(cur.raw);
+    const next = updater(fresh);
+    if (next === undefined) return { ok: true, next: null, aborted: true };
+    const r = await sWriteIf(key, JSON.stringify(next), cur.version);
+    if (r === "ok") return { ok: true, next, aborted: false };
+    if (r === "error") return { ok: false, next: null, aborted: false };
+    // conflict -> somebody else wrote first: loop to re-read and re-apply on top of their change
+  }
+  try { window.dispatchEvent(new CustomEvent("parclive:conflict", { detail: { key } })); } catch (e) {}
+  return { ok: false, next: null, aborted: false, conflict: true };
 }
 
 // ---------------------------------------------------------------------------
 // Excel parsing helpers
 // ---------------------------------------------------------------------------
+// The Excel library is large and only needed when importing/exporting, so it is loaded on demand
+// instead of slowing down every page load.
+let xlsxPromise = null;
+function loadXLSX() {
+  if (!xlsxPromise) {
+    xlsxPromise = import("xlsx")
+      .then((m) => (m.utils ? m : m.default))
+      .catch((e) => {
+        xlsxPromise = null;
+        try { alert("Impossible de charger le module Excel — vérifiez la connexion puis réessayez."); } catch (_) {}
+        throw e;
+      });
+  }
+  return xlsxPromise;
+}
 function normalizeRow(row) {
   const out = {};
   Object.keys(row).forEach((k) => {
@@ -144,6 +212,7 @@ function pick(norm, ...keys) {
   return "";
 }
 async function parseWorkbook(file) {
+  const XLSX = await loadXLSX();
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array", cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -346,7 +415,8 @@ function powerLabel(v) {
   if (v.energy === "Électrique") return v.battery ? `${v.battery} kWh` : "—";
   return v.power ? `${v.power} ch` : "—";
 }
-function exportVehiclesToExcel(vehicles) {
+async function exportVehiclesToExcel(vehicles) {
+  const XLSX = await loadXLSX();
   const rows = vehicles.map((v) => ({
     "N° commande": v.orderNumber,
     "Véhicule": displayModel(v),
@@ -371,7 +441,8 @@ function exportVehiclesToExcel(vehicles) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-export-${stamp}.xlsx`);
 }
-function exportDossiersToExcel(dossiers) {
+async function exportDossiersToExcel(dossiers) {
+  const XLSX = await loadXLSX();
   const rows = dossiers.map((d) => ({
     "N° usine": d.numeroUsine || "",
     "Vendeur": d.vendeur || "",
@@ -392,7 +463,8 @@ function exportDossiersToExcel(dossiers) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-dossiers-${stamp}.xlsx`);
 }
-function exportVendeursToExcel(vendeursList) {
+async function exportVendeursToExcel(vendeursList) {
+  const XLSX = await loadXLSX();
   const rows = vendeursList.map((v) => ({
     "Nom": v.nom,
     "Email": v.email || "",
@@ -407,7 +479,8 @@ function exportVendeursToExcel(vendeursList) {
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `parclive-vendeurs-${stamp}.xlsx`);
 }
-function exportFullBackup(vehicles, dossiers, vendeursList) {
+async function exportFullBackup(vehicles, dossiers, vendeursList) {
+  const XLSX = await loadXLSX();
   const wb = XLSX.utils.book_new();
 
   const vRows = vehicles.map((v) => ({
@@ -3410,7 +3483,89 @@ function ChallengeSettingsPanel({ dark, challengeConfig, entriesCount, onUpdate,
   );
 }
 
-function GeneralSettingsPanel({ dark, activityLog, onExportBackup, documentsConfig, onUpdateDocumentsConfig }) {
+const HISTORY_STORES = [
+  [STORE_KEYS.overlays, "Réservations, sites et historiques des véhicules"],
+  [STORE_KEYS.orders, "Véhicules commandés"],
+  [STORE_KEYS.stock, "Véhicules en stock"],
+  [STORE_KEYS.dossiers, "Dossiers"],
+  [STORE_KEYS.manualSales, "Ventes attribuées manuellement"],
+  [STORE_KEYS.vendeurs, "Liste des vendeurs"],
+  [STORE_KEYS.accidents, "Véhicules accidentés"],
+  [STORE_KEYS.vehicleComments, "Commentaires sur les véhicules"],
+];
+// Restore an earlier state of a shared data set. Every change keeps the previous state in
+// parclive_data_history (database trigger), so a mistake — a bad import, a reset — can be undone.
+function VersionHistoryPanel({ dark, onRestore }) {
+  const [key, setKey] = useState(STORE_KEYS.overlays);
+  const [rows, setRows] = useState(null);
+  const [available, setAvailable] = useState(true);
+  const [confirmId, setConfirmId] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let off = false;
+    setRows(null);
+    setConfirmId(null);
+    (async () => {
+      try {
+        const { data, error } = await supabase.from("parclive_data_history").select("id, saved_at").eq("key", key).order("saved_at", { ascending: false }).limit(30);
+        if (off) return;
+        if (error) { setAvailable(false); setRows([]); return; }
+        setAvailable(true);
+        setRows(data || []);
+      } catch (e) {
+        if (!off) { setAvailable(false); setRows([]); }
+      }
+    })();
+    return () => { off = true; };
+  }, [key, tick]);
+  const label = (HISTORY_STORES.find(([k]) => k === key) || [])[1] || key;
+  const fmt = (iso) => new Date(iso).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  async function doRestore(row) {
+    setBusy(true);
+    const ok = await onRestore(key, row, label, fmt(row.saved_at));
+    setBusy(false);
+    setConfirmId(null);
+    if (ok) setTick((t) => t + 1);
+  }
+  const selectCls = `h-9 w-full rounded-lg border px-3 text-sm outline-none ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-800"}`;
+  return (
+    <div>
+      <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Restaurer une version</div>
+      <p className={`mb-2 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+        En cas d'erreur (mauvais import, réinitialisation, suppression), revenez à l'état des données juste avant une modification. La restauration est elle-même annulable.
+      </p>
+      <select value={key} onChange={(e) => setKey(e.target.value)} className={selectCls}>
+        {HISTORY_STORES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      </select>
+      {rows === null ? (
+        <p className={`mt-3 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Chargement…</p>
+      ) : !available ? (
+        <p className={`mt-3 text-sm font-semibold ${dark ? "text-amber-400" : "text-amber-600"}`}>L'historique des versions n'est pas encore activé sur la base de données.</p>
+      ) : rows.length === 0 ? (
+        <p className={`mt-3 text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune version enregistrée pour l'instant — elles apparaissent à chaque modification.</p>
+      ) : (
+        <ul className={`mt-3 max-h-64 space-y-1 overflow-y-auto rounded-2xl border p-2 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+          {rows.map((r) => (
+            <li key={r.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${dark ? "hover:bg-zinc-800/50" : "hover:bg-stone-50"}`}>
+              <span className={`min-w-0 flex-1 ${dark ? "text-zinc-300" : "text-stone-600"}`}>État avant la modification du <span className="font-semibold">{fmt(r.saved_at)}</span></span>
+              {confirmId === r.id ? (
+                <>
+                  <button disabled={busy} onClick={() => doRestore(r)} className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-bold text-white hover:bg-rose-500 disabled:opacity-60">{busy ? "Restauration…" : "Confirmer"}</button>
+                  <button disabled={busy} onClick={() => setConfirmId(null)} className={`rounded-lg border px-3 py-1 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-600"}`}>Annuler</button>
+                </>
+              ) : (
+                <button onClick={() => setConfirmId(r.id)} className={`flex items-center gap-1 rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}><RotateCcw size={12} /> Restaurer</button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function GeneralSettingsPanel({ dark, activityLog, onExportBackup, documentsConfig, onUpdateDocumentsConfig, onRestoreVersion }) {
   const [folderUrl, setFolderUrl] = useState(documentsConfig.folderUrl || "");
   const inputCls = `h-9 w-full rounded-lg border px-3 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   return (
@@ -3444,6 +3599,7 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup, documentsConf
           <Download size={15} /> Exporter une sauvegarde complète (Excel)
         </button>
       </div>
+      {onRestoreVersion && <VersionHistoryPanel dark={dark} onRestore={onRestoreVersion} />}
       <div>
         <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Journal d'activité récente</div>
         {activityLog.length === 0 ? (
@@ -3465,7 +3621,7 @@ function GeneralSettingsPanel({ dark, activityLog, onExportBackup, documentsConf
   );
 }
 
-function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, challengeConfig, challengeEntries, documentsConfig, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onUpdateChallengeConfig, onResetChallengeEntries, onExportBackup, onUpdateDocumentsConfig }) {
+function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSettings, activityLog, challengeConfig, challengeEntries, documentsConfig, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail, onUpdateSites, onUpdateAlertSettings, onUpdateChallengeConfig, onResetChallengeEntries, onExportBackup, onUpdateDocumentsConfig, onRestoreVersion }) {
   const [settingsTab, setSettingsTab] = useState("vendeurs");
   const items = [
     { id: "vendeurs", label: "Vendeurs", icon: Users, group: "equipe" },
@@ -3514,7 +3670,7 @@ function SettingsPanel({ dark, vendeurs, vehicles, dossiers, sitesList, alertSet
       ) : settingsTab === "challenge" ? (
         <ChallengeSettingsPanel dark={dark} challengeConfig={challengeConfig} entriesCount={challengeEntries.length} onUpdate={onUpdateChallengeConfig} onReset={onResetChallengeEntries} />
       ) : (
-        <GeneralSettingsPanel dark={dark} activityLog={activityLog} onExportBackup={onExportBackup} documentsConfig={documentsConfig} onUpdateDocumentsConfig={onUpdateDocumentsConfig} />
+        <GeneralSettingsPanel dark={dark} activityLog={activityLog} onExportBackup={onExportBackup} documentsConfig={documentsConfig} onUpdateDocumentsConfig={onUpdateDocumentsConfig} onRestoreVersion={onRestoreVersion} />
       )}
     </div>
   );
@@ -7546,6 +7702,21 @@ export default function App() {
     if (indicate) setSyncing(false);
   }, [PROTECTED_KEYS]);
 
+  // A save was refused because a colleague changed the same data first (see sSet / sPatch):
+  // tell the user and reload the latest values instead of silently overwriting them.
+  useEffect(() => {
+    let last = 0;
+    const onConflict = () => {
+      if (Date.now() - last < 4000) return;
+      last = Date.now();
+      showToast("Un collègue vient de modifier les mêmes données — elles ont été rechargées, refaites votre modification", { type: "error" });
+      refreshAll(false);
+    };
+    window.addEventListener("parclive:conflict", onConflict);
+    return () => window.removeEventListener("parclive:conflict", onConflict);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshAll]);
+
   const dataLoadedRef = useRef(false);
   async function loadInitialData() {
     const [o, s, ov, meta] = await Promise.all([
@@ -7668,9 +7839,9 @@ export default function App() {
     const stock = stockRows.map(toStockRecord).filter((s) => s.orderNumber);
     const meta = { importedAt: new Date().toISOString(), ordersCount: orders.length, stockCount: stock.length, ordersFileName, stockFileName };
     const results = await Promise.all([
-      sSet(STORE_KEYS.orders, JSON.stringify(orders), true),
-      sSet(STORE_KEYS.stock, JSON.stringify(stock), true),
-      sSet(STORE_KEYS.meta, JSON.stringify(meta), true),
+      sSet(STORE_KEYS.orders, JSON.stringify(orders), true, { force: true }),
+      sSet(STORE_KEYS.stock, JSON.stringify(stock), true, { force: true }),
+      sSet(STORE_KEYS.meta, JSON.stringify(meta), true, { force: true }),
     ]);
     const ok = results.every(Boolean);
     if (ok) {
@@ -7685,12 +7856,11 @@ export default function App() {
   }
 
   async function handleUpdateVehicleSite(orderNumber, site) {
-    const freshRaw = await sGet(STORE_KEYS.overlays, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : {};
-    const current = fresh[orderNumber] || {};
-    const next = { ...fresh, [orderNumber]: { ...current, siteLocation: site } };
-    const ok = await sSet(STORE_KEYS.overlays, JSON.stringify(next), true);
-    setOverlays(next);
+    const { ok, next } = await sPatch(STORE_KEYS.overlays, (fresh) => {
+      const current = fresh[orderNumber] || {};
+      return { ...fresh, [orderNumber]: { ...current, siteLocation: site } };
+    }, {});
+    if (next) setOverlays(next);
     localWriteVersionRef.current++;
     if (ok) showToast(site ? `Site rattaché : ${site}` : "Site retiré");
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
@@ -7755,36 +7925,37 @@ export default function App() {
 
   async function handleReservationSave(orderNumber, form) {
     const now = new Date();
-    const freshRaw = await sGet(STORE_KEYS.overlays, true);
-    const freshOverlays = freshRaw ? JSON.parse(freshRaw) : {};
-    const current = freshOverlays[orderNumber] || { reservation: null, history: [] };
-    const old = current.reservation || {};
-    const history = [...(current.history || [])];
-    [
-      ["vendeur", "Vendeur"],
-      ["client", "Client"],
-      ["statut", "Statut"],
-      ["dateDebut", "Date début"],
-      ["dateFin", "Date fin"],
-      ["commentaire", "Commentaire"],
-    ].forEach(([key, label]) => {
-      const oldVal = old[key] || "—";
-      const newVal = form[key] || "—";
-      if (oldVal !== newVal) {
-        history.unshift({
-          utilisateur: vendorName || "Vendeur",
-          date: now.toLocaleDateString("fr-FR"),
-          heure: now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-          champ: label,
-          ancienne: oldVal,
-          nouvelle: newVal,
-        });
-      }
-    });
-    const next = { ...freshOverlays, [orderNumber]: { ...current, reservation: form, history } };
-    await sSet(STORE_KEYS.overlays, JSON.stringify(next), true);
-    setOverlays(next);
+    let old = {};
+    const { ok: saved, next } = await sPatch(STORE_KEYS.overlays, (freshOverlays) => {
+      const current = freshOverlays[orderNumber] || { reservation: null, history: [] };
+      old = current.reservation || {};
+      const history = [...(current.history || [])];
+      [
+        ["vendeur", "Vendeur"],
+        ["client", "Client"],
+        ["statut", "Statut"],
+        ["dateDebut", "Date début"],
+        ["dateFin", "Date fin"],
+        ["commentaire", "Commentaire"],
+      ].forEach(([key, label]) => {
+        const oldVal = old[key] || "—";
+        const newVal = form[key] || "—";
+        if (oldVal !== newVal) {
+          history.unshift({
+            utilisateur: vendorName || "Vendeur",
+            date: now.toLocaleDateString("fr-FR"),
+            heure: now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+            champ: label,
+            ancienne: oldVal,
+            nouvelle: newVal,
+          });
+        }
+      });
+      return { ...freshOverlays, [orderNumber]: { ...current, reservation: form, history } };
+    }, {});
+    if (next) setOverlays(next);
     localWriteVersionRef.current++;
+    if (!saved) { showToast("Échec de l'enregistrement de la réservation — rechargez la page et réessayez", { type: "error" }); return; }
     if (form.statut === "Réservation annulée") logActivity(`Annulation réservation — commande ${orderNumber}`);
     else if (!old.statut) {
       logActivity(`Nouvelle réservation — commande ${orderNumber} pour ${form.client || "client inconnu"}`);
@@ -7797,8 +7968,8 @@ export default function App() {
     const dossiers = rows.map(toDossierRecord).filter((d) => d.numero || d.numeroUsine || d.vendeur);
     const meta = { importedAt: new Date().toISOString(), count: dossiers.length, fileName };
     const results = await Promise.all([
-      sSet(STORE_KEYS.dossiers, JSON.stringify(dossiers), true),
-      sSet(STORE_KEYS.dossiersMeta, JSON.stringify(meta), true),
+      sSet(STORE_KEYS.dossiers, JSON.stringify(dossiers), true, { force: true }),
+      sSet(STORE_KEYS.dossiersMeta, JSON.stringify(meta), true, { force: true }),
     ]);
     const ok = results.every(Boolean);
     if (ok) {
@@ -7808,19 +7979,21 @@ export default function App() {
       logActivity(`Import dossiers MyAna — ${dossiers.length} dossiers`);
 
       const foundNames = [...new Set(dossiers.map((d) => d.vendeur).filter(Boolean))];
-      const freshVendeursRaw = await sGet(STORE_KEYS.vendeurs, true);
-      const freshVendeurs = freshVendeursRaw ? JSON.parse(freshVendeursRaw).map(normalizeVendeur) : [];
-      const lowerExisting = new Set(freshVendeurs.map((v) => v.nom.toLowerCase()));
-      const newNames = foundNames.filter((n) => !lowerExisting.has(n.toLowerCase()));
-      if (newNames.length > 0) {
-        const newOnes = newNames.map((n) => {
+      let newOnes = [];
+      const vr = await sPatch(STORE_KEYS.vendeurs, (fresh) => {
+        const freshVendeurs = fresh.map(normalizeVendeur);
+        const lowerExisting = new Set(freshVendeurs.map((v) => v.nom.toLowerCase()));
+        const newNames = foundNames.filter((n) => !lowerExisting.has(n.toLowerCase()));
+        if (newNames.length === 0) return undefined;
+        newOnes = newNames.map((n) => {
           const localisation = dossiers.find((d) => d.vendeur === n)?.localisation || "";
           const matchedSite = sitesList.find((s) => localisation && s.toLowerCase().includes(localisation.toLowerCase()));
           return { nom: n, site: matchedSite || "" };
         });
-        const merged = [...freshVendeurs, ...newOnes];
-        await sSet(STORE_KEYS.vendeurs, JSON.stringify(merged), true);
-        setVendeursList(merged);
+        return [...freshVendeurs, ...newOnes];
+      }, []);
+      if (vr.next && newOnes.length > 0) {
+        setVendeursList(vr.next);
         showToast(`${newOnes.length} nouveau${newOnes.length > 1 ? "x" : ""} vendeur${newOnes.length > 1 ? "s" : ""} ajouté${newOnes.length > 1 ? "s" : ""} depuis l'import`);
       }
     }
@@ -7831,23 +8004,22 @@ export default function App() {
   const pendingVendeurDeleteRef = useRef(null);
 
   async function patchVendeursList(updater) {
-    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
-    const next = updater(fresh);
-    const ok = await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
-    setVendeursList(next);
+    const { ok, next } = await sPatch(STORE_KEYS.vendeurs, (fresh) => updater(fresh.map(normalizeVendeur)), []);
+    if (next) setVendeursList(next);
     localWriteVersionRef.current++;
     return ok;
   }
 
   async function handleAddVendeur(name, site) {
-    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
-    if (fresh.some((v) => v.nom.toLowerCase() === name.toLowerCase())) {
+    let dup = false;
+    const ok = await patchVendeursList((fresh) => {
+      if (fresh.some((v) => v.nom.toLowerCase() === name.toLowerCase())) { dup = true; return undefined; }
+      return [...fresh, { nom: name, site: site || "" }];
+    });
+    if (dup) {
       showToast(`${name} est déjà dans la liste`, { type: "error" });
       return;
     }
-    const ok = await patchVendeursList(() => [...fresh, { nom: name, site: site || "" }]);
     if (ok) showToast(`${name} ajouté à la liste des vendeurs`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
@@ -7892,11 +8064,8 @@ export default function App() {
       utilisateur: vendorName || "—",
       action,
     };
-    const freshRaw = await sGet(STORE_KEYS.activityLog, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
-    const next = [entry, ...fresh].slice(0, 200);
-    await sSet(STORE_KEYS.activityLog, JSON.stringify(next), true);
-    setActivityLog(next);
+    const { next } = await sPatch(STORE_KEYS.activityLog, (fresh) => [entry, ...fresh].slice(0, 200), []);
+    if (next) setActivityLog(next);
     localWriteVersionRef.current++;
   }
 
@@ -7945,8 +8114,6 @@ export default function App() {
 
   async function handleAddVehicleComment(orderNumber, categorie, texte) {
     const now = new Date();
-    const freshRaw = await sGet(STORE_KEYS.vehicleComments, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       orderNumber,
@@ -7956,20 +8123,16 @@ export default function App() {
       date: now.toLocaleDateString("fr-FR"),
       heure: now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
     };
-    const next = [entry, ...fresh];
-    const ok = await sSet(STORE_KEYS.vehicleComments, JSON.stringify(next), true);
-    setVehicleComments(next);
+    const { ok, next } = await sPatch(STORE_KEYS.vehicleComments, (fresh) => [entry, ...fresh], []);
+    if (next) setVehicleComments(next);
     localWriteVersionRef.current++;
     if (ok) showToast("Commentaire ajouté");
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function handleDeleteVehicleComment(id) {
-    const freshRaw = await sGet(STORE_KEYS.vehicleComments, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
-    const next = fresh.filter((c) => c.id !== id);
-    const ok = await sSet(STORE_KEYS.vehicleComments, JSON.stringify(next), true);
-    setVehicleComments(next);
+    const { ok, next } = await sPatch(STORE_KEYS.vehicleComments, (fresh) => fresh.filter((c) => c.id !== id), []);
+    if (next) setVehicleComments(next);
     localWriteVersionRef.current++;
     if (ok) showToast("Commentaire supprimé");
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
@@ -8007,36 +8170,38 @@ export default function App() {
   async function handleRenameVendeur(oldName, newName) {
     const clean = newName.trim();
     if (!clean || clean === oldName) return;
-    const freshVendeursRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const freshVendeurs = freshVendeursRaw ? JSON.parse(freshVendeursRaw).map(normalizeVendeur) : [];
-    if (freshVendeurs.some((v) => v.nom.toLowerCase() === clean.toLowerCase())) {
+    let dup = false;
+    const { ok: okV, next: nextVendeurs } = await sPatch(STORE_KEYS.vendeurs, (fresh) => {
+      const freshVendeurs = fresh.map(normalizeVendeur);
+      if (freshVendeurs.some((v) => v.nom.toLowerCase() === clean.toLowerCase())) { dup = true; return undefined; }
+      return freshVendeurs.map((v) => (v.nom === oldName ? { ...v, nom: clean } : v));
+    }, []);
+    if (dup) {
       showToast(`${clean} existe déjà dans la liste`, { type: "error" });
       return;
     }
-    const nextVendeurs = freshVendeurs.map((v) => (v.nom === oldName ? { ...v, nom: clean } : v));
-    const okV = await sSet(STORE_KEYS.vendeurs, JSON.stringify(nextVendeurs), true);
-    setVendeursList(nextVendeurs);
+    if (nextVendeurs) setVendeursList(nextVendeurs);
 
-    const freshOverlaysRaw = await sGet(STORE_KEYS.overlays, true);
-    const freshOverlays = freshOverlaysRaw ? JSON.parse(freshOverlaysRaw) : {};
-    const nextOverlays = {};
-    Object.entries(freshOverlays).forEach(([orderNumber, ov]) => {
-      const nov = { ...ov };
-      if (nov.reservation?.vendeur === oldName) nov.reservation = { ...nov.reservation, vendeur: clean };
-      nextOverlays[orderNumber] = nov;
-    });
-    await sSet(STORE_KEYS.overlays, JSON.stringify(nextOverlays), true);
-    setOverlays(nextOverlays);
+    const { next: nextOverlays } = await sPatch(STORE_KEYS.overlays, (freshOverlays) => {
+      const out = {};
+      Object.entries(freshOverlays).forEach(([orderNumber, ov]) => {
+        const nov = { ...ov };
+        if (nov.reservation?.vendeur === oldName) nov.reservation = { ...nov.reservation, vendeur: clean };
+        out[orderNumber] = nov;
+      });
+      return out;
+    }, {});
+    if (nextOverlays) setOverlays(nextOverlays);
 
-    const freshManualRaw = await sGet(STORE_KEYS.manualSales, true);
-    const freshManual = freshManualRaw ? JSON.parse(freshManualRaw) : {};
-    const nextManual = {};
-    Object.entries(freshManual).forEach(([orderNumber, ms]) => {
-      const m = typeof ms === "string" ? { vendeur: ms, client: "" } : ms;
-      nextManual[orderNumber] = m.vendeur === oldName ? { ...m, vendeur: clean } : m;
-    });
-    await sSet(STORE_KEYS.manualSales, JSON.stringify(nextManual), true);
-    setManualSales(nextManual);
+    const { next: nextManual } = await sPatch(STORE_KEYS.manualSales, (freshManual) => {
+      const out = {};
+      Object.entries(freshManual).forEach(([orderNumber, ms]) => {
+        const m = typeof ms === "string" ? { vendeur: ms, client: "" } : ms;
+        out[orderNumber] = m.vendeur === oldName ? { ...m, vendeur: clean } : m;
+      });
+      return out;
+    }, {});
+    if (nextManual) setManualSales(nextManual);
 
     localWriteVersionRef.current++;
     if (okV) showToast(`${oldName} renommé en ${clean}`);
@@ -8045,26 +8210,24 @@ export default function App() {
 
   async function handleAssignManualSale(orderNumber, patch) {
     const key = normalizeOrderNum(orderNumber);
-    const freshRaw = await sGet(STORE_KEYS.manualSales, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : {};
-    const next = { ...fresh };
-    const existing = fresh[key];
-    const existingObj = typeof existing === "string" ? { vendeur: existing, client: "" } : existing || { vendeur: "", client: "" };
-    const merged = { ...existingObj, ...patch };
-    if (merged.vendeur || merged.client) next[key] = merged;
-    else delete next[key];
-    const ok = await sSet(STORE_KEYS.manualSales, JSON.stringify(next), true);
-    setManualSales(next);
+    let merged = {};
+    const { ok, next } = await sPatch(STORE_KEYS.manualSales, (fresh) => {
+      const out = { ...fresh };
+      const existing = fresh[key];
+      const existingObj = typeof existing === "string" ? { vendeur: existing, client: "" } : existing || { vendeur: "", client: "" };
+      merged = { ...existingObj, ...patch };
+      if (merged.vendeur || merged.client) out[key] = merged;
+      else delete out[key];
+      return out;
+    }, {});
+    if (next) setManualSales(next);
     localWriteVersionRef.current++;
     if (ok) showToast(merged.vendeur || merged.client ? `Commande ${orderNumber} mise à jour` : `Attribution retirée pour ${orderNumber}`);
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
   }
 
   async function commitVendeurDelete(name) {
-    const freshRaw = await sGet(STORE_KEYS.vendeurs, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw).map(normalizeVendeur) : [];
-    const next = fresh.filter((v) => v.nom !== name);
-    await sSet(STORE_KEYS.vendeurs, JSON.stringify(next), true);
+    await sPatch(STORE_KEYS.vendeurs, (fresh) => fresh.map(normalizeVendeur).filter((v) => v.nom !== name), []);
   }
 
   function handleRemoveVendeur(name) {
@@ -8094,22 +8257,14 @@ export default function App() {
   }
 
   async function commitAccidentDelete(id) {
-    const freshRaw = await sGet(STORE_KEYS.accidents, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
-    const next = fresh.filter((a) => a.id !== id);
-    await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
+    await sPatch(STORE_KEYS.accidents, (fresh) => fresh.filter((a) => a.id !== id), []);
   }
 
   async function handleAddAccident({ orderNumber, note, addedBy }) {
     const now = new Date();
-    const freshRaw = await sGet(STORE_KEYS.accidents, true);
-    const fresh = freshRaw ? JSON.parse(freshRaw) : [];
-    const next = [
-      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, orderNumber, note, addedBy, addedAt: now.toLocaleDateString("fr-FR") },
-      ...fresh,
-    ];
-    const ok = await sSet(STORE_KEYS.accidents, JSON.stringify(next), true);
-    setAccidents(next);
+    const entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, orderNumber, note, addedBy, addedAt: now.toLocaleDateString("fr-FR") };
+    const { ok, next } = await sPatch(STORE_KEYS.accidents, (fresh) => [entry, ...fresh], []);
+    if (next) setAccidents(next);
     localWriteVersionRef.current++;
     if (ok) { showToast(`Véhicule ${orderNumber} ajouté aux accidentés`); logActivity(`Véhicule accidenté ajouté — commande ${orderNumber}`); }
     else showToast("Échec de l'enregistrement — vérifiez la connexion à la base de données", { type: "error" });
@@ -8142,12 +8297,30 @@ export default function App() {
     });
   }
 
+  async function handleRestoreVersion(key, row, label, when) {
+    try {
+      const { data, error } = await supabase.from("parclive_data_history").select("value").eq("id", row.id).maybeSingle();
+      if (error || !data) { showToast("Version introuvable", { type: "error" }); return false; }
+      const ok = await sSet(key, JSON.stringify(data.value), true, { force: true });
+      if (!ok) { showToast("Échec de la restauration — réessayez", { type: "error" }); return false; }
+      localWriteVersionRef.current++;
+      showToast(`Version restaurée — ${label}`);
+      logActivity(`Restauration d'une version — ${label} (état avant le ${when})`);
+      refreshAll(true);
+      return true;
+    } catch (e) {
+      console.error("restore failed", e);
+      showToast("Échec de la restauration — réessayez", { type: "error" });
+      return false;
+    }
+  }
+
   async function handleReset() {
     await Promise.all([
-      sSet(STORE_KEYS.orders, JSON.stringify([]), true),
-      sSet(STORE_KEYS.stock, JSON.stringify([]), true),
-      sSet(STORE_KEYS.overlays, JSON.stringify({}), true),
-      sSet(STORE_KEYS.meta, JSON.stringify(null), true),
+      sSet(STORE_KEYS.orders, JSON.stringify([]), true, { force: true }),
+      sSet(STORE_KEYS.stock, JSON.stringify([]), true, { force: true }),
+      sSet(STORE_KEYS.overlays, JSON.stringify({}), true, { force: true }),
+      sSet(STORE_KEYS.meta, JSON.stringify(null), true, { force: true }),
     ]);
     setOrdersData([]);
     setStockData([]);
@@ -8666,6 +8839,7 @@ export default function App() {
               onResetChallengeEntries={handleResetChallengeEntries}
               onExportBackup={() => exportFullBackup(vehicles, dossiers, vendeursList)}
               onUpdateDocumentsConfig={handleUpdateDocumentsConfig}
+              onRestoreVersion={isSuperAdmin(vendorName) || myRole === "Chef des ventes" || myRole === "Directeur de plaque" ? handleRestoreVersion : undefined}
             />
           ) : (
             <>
