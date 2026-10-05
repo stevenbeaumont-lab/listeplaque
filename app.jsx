@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing, Sparkles,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing, Sparkles, Paperclip, ExternalLink,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -5689,6 +5689,112 @@ function marketingMonthGrid(monthISO) {
   return cells;
 }
 
+
+// ───────── v2 : budget, liens, alerte « projet en danger », bilan ─────────
+function marketingParseAmount(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = parseFloat(String(v).replace(/[\s\u00a0€]/g, "").replace(",", "."));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+function marketingEuro(n) {
+  const v = Number(n) || 0;
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: Number.isInteger(v) ? 0 : 2 }).format(v);
+}
+// Accepte « drive.google.com/… » (ajoute https://) ; refuse tout schéma autre que http(s).
+function marketingNormalizeUrl(raw) {
+  let u = String(raw || "").trim();
+  if (!u) return null;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = "https://" + u;
+  if (!/^https?:\/\//i.test(u)) return null;
+  try { new URL(u); } catch (e) { return null; }
+  return u;
+}
+function marketingBudgetState(project, expenses) {
+  const prevu = project.budget != null ? Number(project.budget) : null;
+  const depense = expenses.filter((x) => x.project_id === project.id).reduce((a, x) => a + Number(x.montant || 0), 0);
+  return { prevu, depense, reste: prevu != null ? prevu - depense : null, pct: prevu ? Math.min(100, Math.round((depense / prevu) * 100)) : 0, over: prevu != null && depense > prevu };
+}
+// Un projet est « en danger » si sa deadline approche sans avancement suffisant, si des tâches sont en retard
+// ou prévues après la deadline, ou si le budget est dépassé. level : "" | "risk" | "late".
+function marketingProjectRisk(project, tasks, today, expenses) {
+  const none = { level: "", reasons: [] };
+  if (project.statut === "Terminé") return none;
+  const mine = tasks.filter((t) => t.project_id === project.id);
+  const open = mine.filter((t) => t.statut !== "Fait");
+  const done = mine.length - open.length;
+  const reasons = [];
+  const days = project.deadline ? marketingDaysBetween(today, project.deadline) : null;
+  if (days !== null) {
+    if (days < 0) reasons.push(`Deadline dépassée de ${-days} j`);
+    else if (days <= 14 && mine.length === 0) reasons.push(`J-${days} et aucune tâche planifiée`);
+    else if (mine.length > 0) {
+      const ratio = done / mine.length;
+      if (open.length > 0 && ((days <= 7 && ratio < 0.8) || (days <= 14 && ratio < 0.5))) reasons.push(`J-${days} : seulement ${done}/${mine.length} tâches faites`);
+    }
+  }
+  const late = open.filter((t) => t.echeance && t.echeance < today).length;
+  if (late >= 2 || (late === 1 && days !== null && days <= 14)) reasons.push(`${late} tâche${late > 1 ? "s" : ""} en retard`);
+  if (project.deadline) {
+    const after = open.filter((t) => t.echeance && t.echeance > project.deadline).length;
+    if (after > 0) reasons.push(`${after} tâche${after > 1 ? "s" : ""} prévue${after > 1 ? "s" : ""} après la deadline`);
+  }
+  if (expenses) {
+    const b = marketingBudgetState(project, expenses);
+    if (b.over) reasons.push(`Budget dépassé de ${marketingEuro(b.depense - b.prevu)}`);
+  }
+  if (!reasons.length) return none;
+  return { level: days !== null && days < 0 ? "late" : "risk", reasons };
+}
+
+function marketingBilan({ project, tasks, expenses, links, comments, today }) {
+  const mine = tasks.filter((t) => t.project_id === project.id);
+  const doneTasks = mine.filter((t) => t.statut === "Fait");
+  const openTasks = mine.filter((t) => t.statut !== "Fait");
+  const dayOf = (iso) => (iso ? prospectionTodayISO(new Date(iso)) : "");
+  const lastDone = doneTasks.map((t) => dayOf(t.done_at)).filter(Boolean).sort().pop() || "";
+  const debut = dayOf(project.created_at) || today;
+  const fin = project.statut === "Terminé" ? lastDone || today : today;
+  const doneLate = doneTasks.filter((t) => t.echeance && t.done_at && dayOf(t.done_at) > t.echeance).length;
+  const people = new Map();
+  mine.forEach((t) => {
+    const k = t.assignee || "Non attribuée";
+    const e = people.get(k) || { nom: k, faites: 0, total: 0 };
+    e.total++; if (t.statut === "Fait") e.faites++;
+    people.set(k, e);
+  });
+  const myExpenses = expenses.filter((x) => x.project_id === project.id).sort((a, b) => (a.date_depense || "").localeCompare(b.date_depense || ""));
+  const taskIds = new Set(mine.map((t) => t.id));
+  return {
+    titre: project.titre, categorie: project.categorie || "", responsable: project.responsable || "", statut: project.statut,
+    deadline: project.deadline || "", debut, fin, dureeJours: Math.max(0, marketingDaysBetween(debut, fin)),
+    retardDeadline: project.deadline && fin > project.deadline ? marketingDaysBetween(project.deadline, fin) : 0,
+    total: mine.length, done: doneTasks.length, open: openTasks.length, pct: mine.length ? Math.round((doneTasks.length / mine.length) * 100) : 0,
+    doneLate, openTitles: openTasks.map((t) => t.titre),
+    personnes: [...people.values()].sort((a, b) => b.faites - a.faites),
+    budget: marketingBudgetState(project, expenses), depenses: myExpenses,
+    nbLiens: links.filter((l) => l.project_id === project.id || taskIds.has(l.task_id)).length,
+    nbCommentaires: comments.filter((c) => taskIds.has(c.task_id)).length,
+  };
+}
+function marketingBilanText(b) {
+  const fr = (d) => marketingFrDate(d);
+  const L = [`Bilan du projet « ${b.titre} » — Ford Caen`];
+  if (b.categorie || b.responsable) L.push([b.categorie, b.responsable && `responsable : ${b.responsable}`].filter(Boolean).join(" · "));
+  L.push("");
+  L.push(`Période : ${fr(b.debut)} → ${fr(b.fin)} (${b.dureeJours} jours)${b.deadline ? ` · deadline ${fr(b.deadline)}${b.retardDeadline > 0 ? `, dépassée de ${b.retardDeadline} j` : ", respectée"}` : ""}`);
+  L.push(`Tâches : ${b.done}/${b.total} faites (${b.pct} %)${b.doneLate ? ` · ${b.doneLate} terminée${b.doneLate > 1 ? "s" : ""} en retard` : ""}${b.open ? ` · ${b.open} non terminée${b.open > 1 ? "s" : ""}` : ""}`);
+  if (b.open) b.openTitles.forEach((t) => L.push(`  • restant : ${t}`));
+  if (b.personnes.length) { L.push(""); L.push("Répartition :"); b.personnes.forEach((p) => L.push(`  • ${p.nom} : ${p.faites}/${p.total} tâches faites`)); }
+  L.push("");
+  if (b.budget.prevu != null || b.depenses.length) {
+    L.push(`Budget : ${b.budget.prevu != null ? `prévu ${marketingEuro(b.budget.prevu)} · ` : ""}dépensé ${marketingEuro(b.budget.depense)}${b.budget.prevu != null ? ` · ${b.budget.over ? "dépassement de " + marketingEuro(-b.budget.reste) : "reste " + marketingEuro(b.budget.reste)}` : ""}`);
+    b.depenses.forEach((x) => L.push(`  • ${x.libelle} : ${marketingEuro(x.montant)}`));
+  } else L.push("Budget : non renseigné");
+  L.push("");
+  L.push(`Documents liés : ${b.nbLiens} · Commentaires : ${b.nbCommentaires}`);
+  return L.join("\n");
+}
+
 const MARKETING_TASK_FIELDS = ["project_id", "titre", "notes", "statut", "priorite", "assignee", "echeance", "relance", "recurrence", "done_at"];
 function marketingCleanTask(t) {
   const row = {};
@@ -5702,7 +5808,7 @@ function marketingCleanTask(t) {
   if (!row.priorite) row.priorite = "Normale";
   return row;
 }
-const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie"];
+const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie", "budget"];
 function marketingCleanProject(p) {
   const row = {};
   for (const k of MARKETING_PROJECT_FIELDS) {
@@ -5712,6 +5818,7 @@ function marketingCleanProject(p) {
     row[k] = v;
   }
   if (!row.statut) row.statut = "En cours";
+  row.budget = marketingParseAmount(row.budget);
   return row;
 }
 // Exécute une requête Supabase ; ne retente que les vraies coupures réseau (pas les refus RLS/contraintes).
@@ -5757,7 +5864,7 @@ function marketingRedateDraft(draft, deadline) {
 }
 
 // Texte prêt à coller (mail, WhatsApp, point d'équipe).
-function marketingDigest({ tasks, projects, today, scopeLabel }) {
+function marketingDigest({ tasks, projects, today, scopeLabel, risks }) {
   const todayDay = new Date(today + "T12:00:00").getDay();
   const monday = marketingAddDays(today, -((todayDay + 6) % 7));
   const weekEnd = marketingAddDays(today, 7);
@@ -5775,6 +5882,11 @@ function marketingDigest({ tasks, projects, today, scopeLabel }) {
   block("En retard", late, (t) => line(t, `échéance ${marketingFrDate(t.echeance)}`));
   block("Relances à faire", relances, (t) => line(t, `relance ${marketingFrDate(t.relance)}`));
   block("À venir (7 jours)", upcoming, (t) => line(t, marketingFrDate(t.echeance, true)));
+  if (risks && risks.length) {
+    out.push(`Projets en danger (${risks.length})`);
+    risks.forEach((r) => out.push(`  • ${r.titre} — ${r.reasons.join(" ; ")}`));
+    out.push("");
+  }
   out.push(`Projets en cours (${activeProjects.length})`);
   activeProjects.forEach((p) => {
     const pr = marketingProjectProgress(p, tasks);
@@ -5807,26 +5919,40 @@ function useMarketing() {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [members, setMembers] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [links, setLinks] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [v2, setV2] = useState(true); // false tant que marketing_v2.sql n'est pas appliqué : on masque alors commentaires/liens/budget
+  const v2Ref = useRef(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const timer = useRef(null);
   const lastSig = useRef("");
 
   const load = useCallback(async () => {
-    const [p, t, m] = await Promise.all([
+    const [p, t, m, c, l, x] = await Promise.all([
       supabase.from("marketing_projects").select("*").order("deadline", { ascending: true, nullsFirst: false }),
       supabase.from("marketing_tasks").select("*").order("echeance", { ascending: true, nullsFirst: false }).limit(5000),
       supabase.from("marketing_members").select("nom").order("nom"),
+      supabase.from("marketing_comments").select("*").order("created_at", { ascending: true }).limit(5000),
+      supabase.from("marketing_links").select("*").order("created_at", { ascending: true }).limit(5000),
+      supabase.from("marketing_expenses").select("*").order("date_depense", { ascending: true }).limit(5000),
     ]);
     const err = p.error || t.error || m.error;
     if (err) { setError(err.message); setLoading(false); return; }
+    const hasV2 = !(c.error || l.error || x.error);
+    v2Ref.current = hasV2;
+    const cRows = hasV2 ? c.data : [], lRows = hasV2 ? l.data : [], xRows = hasV2 ? x.data : [];
     const maxU = (rows) => rows.reduce((a, r) => (r.updated_at > a ? r.updated_at : a), "");
-    const sig = `${p.data.length}:${maxU(p.data)}|${t.data.length}:${maxU(t.data)}|${m.data.map((x) => x.nom).join(",")}`;
+    const maxC = (rows) => rows.reduce((a, r) => (r.created_at > a ? r.created_at : a), "");
+    const sumX = xRows.reduce((a, r) => a + Number(r.montant || 0), 0);
+    const sig = `${p.data.length}:${maxU(p.data)}:${p.data.map((r) => r.budget ?? "").join(",")}|${t.data.length}:${maxU(t.data)}|${m.data.map((r) => r.nom).join(",")}|${hasV2}:${cRows.length}:${maxC(cRows)}|${lRows.length}:${maxC(lRows)}|${xRows.length}:${sumX}`;
     if (sig !== lastSig.current) {
       lastSig.current = sig;
       setProjects(p.data);
       setTasks(t.data);
-      setMembers(m.data.map((x) => x.nom));
+      setMembers(m.data.map((r) => r.nom));
+      setComments(cRows); setLinks(lRows); setExpenses(xRows); setV2(hasV2);
     }
     setError(null);
     setLoading(false);
@@ -5843,6 +5969,9 @@ function useMarketing() {
       .channel("marketing-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "marketing_projects" }, scheduleLoad)
       .on("postgres_changes", { event: "*", schema: "public", table: "marketing_tasks" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_comments" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_links" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_expenses" }, scheduleLoad)
       .subscribe();
     return () => { clearTimeout(timer.current); supabase.removeChannel(ch); };
   }, [load, scheduleLoad]);
@@ -5852,6 +5981,7 @@ function useMarketing() {
   // Crée ou met à jour un projet ; tasksToCreate = tâches issues d'un modèle (création uniquement).
   const saveProject = useCallback(async (p, tasksToCreate) => {
     const row = marketingCleanProject(p);
+    if (!v2Ref.current) delete row.budget; // colonne absente tant que marketing_v2.sql n'est pas appliqué
     const data = await marketingExec(() =>
       p.id ? supabase.from("marketing_projects").update(row).eq("id", p.id).select().single() : supabase.from("marketing_projects").insert(row).select().single()
     );
@@ -5905,6 +6035,36 @@ function useMarketing() {
     return done;
   }, [saveTaskRaw, refresh]);
 
+  // ── v2 : commentaires, liens, dépenses ──
+  const addComment = useCallback(async (task_id, texte, auteur) => {
+    await marketingExec(() => supabase.from("marketing_comments").insert({ task_id, texte: String(texte).trim(), auteur: auteur || null }));
+    await refresh();
+  }, [refresh]);
+  const removeComment = useCallback(async (id) => {
+    await marketingExec(() => supabase.from("marketing_comments").delete().eq("id", id));
+    await refresh();
+  }, [refresh]);
+  const addLink = useCallback(async ({ project_id, task_id, titre, url }) => {
+    const clean = marketingNormalizeUrl(url);
+    if (!clean) throw new Error("Lien invalide (il doit commencer par http:// ou https://)");
+    await marketingExec(() => supabase.from("marketing_links").insert({ project_id: project_id || null, task_id: task_id || null, titre: (titre || "").trim() || null, url: clean }));
+    await refresh();
+  }, [refresh]);
+  const removeLink = useCallback(async (id) => {
+    await marketingExec(() => supabase.from("marketing_links").delete().eq("id", id));
+    await refresh();
+  }, [refresh]);
+  const addExpense = useCallback(async (project_id, libelle, montant) => {
+    const m = marketingParseAmount(montant);
+    if (!(libelle || "").trim() || m === null) throw new Error("Indiquez un libellé et un montant valide");
+    await marketingExec(() => supabase.from("marketing_expenses").insert({ project_id, libelle: libelle.trim(), montant: m }));
+    await refresh();
+  }, [refresh]);
+  const removeExpense = useCallback(async (id) => {
+    await marketingExec(() => supabase.from("marketing_expenses").delete().eq("id", id));
+    await refresh();
+  }, [refresh]);
+
   const patchTask = useCallback(async (id, fields) => {
     await marketingExec(() => supabase.from("marketing_tasks").update(fields).eq("id", id));
     await refresh();
@@ -5915,7 +6075,7 @@ function useMarketing() {
     await refresh();
   }, [refresh]);
 
-  return { projects, tasks, members, loading, error, saveProject, removeProject, saveTask, toggleDone, bulkUpdate, patchTask, removeTask, reload: refresh };
+  return { projects, tasks, members, comments, links, expenses, v2, loading, error, addComment, removeComment, addLink, removeLink, addExpense, removeExpense, saveProject, removeProject, saveTask, toggleDone, bulkUpdate, patchTask, removeTask, reload: refresh };
 }
 
 
@@ -5956,7 +6116,7 @@ function MarketingDateChip({ dark, kind, iso, today, done }) {
   );
 }
 
-function MarketingTaskRow({ dark, t, project, today, onToggle, onOpen, onRelance, onReschedule, selectable, selected, onSelect, showProject = true }) {
+function MarketingTaskRow({ dark, t, project, today, onToggle, onOpen, onRelance, onReschedule, selectable, selected, onSelect, showProject = true, commentCount = 0, linkCount = 0 }) {
   const s = marketingStyles(dark);
   const done = t.statut === "Fait";
   const relanceDue = !done && t.relance && t.relance <= today;
@@ -5997,6 +6157,8 @@ function MarketingTaskRow({ dark, t, project, today, onToggle, onOpen, onRelance
           {showProject && project && (
             <span className={`max-w-[200px] truncate rounded-full px-2 py-0.5 text-[11px] ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>{project.titre}</span>
           )}
+          {commentCount > 0 && <span className={`inline-flex items-center gap-0.5 text-[11px] ${s.sub}`} title={`${commentCount} commentaire${commentCount > 1 ? "s" : ""}`}><MessageSquare size={11} />{commentCount}</span>}
+          {linkCount > 0 && <span className={`inline-flex items-center gap-0.5 text-[11px] ${s.sub}`} title={`${linkCount} lien${linkCount > 1 ? "s" : ""}`}><Paperclip size={11} />{linkCount}</span>}
         </div>
         {relanceDue && onRelance && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]" onClick={(e) => e.stopPropagation()}>
@@ -6042,7 +6204,194 @@ function MarketingDrawer({ dark, onClose, z = "z-50", children, title, right }) 
   );
 }
 
-function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, me, onClose, onSave, onDelete, showToast }) {
+async function marketingCopy(txt, showToast, okMsg) {
+  try {
+    await navigator.clipboard.writeText(txt);
+    showToast(okMsg);
+    return;
+  } catch (e) { /* repli ci-dessous */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    showToast(ok ? okMsg : "Copie impossible", { type: ok ? "success" : "error" });
+  } catch (e2) { showToast("Copie impossible", { type: "error" }); }
+}
+
+function MarketingLinksSection({ dark, links, onAdd, onRemove, showToast }) {
+  const s = marketingStyles(dark);
+  const [titre, setTitre] = useState("");
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    if (!url.trim()) return;
+    if (!marketingNormalizeUrl(url)) { showToast("Lien invalide : il doit commencer par http:// ou https://", { type: "error" }); return; }
+    setBusy(true);
+    try { await onAdd({ titre, url }); setTitre(""); setUrl(""); }
+    catch (e) { showToast(`Ajout impossible : ${e.message || e}`, { type: "error" }); }
+    finally { setBusy(false); }
+  };
+  const remove = async (id) => {
+    try { await onRemove(id); } catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  return (
+    <div>
+      <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Liens & documents ({links.length})</div>
+      {links.length === 0 && <div className={`mb-2 text-sm ${s.sub}`}>Aucun lien. Collez l'adresse d'un Drive, d'un devis, d'un visuel…</div>}
+      <ul className="space-y-1.5">
+        {links.map((l) => (
+          <li key={l.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${s.card}`}>
+            <Paperclip size={13} className={`shrink-0 ${s.sub}`} />
+            <a href={l.url} target="_blank" rel="noopener noreferrer" className={`min-w-0 flex-1 truncate font-medium underline-offset-2 hover:underline ${dark ? "text-blue-400" : "text-blue-800"}`}>{l.titre || l.url}</a>
+            <ExternalLink size={12} className={`shrink-0 ${s.sub}`} />
+            <button type="button" aria-label="Retirer le lien" onClick={() => remove(l.id)} className={`shrink-0 rounded p-1 ${dark ? "text-zinc-500 hover:text-rose-400" : "text-stone-400 hover:text-rose-600"}`}><X size={13} /></button>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <input className={`${s.input} min-w-[120px] flex-1`} placeholder="Nom (facultatif)" value={titre} onChange={(e) => setTitre(e.target.value)} />
+        <input className={`${s.input} min-w-[160px] flex-[2]`} placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <button type="button" onClick={add} disabled={busy} className={s.primaryBtn} aria-label="Ajouter le lien"><Plus size={16} /></button>
+      </div>
+    </div>
+  );
+}
+
+function MarketingCommentsSection({ dark, comments, me, onAdd, onRemove, showToast }) {
+  const s = marketingStyles(dark);
+  const [txt, setTxt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    const t = txt.trim();
+    if (!t) return;
+    setBusy(true);
+    try { await onAdd(t); setTxt(""); }
+    catch (e) { showToast(`Commentaire non enregistré : ${e.message || e}`, { type: "error" }); }
+    finally { setBusy(false); }
+  };
+  const remove = async (id) => {
+    try { await onRemove(id); } catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const when = (iso) => new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return (
+    <div>
+      <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Commentaires ({comments.length})</div>
+      <ul className="space-y-2">
+        {comments.map((c) => (
+          <li key={c.id} className={`rounded-xl border px-3 py-2 text-sm ${s.card}`}>
+            <div className={`mb-0.5 flex items-center gap-2 text-[11px] ${s.sub}`}>
+              <span className="font-semibold">{c.auteur || "—"}</span>
+              <span>{when(c.created_at)}</span>
+              {c.auteur === me && (
+                <button type="button" aria-label="Supprimer le commentaire" onClick={() => remove(c.id)} className={`ml-auto rounded p-0.5 ${dark ? "hover:text-rose-400" : "hover:text-rose-600"}`}><X size={12} /></button>
+              )}
+            </div>
+            <div className={`whitespace-pre-wrap break-words ${s.title}`}>{c.texte}</div>
+          </li>
+        ))}
+        {comments.length === 0 && <li className={`text-sm ${s.sub}`}>Aucun commentaire — notez ici où en est la tâche.</li>}
+      </ul>
+      <div className="mt-2 flex gap-2">
+        <textarea rows={2} className={s.input} placeholder="Ajouter un commentaire…" value={txt} onChange={(e) => setTxt(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) add(); }} />
+        <button type="button" onClick={add} disabled={busy || !txt.trim()} className={`${s.primaryBtn} self-start`}>Publier</button>
+      </div>
+    </div>
+  );
+}
+
+function MarketingBudgetSection({ dark, project, expenses, onAdd, onRemove, showToast }) {
+  const s = marketingStyles(dark);
+  const [libelle, setLibelle] = useState("");
+  const [montant, setMontant] = useState("");
+  const [busy, setBusy] = useState(false);
+  const b = marketingBudgetState(project, expenses);
+  const mine = expenses.filter((x) => x.project_id === project.id);
+  const add = async () => {
+    if (!libelle.trim() && !montant.trim()) return;
+    setBusy(true);
+    try { await onAdd(libelle, montant); setLibelle(""); setMontant(""); }
+    catch (e) { showToast(e.message || String(e), { type: "error" }); }
+    finally { setBusy(false); }
+  };
+  const remove = async (id) => {
+    try { await onRemove(id); } catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <div className={`text-xs font-bold uppercase tracking-widest ${s.sub}`}>Budget</div>
+        <div className={`text-sm font-semibold ${b.over ? "text-rose-500" : s.title}`}>
+          {marketingEuro(b.depense)}{b.prevu != null ? ` / ${marketingEuro(b.prevu)}` : ""}
+        </div>
+      </div>
+      {b.prevu != null && (
+        <>
+          <div className={`h-2 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
+            <div className={`h-full rounded-full ${b.over ? "bg-rose-500" : b.pct >= 85 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${b.pct}%` }} />
+          </div>
+          <div className={`mt-1 text-xs ${b.over ? "font-semibold text-rose-500" : s.sub}`}>
+            {b.over ? `Dépassement de ${marketingEuro(-b.reste)}` : `Reste ${marketingEuro(b.reste)}`}
+          </div>
+        </>
+      )}
+      {b.prevu == null && <div className={`text-xs ${s.sub}`}>Renseignez un « Budget prévu » plus haut pour suivre le reste à dépenser.</div>}
+      <ul className="mt-2 space-y-1.5">
+        {mine.map((x) => (
+          <li key={x.id} className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${s.card}`}>
+            <span className={`min-w-0 flex-1 truncate ${s.title}`}>{x.libelle}</span>
+            <span className={`shrink-0 text-xs ${s.sub}`}>{marketingFrDate(x.date_depense)}</span>
+            <span className={`shrink-0 font-semibold ${s.title}`}>{marketingEuro(x.montant)}</span>
+            <button type="button" aria-label="Retirer la dépense" onClick={() => remove(x.id)} className={`shrink-0 rounded p-1 ${dark ? "text-zinc-500 hover:text-rose-400" : "text-stone-400 hover:text-rose-600"}`}><X size={13} /></button>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <input className={`${s.input} min-w-[140px] flex-[2]`} placeholder="Dépense (ex. Bâches salon)" value={libelle} onChange={(e) => setLibelle(e.target.value)} />
+        <input className={`${s.input} !w-28`} inputMode="decimal" placeholder="Montant €" value={montant} onChange={(e) => setMontant(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <button type="button" onClick={add} disabled={busy} className={s.primaryBtn} aria-label="Ajouter la dépense"><Plus size={16} /></button>
+      </div>
+    </div>
+  );
+}
+
+function MarketingBilanPanel({ dark, bilan, onCopy, onClose }) {
+  const s = marketingStyles(dark);
+  const stat = (label, value, tone) => (
+    <div className={`rounded-xl border px-3 py-2 ${s.card}`}>
+      <div className={`text-lg font-bold ${tone || s.title}`}>{value}</div>
+      <div className={`text-[11px] ${s.sub}`}>{label}</div>
+    </div>
+  );
+  const b = bilan;
+  return (
+    <div className={`rounded-2xl border p-4 ${dark ? "border-emerald-500/30 bg-emerald-500/5" : "border-emerald-300 bg-emerald-50/60"}`}>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className={`text-sm font-bold ${s.title}`}>Bilan du projet</div>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCopy} className={s.ghostBtn}>Copier le bilan</button>
+          <button type="button" onClick={onClose} aria-label="Masquer le bilan" className={`rounded-lg p-1.5 ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-white"}`}><X size={14} /></button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {stat("Tâches faites", `${b.done}/${b.total}`, b.pct === 100 ? "text-emerald-600" : "")}
+        {stat("Durée", `${b.dureeJours} j`)}
+        {stat("Deadline", !b.deadline ? "—" : b.retardDeadline > 0 ? `+${b.retardDeadline} j` : "Respectée", b.retardDeadline > 0 ? "text-rose-500" : b.deadline ? "text-emerald-600" : "")}
+        {stat("Budget", b.budget.prevu != null || b.budget.depense ? marketingEuro(b.budget.depense) : "—", b.budget.over ? "text-rose-500" : "")}
+      </div>
+      <div className={`mt-3 space-y-1 text-sm ${s.muted}`}>
+        <div>Période : {marketingFrDate(b.debut)} → {marketingFrDate(b.fin)}{b.deadline ? ` · deadline ${marketingFrDate(b.deadline)}` : ""}</div>
+        {b.doneLate > 0 && <div>{b.doneLate} tâche{b.doneLate > 1 ? "s" : ""} terminée{b.doneLate > 1 ? "s" : ""} après son échéance.</div>}
+        {b.open > 0 && <div>{b.open} tâche{b.open > 1 ? "s" : ""} non terminée{b.open > 1 ? "s" : ""} : {b.openTitles.join(", ")}.</div>}
+        {b.budget.prevu != null && <div>Budget prévu {marketingEuro(b.budget.prevu)} — {b.budget.over ? `dépassement de ${marketingEuro(-b.budget.reste)}` : `reste ${marketingEuro(b.budget.reste)}`}.</div>}
+        {b.personnes.length > 0 && <div>{b.personnes.map((p) => `${p.nom} ${p.faites}/${p.total}`).join(" · ")}</div>}
+        <div>{b.nbLiens} document{b.nbLiens > 1 ? "s" : ""} lié{b.nbLiens > 1 ? "s" : ""} · {b.nbCommentaires} commentaire{b.nbCommentaires > 1 ? "s" : ""}</div>
+      </div>
+    </div>
+  );
+}
+
+function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, me, ext, onClose, onSave, onDelete, showToast }) {
   const s = marketingStyles(dark);
   const isNew = taskId === "new";
   const today = prospectionTodayISO();
@@ -6140,8 +6489,14 @@ function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, m
         </div>
         <div>
           <div className={s.label}>Notes</div>
-          <textarea rows={4} className={s.input} value={p.notes || ""} onChange={set("notes")} placeholder="Détails, liens, contacts…" />
+          <textarea rows={4} className={s.input} value={p.notes || ""} onChange={set("notes")} placeholder="Détails, contacts…" />
         </div>
+        {!isNew && ext?.v2 && (
+          <>
+            <MarketingLinksSection dark={dark} links={ext.links.filter((l) => l.task_id === taskId)} onAdd={(x) => ext.addLink({ ...x, task_id: taskId })} onRemove={ext.removeLink} showToast={showToast} />
+            <MarketingCommentsSection dark={dark} comments={ext.comments.filter((c) => c.task_id === taskId)} me={me} onAdd={(t) => ext.addComment(taskId, t, me)} onRemove={ext.removeComment} showToast={showToast} />
+          </>
+        )}
         <div className="flex items-center gap-2 pt-2">
           <button onClick={save} disabled={saving} className={s.primaryBtn}>{saving ? "Enregistrement…" : "Enregistrer"}</button>
           <button onClick={onClose} className={s.ghostBtn}>Annuler</button>
@@ -6157,7 +6512,7 @@ function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, m
 }
 
 
-function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects, tasks, members, me, blocked, onClose, onSave, onDelete, onDuplicate, onOpenTask, onNewTask, onToggleTask, onQuickAddTask, showToast }) {
+function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects, tasks, members, me, ext, blocked, onClose, onSave, onDelete, onDuplicate, onOpenTask, onNewTask, onToggleTask, onQuickAddTask, showToast }) {
   const s = marketingStyles(dark);
   const isNew = projectId === "new";
   const today = prospectionTodayISO();
@@ -6174,6 +6529,7 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [quick, setQuick] = useState("");
+  const [showBilan, setShowBilan] = useState(false);
   const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
 
   useEffect(() => {
@@ -6187,6 +6543,10 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
   const myTasks = isNew ? [] : tasks.filter((t) => t.project_id === projectId);
   const sorted = [...myTasks].sort((a, b) => (a.statut === "Fait") - (b.statut === "Fait") || (a.echeance || "9999").localeCompare(b.echeance || "9999"));
   const prog = isNew ? null : marketingProjectProgress(live, tasks);
+  const v2 = !!ext?.v2;
+  const risk = isNew ? { level: "", reasons: [] } : marketingProjectRisk(live, tasks, today, v2 ? ext.expenses : undefined);
+  const bilan = !isNew && v2 ? marketingBilan({ project: live, tasks, expenses: ext.expenses, links: ext.links, comments: ext.comments, today }) : !isNew ? marketingBilan({ project: live, tasks, expenses: [], links: [], comments: [], today }) : null;
+  const allDone = !isNew && prog.total > 0 && prog.open === 0 && live.statut !== "Terminé";
 
   const changeDeadline = (e) => {
     const deadline = e.target.value;
@@ -6218,9 +6578,15 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
     const rows = draft.filter((t) => (t.titre || "").trim()).map(({ titre, echeance, relance, assignee, priorite }) => ({ titre, echeance, relance, assignee, priorite }));
     setSaving(true);
     try {
+      const finishing = !isNew && live.statut !== "Terminé" && p.statut === "Terminé";
       await onSave(p, rows);
-      showToast(isNew && rows.length ? `Projet créé avec ${rows.length} tâche${rows.length > 1 ? "s" : ""}` : "Projet enregistré");
-      onClose();
+      if (finishing) {
+        showToast("Projet terminé — le bilan est prêt", { type: "celebrate" });
+        setShowBilan(true);
+      } else {
+        showToast(isNew && rows.length ? `Projet créé avec ${rows.length} tâche${rows.length > 1 ? "s" : ""}` : "Projet enregistré");
+        onClose();
+      }
     } catch (e) {
       showToast(`Échec de l'enregistrement : ${e.message || e}`, { type: "error" });
     } finally { setSaving(false); }
@@ -6229,6 +6595,16 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
     if (!deleteConfirm) { setDeleteConfirm(true); return; }
     try { await onDelete(p.id); showToast("Projet supprimé"); onClose(); }
     catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const finishProject = async () => {
+    setSaving(true);
+    try {
+      await onSave({ ...p, statut: "Terminé" }, []);
+      setP((x) => ({ ...x, statut: "Terminé" }));
+      setShowBilan(true);
+      showToast("Projet terminé — le bilan est prêt", { type: "celebrate" });
+    } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
+    finally { setSaving(false); }
   };
   const addQuick = async () => {
     const raw = quick.trim();
@@ -6248,9 +6624,32 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
       dark={dark}
       onClose={onClose}
       title={isNew ? (source ? "Dupliquer le projet" : "Nouveau projet") : live.titre}
-      right={!isNew && <button type="button" onClick={() => onDuplicate(projectId)} className={s.ghostBtn}>Dupliquer</button>}
+      right={!isNew && (
+        <>
+          <button type="button" onClick={() => setShowBilan((v) => !v)} className={s.ghostBtn}>Bilan</button>
+          <button type="button" onClick={() => onDuplicate(projectId)} className={s.ghostBtn}>Dupliquer</button>
+        </>
+      )}
     >
       <div className="space-y-4">
+        {!isNew && risk.level && (
+          <div role="alert" className={`flex gap-2 rounded-xl border px-3 py-2.5 text-sm ${risk.level === "late" ? (dark ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : "border-rose-300 bg-rose-50 text-rose-800") : (dark ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-amber-300 bg-amber-50 text-amber-900")}`}>
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <div>
+              <div className="font-semibold">{risk.level === "late" ? "Projet en retard" : "Projet en danger"}</div>
+              <ul className="list-disc pl-4">{risk.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+            </div>
+          </div>
+        )}
+        {allDone && (
+          <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${dark ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
+            <span className="min-w-0 flex-1">Toutes les tâches sont faites : clôturer le projet ?</span>
+            <button type="button" onClick={finishProject} disabled={saving} className={s.primaryBtn}>Terminer et voir le bilan</button>
+          </div>
+        )}
+        {!isNew && showBilan && bilan && (
+          <MarketingBilanPanel dark={dark} bilan={bilan} onClose={() => setShowBilan(false)} onCopy={() => marketingCopy(marketingBilanText(bilan), showToast, "Bilan copié — prêt à coller")} />
+        )}
         {isNew && !source && (
           <div>
             <div className={s.label}>Partir d'un modèle (optionnel)</div>
@@ -6297,6 +6696,12 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
             <input className={s.input} list="marketing-categories" value={p.categorie || ""} onChange={set("categorie")} placeholder="Choisir ou écrire…" />
             <datalist id="marketing-categories">{MARKETING_CATEGORIES.map((x) => <option key={x} value={x} />)}</datalist>
           </div>
+          {v2 && (
+            <div>
+              <div className={s.label}>Budget prévu (€)</div>
+              <input className={s.input} inputMode="decimal" value={p.budget ?? ""} onChange={set("budget")} placeholder="Ex. 2500" />
+            </div>
+          )}
         </div>
         <div>
           <div className={s.label}>Description</div>
@@ -6365,6 +6770,14 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
           </div>
         )}
 
+        {!isNew && v2 && (
+          <>
+            <MarketingBudgetSection dark={dark} project={live} expenses={ext.expenses} onAdd={(l, m) => ext.addExpense(projectId, l, m)} onRemove={ext.removeExpense} showToast={showToast} />
+            <MarketingLinksSection dark={dark} links={ext.links.filter((l) => l.project_id === projectId)} onAdd={(x) => ext.addLink({ ...x, project_id: projectId })} onRemove={ext.removeLink} showToast={showToast} />
+          </>
+        )}
+        {!isNew && !v2 && <div className={`text-xs ${s.sub}`}>Budget, liens et commentaires seront disponibles une fois la mise à jour de la base appliquée.</div>}
+
         <div className="flex items-center gap-2 pt-2">
           <button onClick={save} disabled={saving} className={s.primaryBtn}>{saving ? "Enregistrement…" : isNew ? "Créer le projet" : "Enregistrer"}</button>
           <button onClick={onClose} className={s.ghostBtn}>Fermer</button>
@@ -6410,6 +6823,16 @@ function MarketingTab({ dark, me, showToast }) {
     [tasks, scope]
   );
 
+  const commentCount = useMemo(() => { const m = new Map(); data.comments.forEach((c) => m.set(c.task_id, (m.get(c.task_id) || 0) + 1)); return m; }, [data.comments]);
+  const linkCount = useMemo(() => { const m = new Map(); data.links.forEach((l) => { if (l.task_id) m.set(l.task_id, (m.get(l.task_id) || 0) + 1); }); return m; }, [data.links]);
+  const riskByProject = useMemo(() => {
+    const m = new Map();
+    projects.forEach((p) => m.set(p.id, marketingProjectRisk(p, tasks, today, data.v2 ? data.expenses : undefined)));
+    return m;
+  }, [projects, tasks, today, data.expenses, data.v2]);
+  const atRisk = useMemo(() => projects.filter((p) => riskByProject.get(p.id)?.level), [projects, riskByProject]);
+  const ext = { v2: data.v2, comments: data.comments, links: data.links, expenses: data.expenses, addComment: data.addComment, removeComment: data.removeComment, addLink: data.addLink, removeLink: data.removeLink, addExpense: data.addExpense, removeExpense: data.removeExpense };
+
   const closeTask = useCallback(() => { setOpenTask(null); setTaskPrefill(null); }, []);
   const closeProject = useCallback(() => { setOpenProject(null); setDupSource(null); }, []);
   const newTask = useCallback((prefill) => { setTaskPrefill(prefill || null); setOpenTask("new"); }, []);
@@ -6448,20 +6871,10 @@ function MarketingTab({ dark, me, showToast }) {
   };
 
   // ── Premium : point de la semaine ──
-  const copyDigest = async () => {
-    const txt = marketingDigest({ tasks: scoped, projects, today, scopeLabel: scope && scope !== "__none" ? scope : "" });
-    try {
-      await navigator.clipboard.writeText(txt);
-      showToast("Point de la semaine copié — prêt à coller");
-    } catch (e) {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = txt; document.body.appendChild(ta); ta.select();
-        const okCopy = document.execCommand("copy");
-        document.body.removeChild(ta);
-        showToast(okCopy ? "Point de la semaine copié — prêt à coller" : "Copie impossible", { type: okCopy ? "success" : "error" });
-      } catch (e2) { showToast("Copie impossible", { type: "error" }); }
-    }
+  const copyDigest = () => {
+    const risks = projects.filter((p) => riskByProject.get(p.id)?.level).map((p) => ({ titre: p.titre, reasons: riskByProject.get(p.id).reasons }));
+    const txt = marketingDigest({ tasks: scoped, projects, today, scopeLabel: scope && scope !== "__none" ? scope : "", risks });
+    return marketingCopy(txt, showToast, "Point de la semaine copié — prêt à coller");
   };
 
   // ── Premium : raccourcis clavier ──
@@ -6503,6 +6916,8 @@ function MarketingTab({ dark, me, showToast }) {
       onOpen={setOpenTask}
       onRelance={onRelance}
       onReschedule={premium ? onReschedule : undefined}
+      commentCount={commentCount.get(t.id) || 0}
+      linkCount={linkCount.get(t.id) || 0}
       {...extra}
     />
   );
@@ -6547,6 +6962,23 @@ function MarketingTab({ dark, me, showToast }) {
           {kpi("Relances à faire", relancesDues, relancesDues ? (dark ? "text-amber-300" : "text-amber-700") : "")}
           {kpi("Projets actifs", projects.filter((p) => p.statut !== "Terminé").length)}
         </div>
+        {atRisk.length > 0 && (
+          <div role="alert" className={`rounded-2xl border p-3 ${dark ? "border-rose-500/40 bg-rose-500/10" : "border-rose-300 bg-rose-50"}`}>
+            <div className={`mb-2 flex items-center gap-2 text-sm font-bold ${dark ? "text-rose-200" : "text-rose-800"}`}>
+              <AlertTriangle size={16} />{atRisk.length} projet{atRisk.length > 1 ? "s" : ""} en danger
+            </div>
+            <ul className="space-y-1.5">
+              {atRisk.map((p) => (
+                <li key={p.id}>
+                  <button type="button" onClick={() => setOpenProject(p.id)} className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${dark ? "text-rose-100 hover:bg-rose-500/10" : "text-rose-900 hover:bg-rose-100"}`}>
+                    <span className="font-semibold">{p.titre}</span>
+                    <span className="opacity-80"> — {riskByProject.get(p.id).reasons.join(" · ")}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {dueCount + buckets.week.length === 0 && (
           <EmptyState dark={dark} icon={CheckCircle2} title="Rien d'urgent cette semaine" subtitle="Les tâches et relances des 7 prochains jours apparaissent ici." />
         )}
@@ -6567,6 +6999,8 @@ function MarketingTab({ dark, me, showToast }) {
   function projectCard(p) {
     const prog = marketingProjectProgress(p, tasks);
     const late = p.statut !== "Terminé" && p.deadline && p.deadline < today;
+    const risk = riskByProject.get(p.id) || { level: "", reasons: [] };
+    const bud = data.v2 && p.budget != null ? marketingBudgetState(p, data.expenses) : null;
     return (
       <button
         key={p.id}
@@ -6582,6 +7016,12 @@ function MarketingTab({ dark, me, showToast }) {
           {p.categorie && <span>{p.categorie}</span>}
           {p.responsable && <span>· {p.responsable}</span>}
         </div>
+        {risk.level && (
+          <div className={`mt-2 flex items-start gap-1.5 rounded-lg px-2 py-1 text-[11px] font-semibold ${risk.level === "late" ? (dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-100 text-rose-700") : (dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-100 text-amber-800")}`}>
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            <span>{risk.level === "late" ? "En retard" : "En danger"} · {risk.reasons[0]}{risk.reasons.length > 1 ? ` (+${risk.reasons.length - 1})` : ""}</span>
+          </div>
+        )}
         <div className="mt-3 flex items-center justify-between text-xs">
           <span className={late ? "font-semibold text-rose-500" : s.muted}>
             {p.deadline ? `Deadline ${marketingFrDate(p.deadline, true)} · ${p.statut === "Terminé" ? "terminé" : marketingRelativeLabel(p.deadline, today)}` : "Sans deadline"}
@@ -6591,6 +7031,11 @@ function MarketingTab({ dark, me, showToast }) {
         <div className={`mt-2 h-2 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
           <div className="h-full rounded-full bg-emerald-500" style={{ width: `${prog.pct}%` }} />
         </div>
+        {bud && (
+          <div className={`mt-2 text-[11px] ${bud.over ? "font-semibold text-rose-500" : s.sub}`}>
+            Budget {marketingEuro(bud.depense)} / {marketingEuro(bud.prevu)}{bud.over ? " · dépassé" : ""}
+          </div>
+        )}
       </button>
     );
   }
@@ -6910,6 +7355,7 @@ function MarketingTab({ dark, me, showToast }) {
           tasks={tasks}
           members={members}
           me={me}
+          ext={ext}
           blocked={!!openTask}
           onClose={closeProject}
           onSave={data.saveProject}
@@ -6931,6 +7377,7 @@ function MarketingTab({ dark, me, showToast }) {
           members={members}
           prefill={taskPrefill}
           me={me}
+          ext={ext}
           onClose={closeTask}
           onSave={data.saveTask}
           onDelete={data.removeTask}
