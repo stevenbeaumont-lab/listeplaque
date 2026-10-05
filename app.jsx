@@ -5,7 +5,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing, Sparkles, Paperclip, ExternalLink,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing, Sparkles, Paperclip, ExternalLink, Phone, CalendarPlus, Printer, Copy, Pencil,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -825,8 +825,9 @@ const NAV_ICONS = {
   vendeurs: Users,
   permissions: Lock,
   accidentes: AlertTriangle,
+  rdv: CalendarClock,
 };
-function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing) {
+function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount) {
   return [
     { id: "vehicules", label: "Véhicules", group: "Stock" },
     { id: "logistique", label: "Logistique", group: "Stock" },
@@ -834,12 +835,13 @@ function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarke
     canProspect && { id: "prospection", label: "Prospection", group: "Commercial", beta: true },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Commercial" },
     canMarketing && { id: "marketing", label: "Marketing", group: "Commercial", beta: true },
+    rdvMe && { id: "rdv", label: rdvMe.role === "admin" ? "Rapports RDV" : "Mes RDV", group: "Commercial", beta: true, count: rdvOverdueCount },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Pilotage" },
     permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Administration" },
   ].filter(Boolean);
 }
-function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing);
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing, rdvMe, rdvOverdueCount }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount);
   let lastGroup = null;
   return (
     <nav className="sticky top-20 flex w-52 shrink-0 flex-col gap-0.5 self-start">
@@ -861,7 +863,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
             >
               <Icon size={16} className="shrink-0" />
               <span className="flex-1 truncate text-left">{it.label}</span>
-              {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing") && (
+              {it.beta && !it.count && (isSuperAdmin(vendorName) || it.id === "marketing" || it.id === "rdv") && (
                 <span className={`rounded-full px-1.5 py-px text-[9px] font-semibold ${dark ? "bg-blue-500/15 text-blue-300" : "bg-blue-100/70 text-blue-700"}`}>
                   Bêta
                 </span>
@@ -879,8 +881,8 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   );
 }
 
-function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing);
+function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing, rdvMe, rdvOverdueCount }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount);
   let lastGroup = null;
   return (
     <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200 shadow-sm"}`} style={{ scrollbarWidth: "none" }}>
@@ -901,7 +903,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
               }`}
             >
               {it.label}
-              {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing") && (
+              {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing" || it.id === "rdv") && (
                 <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tab === it.id ? "bg-white/25 text-white" : dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-800"}`}>
                   Bêta
                 </span>
@@ -919,7 +921,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
   );
 }
 
-function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport }) {
+function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onImport, onRefresh, lastSync, alertCount, onOpenAlerts, syncing, legendOpen, setLegendOpen, canImport, navAccess }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const btnCls = `flex h-9 items-center justify-center rounded-lg transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"}`;
   const btnOutline = `border ${dark ? "border-zinc-800 hover:border-zinc-700" : "border-stone-200 hover:border-stone-300"}`;
@@ -977,9 +979,10 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Véhicules</span> — parc complet, recherche, réservation</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Logistique</span> — en stock, en transit, non sérialisés</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Accidentés</span> — véhicules signalés HS</li>
-                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Prospection</span> — carte et suivi des prospects B2B</li>
+                {navAccess?.prospect && <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Prospection</span> — carte et suivi des prospects B2B</li>}
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers</span> — import MyAna, attribution des ventes</li>
-                <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Marketing</span> — projets, tâches et relances</li>
+                {navAccess?.marketing && <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Marketing</span> — projets, tâches et relances</li>}
+                {navAccess?.rdv && <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{navAccess.rdv === "admin" ? "Rapports RDV" : "Mes RDV"}</span> — rendez-vous clients et suivi</li>}
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Tableau de bord</span> — statistiques et tendances</li>
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Réglages</span> — vendeurs, sites, rôles & permissions</li>
               </ul>
@@ -7543,6 +7546,1526 @@ function MarketingTab({ dark, me, showToast }) {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Rapports RDV (bêta) — rendez-vous clients créés par l'administrateur, suivi par les commerciaux.
+// Tables Supabase protégées par RLS (voir sql/rdv.sql).
+// ═════════════════════════════════════════════════════════════════════════════
+// RDV-LOGIC-START
+const RDV_STATUTS = ["À venir", "Honoré", "Absent", "Vendu", "Perdu"];
+const RDV_TYPES = ["Showroom", "Reprise", "Essai", "Livraison", "Autre"];
+const RDV_SOURCES = ["Internet", "Téléphone", "Passage showroom", "Parrainage", "Prospection", "Réseaux sociaux", "Salon / événement", "Autre"];
+const RDV_MOTIFS = ["Prix", "Pas de reprise", "Financement refusé", "Délai", "Injoignable", "Autre"];
+const RDV_EXCLUDED_ROLES = ["Secrétariat", "Préparateur", "Marketing"];
+const RDV_PERIODS = [
+  { k: "semaine", label: "Cette semaine" },
+  { k: "semaine-1", label: "Semaine dernière" },
+  { k: "mois", label: "Ce mois" },
+  { k: "mois-1", label: "Mois dernier" },
+  { k: "30j", label: "30 jours" },
+  { k: "tout", label: "Tout" },
+];
+const RDV_FIELD_LABELS = {
+  statut: "Statut", commentaire: "Commentaire", relance: "Relance", motif_perte: "Motif de perte", dossier_numero: "Dossier",
+  commercial: "Vendeur", date_rdv: "Date", client_nom: "Client", tel: "Téléphone", source: "Source", type_rdv: "Type",
+  vehicule_vise: "Véhicule visé", vehicule_ref: "Réf. véhicule", consigne: "Consigne", deleted_at: "Corbeille",
+};
+
+function rdvDigits(tel) {
+  let d = String(tel || "").replace(/\D/g, "");
+  if (d.startsWith("0033")) d = "0" + d.slice(4);
+  else if (d.startsWith("33") && d.length >= 11) d = "0" + d.slice(2);
+  return d;
+}
+function rdvTelClean(tel) { return String(tel || "").replace(/[^\d+]/g, ""); }
+function rdvDay(r) { return prospectionTodayISO(new Date(r.date_rdv)); }
+function rdvTime(r) { return new Date(r.date_rdv).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+function rdvFirstName(nom) {
+  const parts = String(nom || "").trim().split(/\s+/).filter(Boolean);
+  const given = parts.filter((p) => p !== p.toUpperCase());
+  return given.length ? given.join(" ") : parts.length > 1 ? parts.slice(1).join(" ") : parts[0] || "";
+}
+function rdvDuplicates(rows, tel, excludeId) {
+  const d = rdvDigits(tel);
+  if (d.length < 6) return [];
+  return rows.filter((r) => !r.deleted_at && r.id !== excludeId && rdvDigits(r.tel) === d);
+}
+function rdvIsOverdue(r, now) { return !r.deleted_at && r.statut === "À venir" && new Date(r.date_rdv) < now; }
+function rdvOverdueDays(r, today) { return Math.max(0, marketingDaysBetween(rdvDay(r), today)); }
+function rdvRelanceDue(r, today) { return !r.deleted_at && !!r.relance && r.relance <= today && (r.statut === "Honoré" || r.statut === "Absent"); }
+
+function rdvWeekStart(iso) {
+  const d = new Date(iso + "T12:00:00");
+  return marketingAddDays(iso, -((d.getDay() + 6) % 7));
+}
+function rdvPeriodRange(key, today, custom) {
+  if (key === "semaine") { const f = rdvWeekStart(today); return { from: f, to: marketingAddDays(f, 6) }; }
+  if (key === "semaine-1") { const f = marketingAddDays(rdvWeekStart(today), -7); return { from: f, to: marketingAddDays(f, 6) }; }
+  if (key === "mois" || key === "mois-1") {
+    const first = today.slice(0, 7) + "-01";
+    const f = key === "mois" ? first : marketingAddMonths(first, -1);
+    return { from: f, to: marketingAddDays(marketingAddMonths(f, 1), -1) };
+  }
+  if (key === "30j") return { from: marketingAddDays(today, -29), to: today };
+  if (key === "perso") return { from: custom?.from || null, to: custom?.to || null };
+  return { from: null, to: null };
+}
+function rdvInRange(r, range) {
+  const day = rdvDay(r);
+  return (!range.from || day >= range.from) && (!range.to || day <= range.to);
+}
+
+function rdvStats(rows, now, today) {
+  const live = rows.filter((r) => !r.deleted_at);
+  const s = { pris: live.length, aVenir: 0, sansSuivi: 0, venus: 0, absents: 0, vendus: 0, perdus: 0, relancesDues: 0, relancesRetard: 0, reactSum: 0, reactN: 0, motifs: {}, sources: {}, types: {} };
+  const bump = (map, key, r) => {
+    const o = map[key] || (map[key] = { pris: 0, venus: 0, vendus: 0 });
+    o.pris++; if (r.venu) o.venus++; if (r.statut === "Vendu") o.vendus++;
+  };
+  live.forEach((r) => {
+    if (r.statut === "À venir") { if (new Date(r.date_rdv) < now) s.sansSuivi++; else s.aVenir++; }
+    if (r.venu) s.venus++;
+    else if (r.statut === "Absent" || r.statut === "Perdu") s.absents++;
+    if (r.statut === "Vendu") s.vendus++;
+    if (r.statut === "Perdu") { s.perdus++; const m = r.motif_perte || "Non précisé"; s.motifs[m] = (s.motifs[m] || 0) + 1; }
+    if (rdvRelanceDue(r, today)) { s.relancesDues++; if (r.relance < today) s.relancesRetard++; }
+    if (r.suivi_at) { s.reactSum += Math.max(0, (new Date(r.suivi_at) - new Date(r.date_rdv)) / 3600000); s.reactN++; }
+    bump(s.sources, r.source || "Non précisée", r);
+    bump(s.types, r.type_rdv || "Autre", r);
+  });
+  s.decides = s.venus + s.absents;
+  s.tauxHonore = s.decides ? s.venus / s.decides : null;
+  s.tauxVente = s.venus ? s.vendus / s.venus : null;
+  s.reactH = s.reactN ? s.reactSum / s.reactN : null;
+  return s;
+}
+function rdvPct(x) { return x == null ? "—" : Math.round(x * 100) + " %"; }
+function rdvReact(h) {
+  if (h == null) return "—";
+  if (h < 1) return "< 1 h";
+  if (h < 48) return Math.round(h) + " h";
+  return (h / 24).toFixed(1).replace(".", ",") + " j";
+}
+function rdvGroupBy(rows, keyFn) {
+  const m = new Map();
+  rows.forEach((r) => { const k = keyFn(r); if (!m.has(k)) m.set(k, []); m.get(k).push(r); });
+  return m;
+}
+// Série mensuelle (rendez-vous réels + statistiques archivées des mois > 24).
+function rdvMonthly(rows, archive, months, today, commercial) {
+  const first = today.slice(0, 7) + "-01";
+  const keys = [];
+  for (let i = months - 1; i >= 0; i--) keys.push(marketingAddMonths(first, -i).slice(0, 7));
+  const out = new Map(keys.map((k) => [k, { mois: k, pris: 0, venus: 0, vendus: 0 }]));
+  rows.forEach((r) => {
+    if (r.deleted_at || (commercial && r.commercial !== commercial)) return;
+    const o = out.get(rdvDay(r).slice(0, 7));
+    if (o) { o.pris++; if (r.venu) o.venus++; if (r.statut === "Vendu") o.vendus++; }
+  });
+  (archive || []).forEach((a) => {
+    if (commercial && a.commercial !== commercial) return;
+    const o = out.get(String(a.mois).slice(0, 7));
+    if (o) { o.pris += a.nb_rdv; o.venus += a.nb_venu; o.vendus += a.nb_vendu; }
+  });
+  return [...out.values()];
+}
+function rdvMonthLabel(k) {
+  return new Date(k + "-01T12:00:00").toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+}
+function rdvVehicleWarning(r, vehicleByOrder) {
+  if (!r.vehicule_ref || !(r.statut === "À venir" || r.statut === "Honoré" || r.statut === "Absent")) return "";
+  const v = vehicleByOrder.get(normalizeOrderNum(r.vehicule_ref));
+  if (!v) return "";
+  if (v.baseStatus === "vendu") return "Véhicule déjà vendu";
+  if (v.baseStatus === "livre_client") return "Véhicule livré";
+  if (v.baseStatus === "hs") return "Véhicule HS";
+  if (v.baseStatus === "reserve") {
+    const who = activeReservationVendeur(v);
+    return who && who === r.commercial ? "" : `Véhicule réservé${who ? " (" + who + ")" : ""}`;
+  }
+  return "";
+}
+function rdvSmsBody(r, today) {
+  const day = rdvDay(r);
+  const label = day === today ? "aujourd'hui" : day === marketingAddDays(today, 1) ? "demain" : new Date(r.date_rdv).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const hm = rdvTime(r).replace(":", "h");
+  return `Bonjour, c'est ${rdvFirstName(r.commercial)} de Ford Caen. Je vous confirme votre rendez-vous ${label} à ${hm}. À très vite !`;
+}
+function rdvSmsHref(r, today) { return `sms:${rdvTelClean(r.tel)}?&body=${encodeURIComponent(rdvSmsBody(r, today))}`; }
+function rdvIcsEscape(s) { return String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n"); }
+function rdvIcs(r) {
+  const fmt = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const start = new Date(r.date_rdv);
+  const end = new Date(start.getTime() + 3600000);
+  const desc = [r.tel && `Tél : ${r.tel}`, r.vehicule_vise && `Véhicule : ${r.vehicule_vise}`, r.type_rdv && `Type : ${r.type_rdv}`, r.consigne].filter(Boolean).join("\n");
+  return [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ParcLive//RDV//FR", "CALSCALE:GREGORIAN", "BEGIN:VEVENT",
+    `UID:${r.id}@parclive`, `DTSTAMP:${fmt(new Date())}`, `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
+    `SUMMARY:${rdvIcsEscape(`RDV ${r.client_nom} — Ford Caen`)}`, `DESCRIPTION:${rdvIcsEscape(desc)}`, "LOCATION:Ford Caen",
+    "BEGIN:VALARM", "TRIGGER:-PT30M", "ACTION:DISPLAY", "DESCRIPTION:Rendez-vous client", "END:VALARM",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+}
+function rdvCleanRow(f) {
+  const t = (v) => { const s = typeof v === "string" ? v.trim() : v; return s === "" || s === undefined ? null : s; };
+  return {
+    client_nom: String(f.client_nom || "").trim(),
+    tel: t(f.tel), commercial: String(f.commercial || "").trim(),
+    date_rdv: f.date_rdv, type_rdv: f.type_rdv || "Showroom", source: t(f.source),
+    vehicule_vise: t(f.vehicule_vise), vehicule_ref: t(f.vehicule_ref), consigne: t(f.consigne),
+  };
+}
+// Points de la semaine (récap) : synthèse équipe + vendeurs + points d'attention.
+function rdvWeekRecap(rows, names, objectifs, weekStart, now, today) {
+  const from = weekStart, to = marketingAddDays(weekStart, 6);
+  const inWeek = rows.filter((r) => !r.deleted_at && rdvInRange(r, { from, to }));
+  const objBy = new Map((objectifs || []).map((o) => [o.commercial, o]));
+  const per = names.map((nom) => {
+    const mine = inWeek.filter((r) => r.commercial === nom);
+    const st = rdvStats(mine, now, today);
+    const sansSuiviAll = rows.filter((r) => r.commercial === nom && rdvIsOverdue(r, now));
+    const oldest = sansSuiviAll.reduce((m, r) => Math.max(m, rdvOverdueDays(r, today)), 0);
+    return { nom, st, obj: objBy.get(nom) || null, sansSuiviAll: sansSuiviAll.length, oldest };
+  }).filter((p) => p.st.pris > 0 || p.sansSuiviAll > 0 || p.obj);
+  const team = rdvStats(inWeek, now, today);
+  const nextFrom = marketingAddDays(from, 7), nextTo = marketingAddDays(from, 13);
+  const next = rows.filter((r) => !r.deleted_at && rdvInRange(r, { from: nextFrom, to: nextTo }));
+  const nextBy = {};
+  next.forEach((r) => { nextBy[r.commercial] = (nextBy[r.commercial] || 0) + 1; });
+  const attention = [];
+  per.forEach((p) => {
+    if (p.sansSuiviAll) attention.push(`${p.nom} : ${p.sansSuiviAll} rendez-vous sans résultat saisi${p.oldest ? ` (le plus ancien : ${p.oldest} j)` : ""}`);
+    if (p.st.relancesRetard) attention.push(`${p.nom} : ${p.st.relancesRetard} relance${p.st.relancesRetard > 1 ? "s" : ""} en retard`);
+    if (p.obj?.rdv_semaine != null && to < today && p.st.pris < p.obj.rdv_semaine) attention.push(`${p.nom} : ${p.st.pris} rendez-vous pour un objectif de ${p.obj.rdv_semaine}`);
+    if (p.obj?.honore_pct != null && p.st.tauxHonore != null && p.st.tauxHonore * 100 < p.obj.honore_pct) attention.push(`${p.nom} : taux d'honorés ${rdvPct(p.st.tauxHonore)} (objectif ${p.obj.honore_pct} %)`);
+  });
+  return { from, to, team, per, next: { from: nextFrom, to: nextTo, total: next.length, by: nextBy }, attention };
+}
+function rdvFrRange(from, to) {
+  const f = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  return `${f(from)} au ${f(to)}`;
+}
+function rdvRecapText(rc) {
+  const out = [`Rapport RDV — semaine du ${rdvFrRange(rc.from, rc.to)}`, ""];
+  out.push(`Équipe : ${rc.team.pris} rendez-vous, ${rc.team.venus} honorés (${rdvPct(rc.team.tauxHonore)}), ${rc.team.vendus} vendus (${rdvPct(rc.team.tauxVente)} des honorés).`, "");
+  rc.per.forEach((p) => out.push(`• ${p.nom} : ${p.st.pris} RDV · ${p.st.venus} honorés · ${p.st.vendus} vendus${p.obj?.rdv_semaine != null ? ` · objectif ${p.obj.rdv_semaine}` : ""}`));
+  out.push("", "Points d'attention :");
+  if (rc.attention.length) rc.attention.forEach((a) => out.push(`  – ${a}`)); else out.push("  – aucun");
+  out.push("", `Semaine suivante : ${rc.next.total} rendez-vous planifiés.`);
+  return out.join("\n");
+}
+function rdvExportRows(rows) {
+  const dt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR") : "");
+  return rows.filter((r) => !r.deleted_at).map((r) => ({
+    "Date": dt(r.date_rdv), "Client": r.client_nom, "Téléphone": r.tel || "", "Vendeur": r.commercial, "Type": r.type_rdv, "Source": r.source || "",
+    "Véhicule visé": r.vehicule_vise || "", "Statut": r.statut, "Honoré": r.venu ? "Oui" : "Non", "Motif de perte": r.motif_perte || "",
+    "Dossier": r.dossier_numero || "", "Relance": r.relance || "", "Commentaire": r.commentaire || "", "Résultat saisi le": dt(r.suivi_at),
+  }));
+}
+async function exportRdvToExcel(rows, label) {
+  const XLSX = await loadXLSX();
+  const data = rdvExportRows(rows);
+  const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ "Aucun rendez-vous": "" }]);
+  ws["!cols"] = Object.keys(data[0] || { x: 1 }).map((k) => ({ wch: Math.max(k.length + 2, 16) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Rendez-vous");
+  XLSX.writeFile(wb, `parclive-rdv-${label || "export"}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+// RDV-LOGIC-END
+
+// Renvoie { nom, role } si le compte connecté figure dans rdv_members (RLS applique la vraie restriction côté base).
+function useRdvAccess(userId) {
+  const [me, setMe] = useState(undefined); // undefined = en cours de vérification, null = pas d'accès
+  useEffect(() => {
+    let alive = true;
+    if (!userId) return undefined; // session pas encore connue : on reste en « vérification »
+    supabase
+      .from("rdv_members")
+      .select("nom, role")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data }) => { if (alive) setMe(data ? { nom: data.nom, role: data.role } : null); });
+    return () => { alive = false; };
+  }, [userId]);
+  return me;
+}
+
+async function rdvFetchAll(build) {
+  const out = [];
+  for (let from = 0; from < 30000; from += 1000) {
+    const { data, error } = await build().range(from, from + 999);
+    if (error) return { data: null, error };
+    out.push(...data);
+    if (data.length < 1000) break;
+  }
+  return { data: out, error: null };
+}
+
+function useRdv(me) {
+  const role = me?.role || "";
+  const [state, setState] = useState({ rows: [], objectifs: [], archive: [], members: [], loading: true, error: null });
+  const sigRef = useRef("");
+  const timer = useRef(null);
+  const purged = useRef(false);
+
+  const load = useCallback(async () => {
+    if (!role) return;
+    const admin = role === "admin";
+    const [r, o, a, m] = await Promise.all([
+      rdvFetchAll(() => supabase.from("rdv").select("*").order("date_rdv", { ascending: false }).order("id")),
+      supabase.from("rdv_objectifs").select("*"),
+      admin ? supabase.from("rdv_archive_mensuel").select("*") : Promise.resolve({ data: [] }),
+      admin ? supabase.from("rdv_members").select("*").order("nom") : Promise.resolve({ data: [] }),
+    ]);
+    const err = r.error || o.error || a.error || m.error;
+    if (err) { setState((s) => ({ ...s, loading: false, error: err.message })); return; }
+    const maxU = (rows) => rows.reduce((x, y) => ((y.updated_at || "") > x ? y.updated_at : x), "");
+    const sig = `${r.data.length}:${maxU(r.data)}|${o.data.length}:${maxU(o.data)}|${m.data.map((x) => x.user_id).join(",")}|${a.data.length}`;
+    if (sig !== sigRef.current) {
+      sigRef.current = sig;
+      setState({ rows: r.data, objectifs: o.data || [], archive: a.data || [], members: m.data || [], loading: false, error: null });
+    } else setState((s) => (s.loading || s.error ? { ...s, loading: false, error: null } : s));
+  }, [role]);
+
+  const scheduleLoad = useCallback(() => { clearTimeout(timer.current); timer.current = setTimeout(load, 300); }, [load]);
+
+  useEffect(() => {
+    if (!role) return undefined;
+    load().then(() => {
+      if (role === "admin" && !purged.current) { purged.current = true; supabase.rpc("rdv_purge").then(() => {}, () => {}); }
+    });
+    const ch = supabase
+      .channel("rdv-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "rdv" }, scheduleLoad)
+      .subscribe();
+    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearTimeout(timer.current); supabase.removeChannel(ch); document.removeEventListener("visibilitychange", onVis); };
+  }, [role, load, scheduleLoad]);
+
+  const refresh = useCallback(async () => { sigRef.current = ""; await load(); }, [load]);
+  const patchLocal = useCallback((row) => setState((s) => ({ ...s, rows: s.rows.some((x) => x.id === row.id) ? s.rows.map((x) => (x.id === row.id ? row : x)) : [row, ...s.rows] })), []);
+
+  const create = useCallback(async (fields) => {
+    const row = await marketingExec(() => supabase.from("rdv").insert(rdvCleanRow(fields)).select().single());
+    patchLocal(row);
+    return row;
+  }, [patchLocal]);
+  const update = useCallback(async (id, patch) => {
+    const row = await marketingExec(() => supabase.from("rdv").update(patch).eq("id", id).select().single());
+    patchLocal(row);
+    return row;
+  }, [patchLocal]);
+  const reassign = useCallback(async (ids, nom) => {
+    if (!ids.length) return;
+    await marketingExec(() => supabase.from("rdv").update({ commercial: nom }).in("id", ids));
+    await refresh();
+  }, [refresh]);
+  const saveObjectif = useCallback(async (commercial, vals) => {
+    await marketingExec(() => supabase.from("rdv_objectifs").upsert({ commercial, ...vals }, { onConflict: "commercial" }));
+    await refresh();
+  }, [refresh]);
+  const addMember = useCallback(async (email, nom) => {
+    const data = await marketingExec(() => supabase.rpc("rdv_add_member", { p_email: email, p_nom: nom }));
+    await refresh();
+    return !!data;
+  }, [refresh]);
+  const removeMember = useCallback(async (userId) => {
+    await marketingExec(() => supabase.rpc("rdv_remove_member", { p_user: userId }));
+    await refresh();
+  }, [refresh]);
+  const loadHistory = useCallback(async (id) => {
+    return marketingExec(() => supabase.from("rdv_history").select("*").eq("rdv_id", id).order("at", { ascending: false }).limit(100));
+  }, []);
+
+  return { ...state, refresh, create, update, reassign, saveObjectif, addMember, removeMember, loadHistory };
+}
+
+// ───────── Petits composants ─────────
+const RDV_STATUT_STYLE = {
+  "À venir": { light: "bg-blue-50 text-blue-700", dark: "bg-blue-500/15 text-blue-300", dot: "bg-blue-500" },
+  "Honoré": { light: "bg-emerald-50 text-emerald-700", dark: "bg-emerald-500/15 text-emerald-300", dot: "bg-emerald-500" },
+  "Absent": { light: "bg-orange-50 text-orange-700", dark: "bg-orange-500/15 text-orange-300", dot: "bg-orange-500" },
+  "Vendu": { light: "bg-violet-50 text-violet-700", dark: "bg-violet-500/15 text-violet-300", dot: "bg-violet-600" },
+  "Perdu": { light: "bg-stone-100 text-stone-600", dark: "bg-zinc-800 text-zinc-400", dot: "bg-stone-400" },
+};
+const RDV_ACTION_STYLE = {
+  "Honoré": { light: "bg-emerald-600 text-white hover:bg-emerald-500", dark: "bg-emerald-600 text-white hover:bg-emerald-500" },
+  "Absent": { light: "bg-orange-50 text-orange-700 hover:bg-orange-100", dark: "bg-orange-500/15 text-orange-300 hover:bg-orange-500/25" },
+  "Vendu": { light: "bg-violet-600 text-white hover:bg-violet-500", dark: "bg-violet-600 text-white hover:bg-violet-500" },
+  "Perdu": { light: "bg-stone-100 text-stone-600 hover:bg-stone-200", dark: "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" },
+};
+const RDV_PILL_TONES = {
+  rose: { light: "bg-rose-50 text-rose-700", dark: "bg-rose-500/15 text-rose-300" },
+  amber: { light: "bg-amber-50 text-amber-800", dark: "bg-amber-500/15 text-amber-300" },
+  gray: { light: "bg-stone-100 text-stone-600", dark: "bg-zinc-800 text-zinc-400" },
+  blue: { light: "bg-blue-50 text-blue-700", dark: "bg-blue-500/15 text-blue-300" },
+};
+function RdvStatutChip({ dark, statut }) {
+  const st = RDV_STATUT_STYLE[statut] || RDV_STATUT_STYLE["À venir"];
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${dark ? st.dark : st.light}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />{statut}
+    </span>
+  );
+}
+function RdvPill({ dark, tone, children, title }) {
+  const t = RDV_PILL_TONES[tone] || RDV_PILL_TONES.gray;
+  return <span title={title} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${dark ? t.dark : t.light}`}>{children}</span>;
+}
+function RdvBar({ dark, value, max, tone }) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  const fill = tone === "good" ? "bg-emerald-500" : tone === "warn" ? "bg-amber-500" : tone === "bad" ? "bg-rose-500" : "bg-blue-600";
+  return (
+    <div className={`h-1.5 w-full overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`}>
+      <div className={`h-full rounded-full ${fill}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+function RdvKpi({ dark, label, value, sub, tone, onClick }) {
+  const s = marketingStyles(dark);
+  const valueTone = tone === "bad" ? (dark ? "text-rose-300" : "text-rose-600") : tone === "warn" ? (dark ? "text-amber-300" : "text-amber-700") : tone === "good" ? (dark ? "text-emerald-300" : "text-emerald-600") : s.title;
+  const Cmp = onClick ? "button" : "div";
+  return (
+    <Cmp onClick={onClick} className={`rounded-xl border px-4 py-3 text-left ${s.card} ${onClick ? "pl-interactive" : ""}`}>
+      <div className={`text-xs ${s.sub}`}>{label}</div>
+      <div className={`mt-0.5 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</div>
+      {sub != null && <div className={`mt-0.5 text-xs ${s.muted}`}>{sub}</div>}
+    </Cmp>
+  );
+}
+function RdvSection({ dark, title, count, tone, children, right }) {
+  const s = marketingStyles(dark);
+  const toneCls = tone === "rose" ? (dark ? "text-rose-300" : "text-rose-600") : tone === "amber" ? (dark ? "text-amber-300" : "text-amber-700") : s.title;
+  return (
+    <section>
+      <div className="mb-2 flex items-center gap-2">
+        <h3 className={`text-sm font-semibold ${toneCls}`}>{title}</h3>
+        {count != null && <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>{count}</span>}
+        {right && <div className="ml-auto">{right}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+function rdvDownloadIcs(r) {
+  const blob = new Blob([rdvIcs(r)], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `rdv-${stripAccents(r.client_nom).replace(/\W+/g, "-").toLowerCase()}.ics`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function rdvFrDay(r) {
+  return new Date(r.date_rdv).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function RdvRow({ dark, r, now, today, isAdmin, vehicleByOrder, onOpen, onAction, selected, onSelect, showDate, busy }) {
+  const s = marketingStyles(dark);
+  const overdue = rdvIsOverdue(r, now);
+  const dayIso = rdvDay(r);
+  const done = r.statut === "Vendu" || r.statut === "Perdu";
+  const warn = rdvVehicleWarning(r, vehicleByOrder);
+  const relanceDue = rdvRelanceDue(r, today);
+  let acts = [];
+  if (r.statut === "À venir" && dayIso <= today) acts = ["Honoré", "Absent"];
+  else if (r.statut === "Honoré") acts = ["Vendu", "Perdu"];
+  else if (r.statut === "Absent") acts = ["Honoré", "Perdu"];
+  const stop = (e) => e.stopPropagation();
+  const iconBtn = `flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"}`;
+  const border = overdue ? (dark ? "border-rose-500/30 bg-rose-500/5" : "border-rose-200 bg-rose-50/40") : s.card;
+  return (
+    <div
+      onClick={() => onOpen(r.id)}
+      className={`flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border px-4 py-3 transition-colors ${border} ${dark ? "hover:border-zinc-700" : "hover:border-blue-300"} ${busy ? "opacity-60" : ""}`}
+    >
+      {onSelect && (
+        <input type="checkbox" checked={!!selected} onClick={stop} onChange={() => onSelect(r.id)} className="h-4 w-4 shrink-0 accent-blue-600" aria-label="Sélectionner" />
+      )}
+      <div className="w-[68px] shrink-0">
+        {showDate && <div className={`text-[11px] font-medium capitalize ${s.sub}`}>{rdvFrDay(r)}</div>}
+        <div className={`text-base font-semibold tabular-nums ${s.title}`}>{rdvTime(r)}</div>
+      </div>
+      <div className="min-w-0 flex-1 basis-56">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className={`truncate font-semibold ${s.title}`}>{r.client_nom}</span>
+          <RdvStatutChip dark={dark} statut={r.statut} />
+          {overdue && <RdvPill dark={dark} tone="rose">{rdvOverdueDays(r, today) > 0 ? `Sans suivi · ${rdvOverdueDays(r, today)} j` : "Résultat à saisir"}</RdvPill>}
+          {relanceDue && <RdvPill dark={dark} tone="amber"><Bell size={11} /> Relance {marketingRelativeLabel(r.relance, today)}</RdvPill>}
+          {!relanceDue && r.relance && (r.statut === "Honoré" || r.statut === "Absent") && <RdvPill dark={dark} tone="gray">Relance {marketingFrDate(r.relance)}</RdvPill>}
+          {warn && <RdvPill dark={dark} tone="amber"><AlertTriangle size={11} /> {warn}</RdvPill>}
+        </div>
+        <div className={`mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs ${s.muted}`}>
+          {isAdmin && <span className={`font-medium ${dark ? "text-zinc-300" : "text-stone-700"}`}>{r.commercial}</span>}
+          {isAdmin && <span>·</span>}
+          <span>{r.type_rdv}</span>
+          {r.source && <span>· {r.source}</span>}
+          {r.vehicule_vise && <span className="truncate">· {r.vehicule_vise}</span>}
+        </div>
+        {r.commentaire && <div className={`mt-1 truncate text-xs italic ${s.sub}`}>« {r.commentaire} »</div>}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5" onClick={stop}>
+        {acts.map((a) => (
+          <button key={a} disabled={busy} onClick={() => onAction(r, a)} className={`pl-interactive rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors disabled:opacity-50 ${dark ? RDV_ACTION_STYLE[a].dark : RDV_ACTION_STYLE[a].light}`}>{a}</button>
+        ))}
+        {r.tel && <a href={`tel:${rdvTelClean(r.tel)}`} title={`Appeler ${r.tel}`} className={iconBtn}><Phone size={16} /></a>}
+        {r.tel && !done && <a href={rdvSmsHref(r, today)} title="SMS de rappel prérempli" className={iconBtn}><MessageSquare size={16} /></a>}
+        {!done && <button onClick={() => rdvDownloadIcs(r)} title="Ajouter à l'agenda du téléphone" className={iconBtn}><CalendarPlus size={16} /></button>}
+      </div>
+    </div>
+  );
+}
+
+function rdvLocalInput(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function rdvVehicleLabel(v) {
+  return `${[v.model, v.trim, v.color].filter(Boolean).join(" ")} · ${v.orderNumber}`;
+}
+function rdvDossierLabel(d) {
+  return `${d.numero} — ${d.societe || [d.prenom, d.nom].filter(Boolean).join(" ") || "client"}${d.modele ? " · " + d.modele : ""}`;
+}
+function rdvFormatChange(key, pair) {
+  const [o, n] = pair;
+  if (key === "deleted_at") return n ? "Mis à la corbeille" : "Restauré depuis la corbeille";
+  const fmt = (v) => {
+    if (v == null || v === "") return "—";
+    if (key === "date_rdv") return new Date(v).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    if (key === "relance") return marketingFrDate(v);
+    const t = String(v);
+    return t.length > 60 ? t.slice(0, 57) + "…" : t;
+  };
+  return `${RDV_FIELD_LABELS[key] || key} : ${fmt(o)} → ${fmt(n)}`;
+}
+
+function RdvVehiclePicker({ dark, label, refNum, vehicles, onChange }) {
+  const s = marketingStyles(dark);
+  const [open, setOpen] = useState(false);
+  const q = stripAccents(label || "").toLowerCase().trim();
+  const sugg = useMemo(() => {
+    if (refNum || q.length < 2) return [];
+    const parts = q.split(/\s+/);
+    return vehicles
+      .filter((v) => v.baseStatus !== "livre_client" && v.baseStatus !== "vendu")
+      .filter((v) => { const hay = stripAccents([v.model, v.trim, v.color, v.orderNumber, v.vin].join(" ")).toLowerCase(); return parts.every((p) => hay.includes(p)); })
+      .slice(0, 6);
+  }, [vehicles, q, refNum]);
+  return (
+    <div className="relative">
+      <input
+        className={s.input}
+        value={label || ""}
+        placeholder="Modèle, finition, n° de commande… (stock ou texte libre)"
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => onChange({ label: e.target.value, ref: "" })}
+      />
+      {refNum && (
+        <div className={`mt-1 flex items-center gap-1.5 text-xs ${s.muted}`}>
+          <Check size={12} className="text-emerald-500" /> Lié au stock (commande {refNum})
+          <button type="button" onClick={() => onChange({ label: "", ref: "" })} className="ml-1 underline">retirer</button>
+        </div>
+      )}
+      {open && sugg.length > 0 && (
+        <ul className={`absolute left-0 right-0 z-10 mt-1 max-h-60 overflow-auto rounded-lg border p-1 shadow-lg ${dark ? "border-zinc-800 bg-zinc-900" : "border-stone-200 bg-white"}`}>
+          {sugg.map((v) => (
+            <li key={v.orderNumber}>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange({ label: rdvVehicleLabel(v), ref: v.orderNumber }); setOpen(false); }}
+                className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}>
+                <span className={`min-w-0 flex-1 truncate ${s.title}`}>{rdvVehicleLabel(v)}</span>
+                <span className={`shrink-0 text-xs ${s.sub}`}>{STATUS_META[v.baseStatus]?.label}{v.joursStock != null ? ` · ${v.joursStock} j` : ""}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function RdvDossierPicker({ dark, value, onChange, dossiers, vendeur }) {
+  const s = marketingStyles(dark);
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const sel = value ? dossiers.find((d) => String(d.numero) === String(value)) : null;
+  const sugg = useMemo(() => {
+    const n = stripAccents(q).toLowerCase().trim();
+    let list = dossiers;
+    if (!n) list = dossiers.filter((d) => d.vendeur === vendeur);
+    else { const parts = n.split(/\s+/); list = dossiers.filter((d) => { const hay = stripAccents([d.numero, d.nom, d.prenom, d.societe, d.modele, d.numeroUsine, d.vendeur].join(" ")).toLowerCase(); return parts.every((p) => hay.includes(p)); }); }
+    return [...list].sort((a, b) => String(b.numero).localeCompare(String(a.numero), "fr", { numeric: true })).slice(0, 6);
+  }, [dossiers, q, vendeur]);
+  if (value) {
+    return (
+      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-white"}`}>
+        <FileText size={14} className={s.sub} />
+        <span className={`min-w-0 flex-1 truncate ${s.title}`}>{sel ? rdvDossierLabel(sel) : `Dossier ${value}`}</span>
+        <button type="button" onClick={() => onChange("")} className={`rounded p-1 ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}><X size={14} /></button>
+      </div>
+    );
+  }
+  return (
+    <div className="relative">
+      <input className={s.input} value={q} placeholder="Chercher un dossier (n°, client, modèle)…" onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} onChange={(e) => setQ(e.target.value)} />
+      {open && (sugg.length > 0 || q.trim()) && (
+        <ul className={`absolute left-0 right-0 z-10 mt-1 max-h-60 overflow-auto rounded-lg border p-1 shadow-lg ${dark ? "border-zinc-800 bg-zinc-900" : "border-stone-200 bg-white"}`}>
+          {!q.trim() && sugg.length > 0 && <li className={`px-2.5 py-1 text-[11px] ${s.sub}`}>Dossiers de {vendeur}</li>}
+          {sugg.map((d) => (
+            <li key={d.numero}>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(String(d.numero)); setQ(""); setOpen(false); }} className={`w-full truncate rounded-md px-2.5 py-2 text-left text-sm ${dark ? "text-zinc-200 hover:bg-zinc-800" : "text-stone-700 hover:bg-stone-100"}`}>
+                {rdvDossierLabel(d)}
+              </button>
+            </li>
+          ))}
+          {q.trim() && (
+            <li>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(q.trim()); setQ(""); setOpen(false); }} className={`w-full rounded-md px-2.5 py-2 text-left text-sm ${dark ? "text-blue-300 hover:bg-zinc-800" : "text-blue-700 hover:bg-stone-100"}`}>
+                Utiliser « {q.trim()} » comme n° de dossier
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function RdvField({ dark, label, children, hint }) {
+  const s = marketingStyles(dark);
+  return (
+    <label className="block">
+      <div className={s.label}>{label}</div>
+      {children}
+      {hint && <div className={`mt-1 text-xs ${s.sub}`}>{hint}</div>}
+    </label>
+  );
+}
+
+// Création / modification d'un rendez-vous (administrateur).
+function RdvFormModal({ dark, initial, vendeurNames, vehicles, rows, onSave, onClose }) {
+  const s = marketingStyles(dark);
+  const editing = !!initial?.id;
+  const tomorrow10 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d.toISOString(); };
+  const [f, setF] = useState(() => ({
+    client_nom: initial?.client_nom || "", tel: initial?.tel || "", commercial: initial?.commercial || "",
+    date: rdvLocalInput(initial?.date_rdv || tomorrow10()), type_rdv: initial?.type_rdv || "Showroom", source: initial?.source || "",
+    vehicule_vise: initial?.vehicule_vise || "", vehicule_ref: initial?.vehicule_ref || "", consigne: initial?.consigne || "",
+  }));
+  const [another, setAnother] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const dups = useMemo(() => rdvDuplicates(rows, f.tel, initial?.id), [rows, f.tel, initial?.id]);
+  const valid = f.client_nom.trim() && f.commercial && f.date && !isNaN(new Date(f.date));
+  const submit = async () => {
+    if (!valid || saving) return;
+    setSaving(true); setErr("");
+    try {
+      await onSave({ ...f, date_rdv: new Date(f.date).toISOString() }, another);
+      if (another && !editing) setF((x) => ({ ...x, client_nom: "", tel: "", vehicule_vise: "", vehicule_ref: "", consigne: "" }));
+    } catch (e) { setErr(e.message || String(e)); }
+    setSaving(false);
+  };
+  return (
+    <Modal dark={dark} title={editing ? "Modifier le rendez-vous" : "Nouveau rendez-vous"} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <RdvField dark={dark} label="Client *"><input className={s.input} value={f.client_nom} onChange={set("client_nom")} placeholder="Nom du client" autoFocus /></RdvField>
+          <RdvField dark={dark} label="Téléphone"><input className={s.input} value={f.tel} onChange={set("tel")} inputMode="tel" placeholder="06 12 34 56 78" /></RdvField>
+        </div>
+        {dups.length > 0 && (
+          <div className={`rounded-lg border px-3 py-2 text-xs ${dark ? "border-amber-500/30 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            <div className="mb-1 flex items-center gap-1.5 font-semibold"><AlertTriangle size={13} /> Ce numéro existe déjà</div>
+            {dups.slice(0, 3).map((d) => (
+              <div key={d.id}>{d.client_nom} · {new Date(d.date_rdv).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} · {d.commercial} · {d.statut}</div>
+            ))}
+            {dups.length > 3 && <div>… et {dups.length - 3} autre{dups.length - 3 > 1 ? "s" : ""}</div>}
+          </div>
+        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <RdvField dark={dark} label="Vendeur *">
+            <select className={s.input} value={f.commercial} onChange={set("commercial")}>
+              <option value="">Choisir…</option>
+              {vendeurNames.map((n) => <option key={n} value={n}>{n}</option>)}
+              {f.commercial && !vendeurNames.includes(f.commercial) && <option value={f.commercial}>{f.commercial}</option>}
+            </select>
+          </RdvField>
+          <RdvField dark={dark} label="Date et heure *"><input type="datetime-local" className={s.input} value={f.date} onChange={set("date")} /></RdvField>
+          <RdvField dark={dark} label="Type">
+            <select className={s.input} value={f.type_rdv} onChange={set("type_rdv")}>{RDV_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+          </RdvField>
+          <RdvField dark={dark} label="Source">
+            <input className={s.input} list="rdv-sources" value={f.source} onChange={set("source")} placeholder="Internet, téléphone…" />
+            <datalist id="rdv-sources">{RDV_SOURCES.map((x) => <option key={x} value={x} />)}</datalist>
+          </RdvField>
+        </div>
+        <RdvField dark={dark} label="Véhicule visé">
+          <RdvVehiclePicker dark={dark} label={f.vehicule_vise} refNum={f.vehicule_ref} vehicles={vehicles} onChange={({ label, ref }) => setF((x) => ({ ...x, vehicule_vise: label, vehicule_ref: ref }))} />
+        </RdvField>
+        <RdvField dark={dark} label="Consigne pour le vendeur" hint="Contexte utile : reprise, financement, attentes du client… (visible par le vendeur)">
+          <textarea className={s.input} rows={2} value={f.consigne} onChange={set("consigne")} />
+        </RdvField>
+        {err && <div className={`rounded-lg px-3 py-2 text-sm ${dark ? "bg-rose-500/10 text-rose-300" : "bg-rose-50 text-rose-700"}`}>{err}</div>}
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          {!editing && (
+            <label className={`flex items-center gap-2 text-sm ${s.muted}`}>
+              <input type="checkbox" checked={another} onChange={(e) => setAnother(e.target.checked)} className="h-4 w-4 accent-blue-600" /> En créer un autre ensuite
+            </label>
+          )}
+          <div className="ml-auto flex gap-2">
+            <button onClick={onClose} className={s.ghostBtn}>Annuler</button>
+            <button onClick={submit} disabled={!valid || saving} className={s.primaryBtn}>{saving ? "Enregistrement…" : editing ? "Enregistrer" : "Créer le rendez-vous"}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Fiche d'un rendez-vous : informations, saisie du suivi, historique.
+function RdvModal({ dark, rdv, preset, isAdmin, dossiers, vehicleByOrder, today, onClose, onSaveSuivi, onEdit, onDelete, loadHistory }) {
+  const s = marketingStyles(dark);
+  const tomorrow = marketingAddDays(today, 1);
+  const [statut, setStatutRaw] = useState(preset || rdv.statut);
+  const [commentaire, setCommentaire] = useState(rdv.commentaire || "");
+  const [relance, setRelance] = useState(rdv.relance || (preset === "Absent" ? tomorrow : ""));
+  const [motif, setMotif] = useState(rdv.motif_perte || "");
+  const [dossier, setDossier] = useState(rdv.dossier_numero || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const [history, setHistory] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const warn = rdvVehicleWarning(rdv, vehicleByOrder);
+  const setStatut = (st) => { setStatutRaw(st); if (st === "Absent" && !relance) setRelance(tomorrow); };
+  const needsRelance = statut === "Honoré" || statut === "Absent";
+  const patch = {
+    statut,
+    commentaire: commentaire.trim() || null,
+    relance: needsRelance ? relance || null : null,
+    motif_perte: statut === "Perdu" ? motif || null : null,
+    dossier_numero: statut === "Vendu" ? dossier.trim() || null : null,
+  };
+  const changed = patch.statut !== rdv.statut || patch.commentaire !== (rdv.commentaire || null) || patch.relance !== (rdv.relance || null) || patch.motif_perte !== (rdv.motif_perte || null) || patch.dossier_numero !== (rdv.dossier_numero || null);
+  const save = async () => {
+    if (statut === "Perdu" && !motif) { setErr("Indiquez le motif de la perte."); return; }
+    setSaving(true); setErr("");
+    try { await onSaveSuivi(rdv.id, patch); onClose(); } catch (e) { setErr(e.message || String(e)); setSaving(false); }
+  };
+  const toggleHistory = () => {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (next && history == null) loadHistory(rdv.id).then(({ data }) => setHistory(data || []), () => setHistory([]));
+  };
+  const iconBtn = `inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`;
+  const info = (label, value) => value ? (
+    <div className="min-w-0">
+      <div className={`text-[11px] ${s.sub}`}>{label}</div>
+      <div className={`truncate text-sm ${s.title}`}>{value}</div>
+    </div>
+  ) : null;
+  return (
+    <Modal dark={dark} title={rdv.client_nom} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          {info("Date", new Date(rdv.date_rdv).toLocaleString("fr-FR", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }))}
+          {info("Vendeur", rdv.commercial)}
+          {info("Type", rdv.type_rdv)}
+          {info("Source", rdv.source)}
+          {info("Téléphone", rdv.tel)}
+          {info("Véhicule visé", rdv.vehicule_vise)}
+        </div>
+        {warn && <div className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${dark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-800"}`}><AlertTriangle size={13} /> {warn}</div>}
+        {rdv.consigne && (
+          <div className={`rounded-lg px-3 py-2 text-sm ${dark ? "bg-zinc-800/60 text-zinc-300" : "bg-stone-100 text-stone-700"}`}>
+            <div className={`mb-0.5 text-[11px] ${s.sub}`}>Consigne</div>{rdv.consigne}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {rdv.tel && <a href={`tel:${rdvTelClean(rdv.tel)}`} className={iconBtn}><Phone size={13} /> Appeler</a>}
+          {rdv.tel && <a href={rdvSmsHref(rdv, today)} className={iconBtn}><MessageSquare size={13} /> SMS de rappel</a>}
+          <button onClick={() => rdvDownloadIcs(rdv)} className={iconBtn}><CalendarPlus size={13} /> Agenda</button>
+          {isAdmin && <button onClick={() => onEdit(rdv)} className={iconBtn}><Pencil size={13} /> Modifier</button>}
+          {isAdmin && <button onClick={() => onDelete(rdv)} className={`${iconBtn} ${dark ? "!text-rose-300" : "!text-rose-600"}`}><Trash2 size={13} /> Corbeille</button>}
+        </div>
+
+        <div className={`space-y-3 rounded-xl border p-3.5 ${s.card}`}>
+          <div className={`text-sm font-semibold ${s.title}`}>Suivi</div>
+          <div className="flex flex-wrap gap-1.5">
+            {RDV_STATUTS.map((st) => (
+              <button key={st} onClick={() => setStatut(st)} className={`rounded-full px-3 py-1 text-[13px] font-semibold transition-colors ${statut === st ? (dark ? "bg-blue-500/20 text-blue-200 ring-1 ring-blue-500/50" : "bg-blue-600 text-white") : dark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{st}</button>
+            ))}
+          </div>
+          {statut === "Perdu" && (
+            <RdvField dark={dark} label="Motif de la perte *">
+              <div className="flex flex-wrap gap-1.5">
+                {RDV_MOTIFS.map((m) => (
+                  <button key={m} onClick={() => setMotif(m)} className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${motif === m ? (dark ? "bg-rose-500/20 text-rose-200 ring-1 ring-rose-500/50" : "bg-rose-600 text-white") : dark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{m}</button>
+                ))}
+              </div>
+            </RdvField>
+          )}
+          {statut === "Vendu" && (
+            <RdvField dark={dark} label="Dossier (facultatif)">
+              <RdvDossierPicker dark={dark} value={dossier} onChange={setDossier} dossiers={dossiers} vendeur={rdv.commercial} />
+            </RdvField>
+          )}
+          {needsRelance && (
+            <RdvField dark={dark} label="Relance">
+              <div className="flex flex-wrap items-center gap-2">
+                <input type="date" className={`${s.input} !w-auto`} value={relance} onChange={(e) => setRelance(e.target.value)} />
+                {[["Demain", 1], ["+ 3 jours", 3], ["+ 7 jours", 7]].map(([lbl, n]) => (
+                  <button key={lbl} onClick={() => setRelance(marketingAddDays(today, n))} className={s.ghostBtn}>{lbl}</button>
+                ))}
+                {relance && <button onClick={() => setRelance("")} className={`text-xs underline ${s.muted}`}>aucune</button>}
+              </div>
+            </RdvField>
+          )}
+          <RdvField dark={dark} label="Commentaire">
+            <textarea className={s.input} rows={2} value={commentaire} onChange={(e) => setCommentaire(e.target.value)} placeholder="Ce qui s'est dit, prochaine étape…" />
+          </RdvField>
+          {err && <div className={`rounded-lg px-3 py-2 text-sm ${dark ? "bg-rose-500/10 text-rose-300" : "bg-rose-50 text-rose-700"}`}>{err}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className={s.ghostBtn}>Fermer</button>
+            <button onClick={save} disabled={!changed || saving} className={s.primaryBtn}>{saving ? "Enregistrement…" : "Enregistrer le suivi"}</button>
+          </div>
+        </div>
+
+        <div>
+          <button onClick={toggleHistory} className={`flex items-center gap-1.5 text-xs font-semibold ${s.muted}`}>
+            <History size={13} /> Historique {showHistory ? "▾" : "▸"}
+          </button>
+          {showHistory && (
+            <ul className={`mt-2 space-y-2 border-l pl-3 text-xs ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+              {history == null && <li className={s.sub}>Chargement…</li>}
+              {history && history.length === 0 && <li className={s.sub}>Aucune modification enregistrée.</li>}
+              {(history || []).map((h) => (
+                <li key={h.id}>
+                  <div className={s.muted}>
+                    <span className={`font-semibold ${s.title}`}>{h.by_nom || "—"}</span> · {h.action} · {new Date(h.at).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                  {Object.entries(h.changes || {}).map(([k, pair]) => <div key={k} className={s.sub}>{rdvFormatChange(k, pair)}</div>)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function rdvRowFactory(p) {
+  return (r, extra = {}) => (
+    <RdvRow key={r.id} dark={p.dark} r={r} now={p.now} today={p.today} isAdmin={p.isAdmin} vehicleByOrder={p.vehicleByOrder} onOpen={p.onOpen} onAction={p.onAction} busy={p.busyId === r.id} {...extra} />
+  );
+}
+const rdvByTime = (a, b) => new Date(a.date_rdv) - new Date(b.date_rdv);
+
+// ───────── Aujourd'hui / Ma journée ─────────
+function RdvJour(p) {
+  const { dark, rows, now, today, isAdmin, vendeurNames } = p;
+  const s = marketingStyles(dark);
+  const [scope, setScope] = useState("");
+  const row = rdvRowFactory(p);
+  const live = useMemo(() => rows.filter((r) => !r.deleted_at && (!scope || r.commercial === scope)), [rows, scope]);
+  const tomorrow = marketingAddDays(today, 1), horizon = marketingAddDays(today, 7);
+  const overdue = live.filter((r) => rdvIsOverdue(r, now)).sort(rdvByTime);
+  const relances = live.filter((r) => rdvRelanceDue(r, today)).sort((a, b) => a.relance.localeCompare(b.relance));
+  const used = new Set([...overdue, ...relances].map((r) => r.id));
+  const todayAll = live.filter((r) => rdvDay(r) === today);
+  const todayRows = todayAll.filter((r) => !used.has(r.id)).sort(rdvByTime);
+  const tomorrowRows = live.filter((r) => rdvDay(r) === tomorrow && r.statut === "À venir").sort(rdvByTime);
+  const soon = live.filter((r) => { const d = rdvDay(r); return d > tomorrow && d <= horizon && r.statut === "À venir"; }).sort(rdvByTime);
+  const groupedOverdue = isAdmin && !scope ? [...rdvGroupBy(overdue, (r) => r.commercial).entries()].sort((a, b) => b[1].length - a[1].length) : null;
+  const empty = !overdue.length && !relances.length && !todayRows.length && !tomorrowRows.length && !soon.length;
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <RdvKpi dark={dark} label="Aujourd'hui" value={todayAll.length} sub="rendez-vous" />
+        <RdvKpi dark={dark} label="Résultats à saisir" value={overdue.length} tone={overdue.length ? "bad" : undefined} sub={overdue.length ? "rendez-vous passés" : "tout est à jour"} />
+        <RdvKpi dark={dark} label="Relances à faire" value={relances.length} tone={relances.length ? "warn" : undefined} />
+        <RdvKpi dark={dark} label="Demain" value={tomorrowRows.length} sub={tomorrowRows.length ? "pensez au SMS de rappel" : "rendez-vous"} />
+      </div>
+      {isAdmin && (
+        <div className="flex items-center gap-2">
+          <span className={`text-sm ${s.muted}`}>Vendeur</span>
+          <select className={`${s.input} !w-auto`} value={scope} onChange={(e) => setScope(e.target.value)}>
+            <option value="">Toute l'équipe</option>
+            {vendeurNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+      )}
+      {empty && <EmptyState dark={dark} icon={CalendarClock} title="Rien à traiter" subtitle="Aucun rendez-vous à saisir, aucune relance, rien de prévu dans les 7 prochains jours." />}
+      {overdue.length > 0 && (
+        <RdvSection dark={dark} tone="rose" title="À saisir — rendez-vous passés sans résultat" count={overdue.length}>
+          {groupedOverdue ? (
+            <div className="space-y-4">
+              {groupedOverdue.map(([nom, list]) => (
+                <div key={nom}>
+                  <div className={`mb-1.5 text-xs font-semibold ${s.muted}`}>{nom} · {list.length}{rdvOverdueDays(list[0], today) > 0 ? ` · le plus ancien : ${rdvOverdueDays(list[0], today)} j` : ""}</div>
+                  <div className="space-y-2">{list.map((r) => row(r, { showDate: true }))}</div>
+                </div>
+              ))}
+            </div>
+          ) : <div className="space-y-2">{overdue.map((r) => row(r, { showDate: true }))}</div>}
+        </RdvSection>
+      )}
+      {relances.length > 0 && <RdvSection dark={dark} tone="amber" title="Relances à faire" count={relances.length}><div className="space-y-2">{relances.map((r) => row(r, { showDate: true }))}</div></RdvSection>}
+      {todayRows.length > 0 && <RdvSection dark={dark} title="Aujourd'hui" count={todayRows.length}><div className="space-y-2">{todayRows.map((r) => row(r))}</div></RdvSection>}
+      {tomorrowRows.length > 0 && <RdvSection dark={dark} title="Demain" count={tomorrowRows.length}><div className="space-y-2">{tomorrowRows.map((r) => row(r))}</div></RdvSection>}
+      {soon.length > 0 && <RdvSection dark={dark} title="Les 7 prochains jours" count={soon.length}><div className="space-y-2">{soon.map((r) => row(r, { showDate: true }))}</div></RdvSection>}
+    </div>
+  );
+}
+
+// ───────── Liste des rendez-vous ─────────
+function RdvListe(p) {
+  const { dark, rows, now, today, isAdmin, vendeurNames, showToast } = p;
+  const s = marketingStyles(dark);
+  const row = rdvRowFactory(p);
+  const [q, setQ] = useState("");
+  const [vendeur, setVendeur] = useState("");
+  const [statut, setStatut] = useState("");
+  const [period, setPeriod] = useState("mois");
+  const [custom, setCustom] = useState({ from: "", to: "" });
+  const [limit, setLimit] = useState(60);
+  const [sel, setSel] = useState([]);
+  const [target, setTarget] = useState("");
+  const range = rdvPeriodRange(period, today, custom);
+  const list = useMemo(() => {
+    const n = stripAccents(q).toLowerCase().trim();
+    const dq = rdvDigits(q);
+    return rows
+      .filter((r) => !r.deleted_at && rdvInRange(r, range) && (!vendeur || r.commercial === vendeur) && (!statut || (statut === "__sans" ? rdvIsOverdue(r, now) : r.statut === statut)))
+      .filter((r) => !n || stripAccents([r.client_nom, r.vehicule_vise, r.commentaire, r.source].join(" ")).toLowerCase().includes(n) || (dq.length >= 3 && rdvDigits(r.tel).includes(dq)))
+      .sort((a, b) => rdvByTime(b, a));
+  }, [rows, q, vendeur, statut, range.from, range.to, now]);
+  const toggle = (id) => setSel((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
+  const applyReassign = async () => {
+    if (!target || !sel.length) return;
+    try { await p.onReassign(sel, target); showToast(`${sel.length} rendez-vous réattribué${sel.length > 1 ? "s" : ""} à ${target}`); setSel([]); setTarget(""); }
+    catch (e) { showToast(`Réattribution impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  return (
+    <div className="space-y-4">
+      <div className={`flex flex-wrap items-center gap-2 rounded-xl border p-2.5 ${s.card}`}>
+        <div className="relative min-w-[200px] flex-1">
+          <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${s.sub}`} />
+          <input className={`${s.input} !pl-9`} placeholder="Client, téléphone, véhicule…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {isAdmin && (
+          <select className={`${s.input} !w-auto`} value={vendeur} onChange={(e) => setVendeur(e.target.value)}>
+            <option value="">Tous vendeurs</option>
+            {vendeurNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        )}
+        <select className={`${s.input} !w-auto`} value={statut} onChange={(e) => setStatut(e.target.value)}>
+          <option value="">Tous statuts</option>
+          <option value="__sans">Sans suivi</option>
+          {RDV_STATUTS.map((st) => <option key={st} value={st}>{st}</option>)}
+        </select>
+        <select className={`${s.input} !w-auto`} value={period} onChange={(e) => setPeriod(e.target.value)}>
+          {RDV_PERIODS.map((x) => <option key={x.k} value={x.k}>{x.label}</option>)}
+          <option value="perso">Dates…</option>
+        </select>
+        {period === "perso" && (
+          <>
+            <input type="date" className={`${s.input} !w-auto`} value={custom.from} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
+            <input type="date" className={`${s.input} !w-auto`} value={custom.to} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
+          </>
+        )}
+        <span className={`text-xs ${s.sub}`}>{list.length} rendez-vous</span>
+        <button onClick={() => exportRdvToExcel(list, "liste")} className={`${s.ghostBtn} flex items-center gap-1.5`}><Download size={14} /> Exporter</button>
+      </div>
+      {isAdmin && sel.length > 0 && (
+        <div className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 ${dark ? "border-blue-500/30 bg-blue-500/10" : "border-blue-200 bg-blue-50"}`}>
+          <span className={`text-sm font-semibold ${s.title}`}>{sel.length} sélectionné{sel.length > 1 ? "s" : ""}</span>
+          <select className={`${s.input} !w-auto`} value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="">Réattribuer à…</option>
+            {vendeurNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <button onClick={applyReassign} disabled={!target} className={s.primaryBtn}>Réattribuer</button>
+          <button onClick={() => setSel([])} className={s.ghostBtn}>Annuler</button>
+        </div>
+      )}
+      {list.length === 0 ? (
+        <EmptyState dark={dark} icon={CalendarClock} title="Aucun rendez-vous" subtitle="Aucun rendez-vous ne correspond à ces filtres." />
+      ) : (
+        <div className="space-y-2">
+          {list.slice(0, limit).map((r) => row(r, { showDate: true, selected: sel.includes(r.id), onSelect: isAdmin ? toggle : undefined }))}
+          {list.length > limit && <button onClick={() => setLimit((l) => l + 60)} className={`${s.ghostBtn} w-full`}>Afficher plus ({list.length - limit})</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RdvMonthlyChart({ dark, data }) {
+  const axis = dark ? "#a1a1aa" : "#78716c";
+  const grid = dark ? "#27272a" : "#e7e5e4";
+  const chart = data.map((d) => ({ name: rdvMonthLabel(d.mois), "Rendez-vous": d.pris, "Honorés": d.venus, "Vendus": d.vendus }));
+  return (
+    <div style={{ width: "100%", height: 240 }}>
+      <ResponsiveContainer>
+        <BarChart data={chart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <CartesianGrid stroke={grid} vertical={false} />
+          <XAxis dataKey="name" tick={{ fill: axis, fontSize: 12 }} axisLine={false} tickLine={false} />
+          <YAxis allowDecimals={false} tick={{ fill: axis, fontSize: 12 }} axisLine={false} tickLine={false} />
+          <Tooltip cursor={{ fill: dark ? "#ffffff0d" : "#0000000a" }} contentStyle={{ background: dark ? "#18181b" : "#fff", border: `1px solid ${grid}`, borderRadius: 10, fontSize: 12 }} />
+          <Bar isAnimationActive={false} dataKey="Rendez-vous" fill="#2563EB" radius={[4, 4, 0, 0]} />
+          <Bar isAnimationActive={false} dataKey="Honorés" fill="#10B981" radius={[4, 4, 0, 0]} />
+          <Bar isAnimationActive={false} dataKey="Vendus" fill="#7C3AED" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function RdvPeriodPicker({ dark, period, setPeriod }) {
+  const s = marketingStyles(dark);
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {RDV_PERIODS.map((x) => (
+        <button key={x.k} onClick={() => setPeriod(x.k)} className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${period === x.k ? (dark ? "bg-blue-500/15 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:bg-zinc-900" : "text-stone-500 hover:bg-stone-100"}`}>{x.label}</button>
+      ))}
+    </div>
+  );
+}
+
+// ───────── Équipe : comparaison des vendeurs ─────────
+function RdvEquipe({ dark, rows, archive, objectifs, names, now, today, onOpenFiche }) {
+  const s = marketingStyles(dark);
+  const [period, setPeriod] = useState("mois");
+  const range = rdvPeriodRange(period, today);
+  const weekRange = rdvPeriodRange("semaine", today);
+  const inPeriod = useMemo(() => rows.filter((r) => !r.deleted_at && rdvInRange(r, range)), [rows, range.from, range.to]);
+  const inWeek = useMemo(() => rows.filter((r) => !r.deleted_at && rdvInRange(r, weekRange)), [rows, weekRange.from]);
+  const objBy = new Map(objectifs.map((o) => [o.commercial, o]));
+  const lines = names.map((nom) => ({
+    nom, st: rdvStats(inPeriod.filter((r) => r.commercial === nom), now, today),
+    week: rdvStats(inWeek.filter((r) => r.commercial === nom), now, today), obj: objBy.get(nom) || null,
+    open: rdvStats(rows.filter((r) => r.commercial === nom), now, today),
+  })).filter((l) => l.st.pris > 0 || l.open.sansSuivi > 0 || l.open.relancesDues > 0).sort((a, b) => b.st.vendus - a.st.vendus || b.st.pris - a.st.pris);
+  const total = rdvStats(inPeriod, now, today);
+  const totalOpen = rdvStats(rows, now, today);
+  const monthly = useMemo(() => rdvMonthly(rows, archive, 12, today), [rows, archive, today]);
+  const th = `px-3 py-2 text-right text-[11px] font-medium ${s.sub}`;
+  const td = `px-3 py-2.5 text-right tabular-nums ${s.title}`;
+  const warnTone = (v) => (v ? (dark ? "text-rose-300" : "text-rose-600") : s.sub);
+  return (
+    <div className="space-y-6">
+      <RdvPeriodPicker dark={dark} period={period} setPeriod={setPeriod} />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <RdvKpi dark={dark} label="Rendez-vous" value={total.pris} />
+        <RdvKpi dark={dark} label="Honorés" value={total.venus} sub={`${rdvPct(total.tauxHonore)} des rendez-vous décidés`} />
+        <RdvKpi dark={dark} label="Vendus" value={total.vendus} sub={`${rdvPct(total.tauxVente)} des honorés`} tone="good" />
+        <RdvKpi dark={dark} label="Sans suivi" value={totalOpen.sansSuivi} tone={totalOpen.sansSuivi ? "bad" : undefined} sub="toute période" />
+        <RdvKpi dark={dark} label="Réactivité moyenne" value={rdvReact(total.reactH)} sub="délai de saisie du résultat" />
+      </div>
+      <div className={`overflow-x-auto rounded-2xl border ${s.card}`}>
+        <table className="w-full min-w-[820px] text-sm">
+          <thead>
+            <tr className={`border-b ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+              <th className={`${th} !text-left`}>Vendeur</th>
+              <th className={th}>RDV</th><th className={th}>Honorés</th><th className={th}>Taux</th><th className={th}>Vendus</th><th className={th}>Transfo.</th>
+              <th className={th}>Perdus</th><th className={th}>Sans suivi</th><th className={th}>Relances en retard</th><th className={th}>Réactivité</th><th className={th}>Obj. semaine</th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
+            {lines.map((l) => {
+              const objOk = l.obj?.rdv_semaine != null ? l.week.pris >= l.obj.rdv_semaine : null;
+              return (
+                <tr key={l.nom} onClick={() => onOpenFiche(l.nom)} className={`cursor-pointer transition-colors ${dark ? "hover:bg-zinc-900/60" : "hover:bg-blue-50/40"}`}>
+                  <td className={`px-3 py-2.5 font-semibold ${s.title}`}>{l.nom}</td>
+                  <td className={td}>{l.st.pris}</td><td className={td}>{l.st.venus}</td><td className={td}>{rdvPct(l.st.tauxHonore)}</td>
+                  <td className={td}>{l.st.vendus}</td><td className={td}>{rdvPct(l.st.tauxVente)}</td><td className={td}>{l.st.perdus}</td>
+                  <td className={`${td} ${l.open.sansSuivi ? (dark ? "!text-rose-300" : "!text-rose-600") : ""} font-semibold`}>{l.open.sansSuivi || "—"}</td>
+                  <td className={`${td} ${l.open.relancesRetard ? (dark ? "!text-amber-300" : "!text-amber-700") : ""}`}>{l.open.relancesRetard || "—"}</td>
+                  <td className={td}>{rdvReact(l.st.reactH)}</td>
+                  <td className={`${td} ${objOk === false ? (dark ? "!text-amber-300" : "!text-amber-700") : objOk ? (dark ? "!text-emerald-300" : "!text-emerald-600") : ""}`}>{l.obj?.rdv_semaine != null ? `${l.week.pris} / ${l.obj.rdv_semaine}` : "—"}</td>
+                </tr>
+              );
+            })}
+            {lines.length === 0 && <tr><td colSpan={11} className={`px-3 py-8 text-center ${s.sub}`}>Aucun rendez-vous sur cette période.</td></tr>}
+            {lines.length > 0 && (
+              <tr className={dark ? "bg-zinc-900/60" : "bg-stone-50"}>
+                <td className={`px-3 py-2.5 font-semibold ${s.title}`}>Équipe</td>
+                <td className={`${td} font-semibold`}>{total.pris}</td><td className={`${td} font-semibold`}>{total.venus}</td><td className={`${td} font-semibold`}>{rdvPct(total.tauxHonore)}</td>
+                <td className={`${td} font-semibold`}>{total.vendus}</td><td className={`${td} font-semibold`}>{rdvPct(total.tauxVente)}</td><td className={`${td} font-semibold`}>{total.perdus}</td>
+                <td className={`${td} font-semibold`}>{totalOpen.sansSuivi || "—"}</td><td className={`${td} font-semibold`}>{totalOpen.relancesRetard || "—"}</td><td className={`${td} font-semibold`}>{rdvReact(total.reactH)}</td><td className={td} />
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className={`rounded-2xl border p-4 ${s.card}`}>
+        <div className={`mb-2 text-sm font-semibold ${s.title}`}>Évolution sur 12 mois</div>
+        <RdvMonthlyChart dark={dark} data={monthly} />
+      </div>
+    </div>
+  );
+}
+
+// ───────── Fiche détaillée d'un vendeur ─────────
+function RdvFiche(p) {
+  const { dark, nom, rows, archive, objectifs, teamRows, isAdmin, now, today, onBack } = p;
+  const s = marketingStyles(dark);
+  const row = rdvRowFactory(p);
+  const [period, setPeriod] = useState("mois");
+  const [limit, setLimit] = useState(30);
+  const mine = useMemo(() => (nom ? rows.filter((r) => r.commercial === nom && !r.deleted_at) : rows.filter((r) => !r.deleted_at)), [rows, nom]);
+  const range = rdvPeriodRange(period, today);
+  const weekRange = rdvPeriodRange("semaine", today);
+  const inPeriod = useMemo(() => mine.filter((r) => rdvInRange(r, range)), [mine, range.from, range.to]);
+  const st = rdvStats(inPeriod, now, today);
+  const week = rdvStats(mine.filter((r) => rdvInRange(r, weekRange)), now, today);
+  const open = rdvStats(mine, now, today);
+  const obj = nom ? objectifs.find((o) => o.commercial === nom) : objectifs[0];
+  const team = useMemo(() => (teamRows ? rdvStats(teamRows.filter((r) => !r.deleted_at && rdvInRange(r, range)), now, today) : null), [teamRows, range.from, range.to, now]);
+  const overdue = mine.filter((r) => rdvIsOverdue(r, now)).sort(rdvByTime);
+  const relances = mine.filter((r) => rdvRelanceDue(r, today)).sort((a, b) => a.relance.localeCompare(b.relance));
+  const monthly = useMemo(() => rdvMonthly(rows, archive, 6, today, nom || undefined), [rows, archive, today, nom]);
+  const list = [...inPeriod].sort((a, b) => rdvByTime(b, a));
+  const sources = Object.entries(st.sources).sort((a, b) => b[1].pris - a[1].pris);
+  const motifs = Object.entries(st.motifs).sort((a, b) => b[1] - a[1]);
+  const goal = (label, value, target, fmt, higherBetter = true) => {
+    if (target == null) return null;
+    const ok = higherBetter ? value >= target : value <= target;
+    return (
+      <div key={label}>
+        <div className="mb-1 flex items-center justify-between text-xs">
+          <span className={s.muted}>{label}</span>
+          <span className={`font-semibold tabular-nums ${s.title}`}>{value == null ? "—" : fmt(value)} <span className={s.sub}>/ {fmt(target)}</span></span>
+        </div>
+        <RdvBar dark={dark} value={value ?? 0} max={target} tone={value == null ? undefined : ok ? "good" : value >= target * 0.7 ? "warn" : "bad"} />
+      </div>
+    );
+  };
+  const goals = [
+    goal("Rendez-vous cette semaine", week.pris, obj?.rdv_semaine, (v) => String(v)),
+    goal("Taux d'honorés", st.tauxHonore == null ? null : st.tauxHonore * 100, obj?.honore_pct, (v) => Math.round(v) + " %"),
+    goal("Transformation (vendus / honorés)", st.tauxVente == null ? null : st.tauxVente * 100, obj?.vente_pct, (v) => Math.round(v) + " %"),
+  ].filter(Boolean);
+  const funnel = [["Rendez-vous", st.pris, 1], ["Honorés", st.venus, st.pris ? st.venus / st.pris : 0], ["Vendus", st.vendus, st.pris ? st.vendus / st.pris : 0]];
+  const cmp = (label, mineV, teamV) => (
+    <tr key={label}>
+      <td className={`py-1.5 ${s.muted}`}>{label}</td>
+      <td className={`py-1.5 text-right font-semibold tabular-nums ${s.title}`}>{mineV}</td>
+      <td className={`py-1.5 text-right tabular-nums ${s.sub}`}>{teamV}</td>
+    </tr>
+  );
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        {onBack && <button onClick={onBack} className={`${s.ghostBtn} flex items-center gap-1`}><ChevronLeft size={15} /> Vendeurs</button>}
+        <h2 className={`text-xl font-semibold ${s.title}`}>{nom || "Ma fiche"}</h2>
+        <button onClick={() => exportRdvToExcel(inPeriod, stripAccents(nom || "moi").replace(/\W+/g, "-").toLowerCase())} className={`${s.ghostBtn} ml-auto flex items-center gap-1.5`}><Download size={14} /> Exporter</button>
+      </div>
+      <RdvPeriodPicker dark={dark} period={period} setPeriod={setPeriod} />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+        <RdvKpi dark={dark} label="Rendez-vous" value={st.pris} sub={st.aVenir ? `${st.aVenir} à venir` : undefined} />
+        <RdvKpi dark={dark} label="Honorés" value={st.venus} sub={rdvPct(st.tauxHonore)} />
+        <RdvKpi dark={dark} label="Vendus" value={st.vendus} sub={`${rdvPct(st.tauxVente)} des honorés`} tone="good" />
+        <RdvKpi dark={dark} label="Sans suivi" value={open.sansSuivi} tone={open.sansSuivi ? "bad" : undefined} sub="tous rendez-vous passés" />
+        <RdvKpi dark={dark} label="Relances" value={open.relancesDues} tone={open.relancesRetard ? "warn" : undefined} sub={open.relancesRetard ? `${open.relancesRetard} en retard` : "à jour"} />
+        <RdvKpi dark={dark} label="Réactivité" value={rdvReact(st.reactH)} sub="délai de saisie" />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className={`space-y-4 rounded-2xl border p-4 ${s.card}`}>
+          <div className={`text-sm font-semibold ${s.title}`}>Entonnoir</div>
+          {funnel.map(([label, n, ratio]) => (
+            <div key={label}>
+              <div className="mb-1 flex items-center justify-between text-xs"><span className={s.muted}>{label}</span><span className={`font-semibold tabular-nums ${s.title}`}>{n} <span className={s.sub}>· {Math.round(ratio * 100)} %</span></span></div>
+              <RdvBar dark={dark} value={ratio} max={1} />
+            </div>
+          ))}
+          {st.absents > 0 && <div className={`text-xs ${s.sub}`}>{st.absents} absent{st.absents > 1 ? "s" : ""} ou injoignable{st.absents > 1 ? "s" : ""} · {st.perdus} perdu{st.perdus > 1 ? "s" : ""}</div>}
+        </div>
+        <div className={`space-y-4 rounded-2xl border p-4 ${s.card}`}>
+          <div className={`text-sm font-semibold ${s.title}`}>Objectifs</div>
+          {goals.length ? goals : <div className={`text-sm ${s.sub}`}>Aucun objectif défini{isAdmin ? " — à fixer dans Gestion." : "."}</div>}
+          {team && (
+            <>
+              <div className={`border-t pt-3 text-sm font-semibold ${dark ? "border-zinc-800" : "border-stone-100"} ${s.title}`}>Par rapport à l'équipe</div>
+              <table className="w-full text-xs"><thead><tr className={s.sub}><th className="text-left font-medium">&nbsp;</th><th className="text-right font-medium">{nom}</th><th className="text-right font-medium">Équipe</th></tr></thead>
+                <tbody>{cmp("Taux d'honorés", rdvPct(st.tauxHonore), rdvPct(team.tauxHonore))}{cmp("Transformation", rdvPct(st.tauxVente), rdvPct(team.tauxVente))}{cmp("Réactivité", rdvReact(st.reactH), rdvReact(team.reactH))}</tbody></table>
+            </>
+          )}
+        </div>
+      </div>
+      {(overdue.length > 0 || relances.length > 0) && (
+        <div className="space-y-5">
+          {overdue.length > 0 && <RdvSection dark={dark} tone="rose" title="Résultats à saisir" count={overdue.length}><div className="space-y-2">{overdue.map((r) => row(r, { showDate: true }))}</div></RdvSection>}
+          {relances.length > 0 && <RdvSection dark={dark} tone="amber" title="Relances à faire" count={relances.length}><div className="space-y-2">{relances.map((r) => row(r, { showDate: true }))}</div></RdvSection>}
+        </div>
+      )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className={`rounded-2xl border p-4 ${s.card}`}>
+          <div className={`mb-2 text-sm font-semibold ${s.title}`}>Par source</div>
+          {sources.length === 0 ? <div className={`text-sm ${s.sub}`}>Aucune donnée.</div> : (
+            <table className="w-full text-xs">
+              <thead><tr className={s.sub}><th className="py-1 text-left font-medium">Source</th><th className="text-right font-medium">RDV</th><th className="text-right font-medium">Honorés</th><th className="text-right font-medium">Vendus</th><th className="text-right font-medium">Transfo.</th></tr></thead>
+              <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
+                {sources.map(([k, v]) => (
+                  <tr key={k}><td className={`py-1.5 ${s.title}`}>{k}</td><td className={`text-right tabular-nums ${s.title}`}>{v.pris}</td><td className={`text-right tabular-nums ${s.title}`}>{v.venus}</td><td className={`text-right tabular-nums ${s.title}`}>{v.vendus}</td><td className={`text-right tabular-nums ${s.muted}`}>{v.venus ? Math.round((v.vendus / v.venus) * 100) + " %" : "—"}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className={`rounded-2xl border p-4 ${s.card}`}>
+          <div className={`mb-2 text-sm font-semibold ${s.title}`}>Motifs de perte</div>
+          {motifs.length === 0 ? <div className={`text-sm ${s.sub}`}>Aucune vente perdue sur la période.</div> : (
+            <div className="space-y-2.5">
+              {motifs.map(([k, n]) => (
+                <div key={k}><div className="mb-1 flex justify-between text-xs"><span className={s.muted}>{k}</span><span className={`font-semibold tabular-nums ${s.title}`}>{n}</span></div><RdvBar dark={dark} value={n} max={motifs[0][1]} tone="bad" /></div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className={`rounded-2xl border p-4 ${s.card}`}>
+        <div className={`mb-2 text-sm font-semibold ${s.title}`}>Évolution sur 6 mois</div>
+        <RdvMonthlyChart dark={dark} data={monthly} />
+      </div>
+      <RdvSection dark={dark} title="Rendez-vous de la période" count={list.length}>
+        {list.length === 0 ? <div className={`text-sm ${s.sub}`}>Aucun rendez-vous sur cette période.</div> : (
+          <div className="space-y-2">
+            {list.slice(0, limit).map((r) => row(r, { showDate: true }))}
+            {list.length > limit && <button onClick={() => setLimit((l) => l + 30)} className={`${s.ghostBtn} w-full`}>Afficher plus ({list.length - limit})</button>}
+          </div>
+        )}
+      </RdvSection>
+    </div>
+  );
+}
+
+// ───────── Récap hebdomadaire ─────────
+function rdvPrintRecap(rc) {
+  const esc = (x) => String(x ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  const rowsHtml = rc.per.map((p) => `<tr><td>${esc(p.nom)}</td><td>${p.st.pris}</td><td>${p.st.venus}</td><td>${rdvPct(p.st.tauxHonore)}</td><td>${p.st.vendus}</td><td>${rdvPct(p.st.tauxVente)}</td><td>${p.obj?.rdv_semaine != null ? p.st.pris + " / " + p.obj.rdv_semaine : "—"}</td><td>${p.sansSuiviAll || "—"}</td></tr>`).join("");
+  const att = rc.attention.length ? rc.attention.map((a) => `<li>${esc(a)}</li>`).join("") : "<li>Aucun point d'attention</li>";
+  w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Rapport RDV — semaine du ${esc(rdvFrRange(rc.from, rc.to))}</title><style>
+  body{font-family:Inter,Arial,sans-serif;color:#1c1917;margin:32px;font-size:14px}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px}
+  .sub{color:#78716c;margin-bottom:20px}.kpis{display:flex;gap:12px;margin:16px 0}.kpi{border:1px solid #e7e5e4;border-radius:10px;padding:10px 16px;min-width:110px}.kpi b{display:block;font-size:22px}
+  table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid #e7e5e4;padding:8px 10px;text-align:right}th:first-child,td:first-child{text-align:left}th{font-size:12px;color:#78716c;font-weight:500}li{margin:4px 0}
+  </style></head><body><h1>Rapport RDV — Ford Caen</h1><div class="sub">Semaine du ${esc(rdvFrRange(rc.from, rc.to))}</div>
+  <div class="kpis"><div class="kpi"><b>${rc.team.pris}</b>rendez-vous</div><div class="kpi"><b>${rc.team.venus}</b>honorés · ${rdvPct(rc.team.tauxHonore)}</div><div class="kpi"><b>${rc.team.vendus}</b>vendus · ${rdvPct(rc.team.tauxVente)}</div></div>
+  <h2>Par vendeur</h2><table><thead><tr><th>Vendeur</th><th>RDV</th><th>Honorés</th><th>Taux</th><th>Vendus</th><th>Transfo.</th><th>Objectif</th><th>Sans suivi</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+  <h2>Points d'attention</h2><ul>${att}</ul><h2>Semaine suivante</h2><p>${rc.next.total} rendez-vous planifiés (${esc(rdvFrRange(rc.next.from, rc.next.to))}).</p></body></html>`);
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 350);
+  return true;
+}
+
+function RdvRecap({ dark, rows, names, objectifs, now, today, showToast }) {
+  const s = marketingStyles(dark);
+  const [offset, setOffset] = useState(0);
+  const weekStart = marketingAddDays(rdvWeekStart(today), offset * 7);
+  const rc = useMemo(() => rdvWeekRecap(rows, names, objectifs, weekStart, now, today), [rows, names, objectifs, weekStart, now, today]);
+  const th = `px-3 py-2 text-right text-[11px] font-medium ${s.sub}`;
+  const td = `px-3 py-2.5 text-right tabular-nums ${s.title}`;
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => setOffset((o) => o - 1)} className={s.ghostBtn} aria-label="Semaine précédente"><ChevronLeft size={15} /></button>
+        <div className={`min-w-[190px] text-center text-sm font-semibold ${s.title}`}>Semaine du {rdvFrRange(rc.from, rc.to)}</div>
+        <button onClick={() => setOffset((o) => Math.min(0, o + 1))} disabled={offset >= 0} className={`${s.ghostBtn} disabled:opacity-40`} aria-label="Semaine suivante"><ChevronRight size={15} /></button>
+        {offset !== 0 && <button onClick={() => setOffset(0)} className={`text-xs underline ${s.muted}`}>cette semaine</button>}
+        <div className="ml-auto flex gap-2">
+          <button onClick={() => marketingCopy(rdvRecapText(rc), showToast, "Récap copié — prêt à coller")} className={`${s.ghostBtn} flex items-center gap-1.5`}><Copy size={14} /> Copier</button>
+          <button onClick={() => { if (!rdvPrintRecap(rc)) showToast("Autorisez les fenêtres pop-up pour imprimer", { type: "error" }); }} className={`${s.ghostBtn} flex items-center gap-1.5`}><Printer size={14} /> Imprimer / PDF</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <RdvKpi dark={dark} label="Rendez-vous" value={rc.team.pris} />
+        <RdvKpi dark={dark} label="Honorés" value={rc.team.venus} sub={rdvPct(rc.team.tauxHonore)} />
+        <RdvKpi dark={dark} label="Vendus" value={rc.team.vendus} sub={`${rdvPct(rc.team.tauxVente)} des honorés`} tone="good" />
+        <RdvKpi dark={dark} label="Semaine suivante" value={rc.next.total} sub="rendez-vous planifiés" />
+      </div>
+      <div className={`overflow-x-auto rounded-2xl border ${s.card}`}>
+        <table className="w-full min-w-[640px] text-sm">
+          <thead><tr className={`border-b ${dark ? "border-zinc-800" : "border-stone-200"}`}><th className={`${th} !text-left`}>Vendeur</th><th className={th}>RDV</th><th className={th}>Honorés</th><th className={th}>Taux</th><th className={th}>Vendus</th><th className={th}>Objectif</th><th className={th}>Sans suivi</th><th className={th}>Semaine suivante</th></tr></thead>
+          <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
+            {rc.per.map((p) => (
+              <tr key={p.nom}>
+                <td className={`px-3 py-2.5 font-semibold ${s.title}`}>{p.nom}</td><td className={td}>{p.st.pris}</td><td className={td}>{p.st.venus}</td><td className={td}>{rdvPct(p.st.tauxHonore)}</td><td className={td}>{p.st.vendus}</td>
+                <td className={td}>{p.obj?.rdv_semaine != null ? `${p.st.pris} / ${p.obj.rdv_semaine}` : "—"}</td>
+                <td className={`${td} ${p.sansSuiviAll ? (dark ? "!text-rose-300" : "!text-rose-600") : ""}`}>{p.sansSuiviAll || "—"}</td><td className={td}>{rc.next.by[p.nom] || "—"}</td>
+              </tr>
+            ))}
+            {rc.per.length === 0 && <tr><td colSpan={8} className={`px-3 py-8 text-center ${s.sub}`}>Aucun rendez-vous cette semaine.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className={`rounded-2xl border p-4 ${s.card}`}>
+        <div className={`mb-2 flex items-center gap-2 text-sm font-semibold ${s.title}`}><Flag size={15} className={s.sub} /> Points d'attention</div>
+        {rc.attention.length === 0 ? <div className={`text-sm ${s.sub}`}>Rien à signaler.</div> : (
+          <ul className={`space-y-1.5 text-sm ${s.muted}`}>{rc.attention.map((a, i) => <li key={i} className="flex gap-2"><span className={dark ? "text-amber-300" : "text-amber-600"}>•</span>{a}</li>)}</ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ───────── Gestion (administrateur) ─────────
+function RdvGestion({ dark, rdv, vendeursList, vendeurNames, now, today, showToast, onRestore, onReassign }) {
+  const s = marketingStyles(dark);
+  const [addNom, setAddNom] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState({});
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const memberNames = new Set(rdv.members.map((m) => m.nom));
+  const candidates = vendeursList.filter((v) => !RDV_EXCLUDED_ROLES.includes(v.role) && !memberNames.has(v.nom));
+  const objBy = new Map(rdv.objectifs.map((o) => [o.commercial, o]));
+  const trash = rdv.rows.filter((r) => r.deleted_at).sort((a, b) => new Date(b.deleted_at) - new Date(a.deleted_at));
+  const movable = from ? rdv.rows.filter((r) => !r.deleted_at && r.commercial === from && r.statut === "À venir" && !rdvIsOverdue(r, now)) : [];
+  const toStr = (v) => (v == null ? "" : String(v));
+  const val = (nom, k) => (draft[nom] && k in draft[nom] ? draft[nom][k] : toStr(objBy.get(nom)?.[k]));
+  const setVal = (nom, k, v) => setDraft((d) => ({ ...d, [nom]: { ...(d[nom] || {}), [k]: v } }));
+  const grant = async () => {
+    const v = vendeursList.find((x) => x.nom === addNom);
+    if (!v) return;
+    if (!v.email) { showToast("Ce vendeur n'a pas d'email : renseignez-le dans Réglages", { type: "error" }); return; }
+    setBusy(true);
+    try {
+      const ok = await rdv.addMember(v.email, v.nom);
+      showToast(ok ? `${v.nom} voit maintenant ses rendez-vous` : "Aucun compte ParcLive pour cet email : le vendeur doit se connecter une première fois", { type: ok ? "success" : "error" });
+      if (ok) setAddNom("");
+    } catch (e) { showToast(`Impossible : ${e.message || e}`, { type: "error" }); }
+    setBusy(false);
+  };
+  const saveObj = async (nom) => {
+    const num = (k) => { const x = val(nom, k).trim(); return x === "" ? null : Math.max(0, parseInt(x, 10) || 0); };
+    const pct = (k) => { const x = num(k); return x == null ? null : Math.min(100, x); };
+    try {
+      await rdv.saveObjectif(nom, { rdv_semaine: num("rdv_semaine"), honore_pct: pct("honore_pct"), vente_pct: pct("vente_pct") });
+      setDraft((d) => { const n = { ...d }; delete n[nom]; return n; });
+      showToast(`Objectifs de ${nom} enregistrés`);
+    } catch (e) { showToast(`Impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const doMove = async () => {
+    if (!movable.length || !to || to === from) return;
+    if (!window.confirm(`Réattribuer ${movable.length} rendez-vous à venir de ${from} vers ${to} ?`)) return;
+    try { await onReassign(movable.map((r) => r.id), to); showToast(`${movable.length} rendez-vous réattribués à ${to}`); setFrom(""); setTo(""); }
+    catch (e) { showToast(`Impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const card = `rounded-2xl border p-4 ${s.card}`;
+  const small = `${s.input} !w-20 text-right`;
+  return (
+    <div className="space-y-5">
+      <div className={card}>
+        <div className={`text-sm font-semibold ${s.title}`}>Accès des vendeurs</div>
+        <p className={`mb-3 mt-0.5 text-xs ${s.sub}`}>Un vendeur ajouté voit uniquement ses propres rendez-vous et ne remplit que le suivi. Seul vous créez et modifiez les rendez-vous.</p>
+        <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
+          {rdv.members.map((m) => (
+            <li key={m.user_id} className="flex items-center gap-3 py-2 text-sm">
+              <span className={`font-medium ${s.title}`}>{m.nom}</span>
+              <span className={`text-xs ${s.sub}`}>{m.email}</span>
+              <span className="ml-auto"><RdvPill dark={dark} tone={m.role === "admin" ? "blue" : "gray"}>{m.role === "admin" ? "Administrateur" : "Vendeur"}</RdvPill></span>
+              {m.role !== "admin" && (
+                <button onClick={async () => { if (window.confirm(`Retirer l'accès de ${m.nom} ?`)) { try { await rdv.removeMember(m.user_id); showToast("Accès retiré"); } catch (e) { showToast(`Impossible : ${e.message || e}`, { type: "error" }); } } }} className={`rounded p-1.5 ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-400 hover:bg-stone-100"}`} title="Retirer l'accès"><Trash2 size={14} /></button>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <select className={`${s.input} !w-auto min-w-[220px]`} value={addNom} onChange={(e) => setAddNom(e.target.value)}>
+            <option value="">Donner l'accès à…</option>
+            {candidates.map((v) => <option key={v.nom} value={v.nom}>{v.nom}{v.email ? "" : " (email manquant)"}</option>)}
+          </select>
+          <button onClick={grant} disabled={!addNom || busy} className={s.primaryBtn}>{busy ? "…" : "Donner l'accès"}</button>
+        </div>
+      </div>
+
+      <div className={card}>
+        <div className={`mb-3 text-sm font-semibold ${s.title}`}>Objectifs par vendeur</div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm">
+            <thead><tr className={s.sub}><th className="py-1 text-left text-[11px] font-medium">Vendeur</th><th className="text-right text-[11px] font-medium">RDV / semaine</th><th className="text-right text-[11px] font-medium">% honorés</th><th className="text-right text-[11px] font-medium">% transfo.</th><th /></tr></thead>
+            <tbody className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
+              {vendeurNames.map((nom) => (
+                <tr key={nom}>
+                  <td className={`py-2 font-medium ${s.title}`}>{nom}</td>
+                  {["rdv_semaine", "honore_pct", "vente_pct"].map((k) => (
+                    <td key={k} className="py-1.5 text-right"><input className={small} inputMode="numeric" value={val(nom, k)} onChange={(e) => setVal(nom, k, e.target.value.replace(/\D/g, ""))} placeholder="—" /></td>
+                  ))}
+                  <td className="py-1.5 pl-3 text-right">{draft[nom] && <button onClick={() => saveObj(nom)} className={s.primaryBtn}>Enregistrer</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className={card}>
+        <div className={`text-sm font-semibold ${s.title}`}>Réattribuer en cas d'absence</div>
+        <p className={`mb-3 mt-0.5 text-xs ${s.sub}`}>Déplace tous les rendez-vous à venir d'un vendeur vers un autre. L'historique garde la trace du changement.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select className={`${s.input} !w-auto`} value={from} onChange={(e) => setFrom(e.target.value)}><option value="">De…</option>{vendeurNames.map((n) => <option key={n}>{n}</option>)}</select>
+          <ChevronRight size={14} className={s.sub} />
+          <select className={`${s.input} !w-auto`} value={to} onChange={(e) => setTo(e.target.value)}><option value="">Vers…</option>{vendeurNames.filter((n) => n !== from).map((n) => <option key={n}>{n}</option>)}</select>
+          <button onClick={doMove} disabled={!movable.length || !to} className={s.primaryBtn}>Réattribuer{from ? ` (${movable.length})` : ""}</button>
+        </div>
+      </div>
+
+      <div className={card}>
+        <div className="flex items-center gap-2">
+          <div className={`text-sm font-semibold ${s.title}`}>Corbeille</div>
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>{trash.length}</span>
+        </div>
+        <p className={`mb-2 mt-0.5 text-xs ${s.sub}`}>Les rendez-vous supprimés restent récupérables 30 jours, puis sont effacés définitivement.</p>
+        {trash.length === 0 ? <div className={`text-sm ${s.sub}`}>La corbeille est vide.</div> : (
+          <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
+            {trash.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                <span className={`font-medium ${s.title}`}>{r.client_nom}</span>
+                <span className={`text-xs ${s.sub}`}>{new Date(r.date_rdv).toLocaleDateString("fr-FR")} · {r.commercial} · supprimé le {new Date(r.deleted_at).toLocaleDateString("fr-FR")}</span>
+                <button onClick={() => onRestore(r)} className={`${s.ghostBtn} ml-auto flex items-center gap-1.5`}><RotateCcw size={13} /> Restaurer</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className={card}>
+        <div className={`text-sm font-semibold ${s.title}`}>Données</div>
+        <p className={`mb-3 mt-0.5 text-xs ${s.sub}`}>Les rendez-vous de plus de 24 mois sont supprimés automatiquement ; leurs statistiques mensuelles (sans nom de client) restent dans les graphiques.</p>
+        <button onClick={() => exportRdvToExcel(rdv.rows, "tout")} className={`${s.ghostBtn} flex items-center gap-1.5`}><Download size={14} /> Exporter tous les rendez-vous (Excel)</button>
+      </div>
+    </div>
+  );
+}
+
+// ───────── Onglet ─────────
+function RdvTab({ dark, me, rdv, vendeursList, vehicles, dossiers, showToast }) {
+  const isAdmin = me.role === "admin";
+  const s = marketingStyles(dark);
+  const views = isAdmin
+    ? [["jour", "Aujourd'hui"], ["rdv", "Rendez-vous"], ["equipe", "Vendeurs"], ["recap", "Récap hebdo"], ["gestion", "Gestion"]]
+    : [["jour", "Ma journée"], ["rdv", "Mes rendez-vous"], ["fiche", "Ma fiche"]];
+  const [vue, setVueRaw] = useState(() => { const v = loadLocal("dsr:rdv-vue", "jour"); return views.some((x) => x[0] === v) ? v : "jour"; });
+  const setVue = (v) => { setVueRaw(v); saveLocal("dsr:rdv-vue", v); };
+  const [ficheNom, setFicheNom] = useState("");
+  const [modalId, setModalId] = useState(null);
+  const [preset, setPreset] = useState(null);
+  const [form, setForm] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t); }, []);
+  const today = prospectionTodayISO(now);
+
+  const vehicleByOrder = useMemo(() => new Map(vehicles.map((v) => [normalizeOrderNum(v.orderNumber), v])), [vehicles]);
+  const vendeurNames = useMemo(() => {
+    const set = new Set(vendeursList.filter((v) => !RDV_EXCLUDED_ROLES.includes(v.role)).map((v) => v.nom));
+    rdv.rows.forEach((r) => { if (r.commercial) set.add(r.commercial); });
+    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [vendeursList, rdv.rows]);
+  const modalRdv = modalId ? rdv.rows.find((r) => r.id === modalId) : null;
+
+  const openRdv = useCallback((id) => { setPreset(null); setModalId(id); }, []);
+  const fail = (e) => showToast(`Action impossible : ${e.message || e}`, { type: "error" });
+  const onAction = async (r, st) => {
+    if (st === "Honoré") {
+      setBusyId(r.id);
+      try { await rdv.update(r.id, { statut: "Honoré" }); showToast(`${r.client_nom} : rendez-vous honoré`); } catch (e) { fail(e); }
+      setBusyId(null);
+      return;
+    }
+    setPreset(st); setModalId(r.id);
+  };
+  const saveSuivi = async (id, patch) => {
+    await rdv.update(id, patch);
+    showToast(patch.statut === "Vendu" ? "Vente enregistrée" : "Suivi enregistré", patch.statut === "Vendu" ? { type: "celebrate" } : undefined);
+  };
+  const createSave = async (fields, another) => {
+    await rdv.create(fields);
+    showToast("Rendez-vous créé");
+    if (!another) setForm(null);
+  };
+  const editSave = async (fields) => {
+    await rdv.update(form.initial.id, rdvCleanRow(fields));
+    showToast("Rendez-vous modifié");
+    setForm(null);
+  };
+  const trashRdv = async (r) => {
+    if (!window.confirm(`Mettre le rendez-vous de ${r.client_nom} à la corbeille ?`)) return;
+    try { await rdv.update(r.id, { deleted_at: new Date().toISOString() }); setModalId(null); showToast("Mis à la corbeille (récupérable 30 jours)"); } catch (e) { fail(e); }
+  };
+  const restoreRdv = async (r) => {
+    try { await rdv.update(r.id, { deleted_at: null }); showToast("Rendez-vous restauré"); } catch (e) { fail(e); }
+  };
+  const common = { dark, rows: rdv.rows, now, today, isAdmin, vendeurNames, vehicleByOrder, onOpen: openRdv, onAction, busyId, showToast };
+
+  if (rdv.loading) return <div className={`py-16 text-center text-sm ${s.sub}`}>Chargement des rendez-vous…</div>;
+  if (rdv.error) {
+    return (
+      <div className={`rounded-xl border p-5 text-sm ${dark ? "border-rose-500/30 bg-rose-500/10 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
+        <div className="mb-1 font-semibold">Impossible de charger les rendez-vous</div>
+        <div className="mb-3 text-xs opacity-80">{rdv.error}</div>
+        <button onClick={rdv.refresh} className={s.ghostBtn}>Réessayer</button>
+      </div>
+    );
+  }
+  const liveCount = rdv.rows.filter((r) => !r.deleted_at).length;
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white shadow-sm"}`} style={{ scrollbarWidth: "none" }}>
+          {views.map(([k, label]) => (
+            <button key={k} onClick={() => { setVue(k); if (k !== "equipe") setFicheNom(""); }} className={`shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${vue === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>{label}</button>
+          ))}
+        </div>
+        {isAdmin && (
+          <button onClick={() => setForm({ initial: null })} className={`${s.primaryBtn} ml-auto flex items-center gap-1.5`}><Plus size={15} /> Nouveau rendez-vous</button>
+        )}
+      </div>
+
+      {isAdmin && liveCount === 0 && vue !== "gestion" && (
+        <div className={`rounded-2xl border p-6 text-center ${s.card}`}>
+          <CalendarClock size={26} className={`mx-auto mb-2 ${s.sub}`} />
+          <div className={`font-semibold ${s.title}`}>Aucun rendez-vous pour l'instant</div>
+          <p className={`mx-auto mb-4 mt-1 max-w-md text-sm ${s.sub}`}>Créez le premier rendez-vous : vous seul pouvez en ajouter, vos vendeurs renseignent ensuite le suivi. Donnez-leur l'accès dans « Gestion ».</p>
+          <button onClick={() => setForm({ initial: null })} className={s.primaryBtn}>Créer un rendez-vous</button>
+        </div>
+      )}
+
+      {vue === "jour" && <RdvJour {...common} />}
+      {vue === "rdv" && <RdvListe {...common} onReassign={rdv.reassign} />}
+      {vue === "equipe" && isAdmin && (ficheNom
+        ? <RdvFiche {...common} nom={ficheNom} archive={rdv.archive} objectifs={rdv.objectifs} teamRows={rdv.rows} onBack={() => setFicheNom("")} />
+        : <RdvEquipe dark={dark} rows={rdv.rows} archive={rdv.archive} objectifs={rdv.objectifs} names={vendeurNames} now={now} today={today} onOpenFiche={setFicheNom} />)}
+      {vue === "recap" && isAdmin && <RdvRecap dark={dark} rows={rdv.rows} names={vendeurNames} objectifs={rdv.objectifs} now={now} today={today} showToast={showToast} />}
+      {vue === "gestion" && isAdmin && <RdvGestion dark={dark} rdv={rdv} vendeursList={vendeursList} vendeurNames={vendeurNames} now={now} today={today} showToast={showToast} onRestore={restoreRdv} onReassign={rdv.reassign} />}
+      {vue === "fiche" && !isAdmin && <RdvFiche {...common} nom={null} archive={[]} objectifs={rdv.objectifs} teamRows={null} />}
+
+      {modalRdv && (
+        <RdvModal
+          key={modalRdv.id + (preset || "")}
+          dark={dark} rdv={modalRdv} preset={preset} isAdmin={isAdmin} dossiers={dossiers} vehicleByOrder={vehicleByOrder} today={today}
+          onClose={() => { setModalId(null); setPreset(null); }}
+          onSaveSuivi={saveSuivi}
+          onEdit={(r) => { setModalId(null); setForm({ initial: r }); }}
+          onDelete={trashRdv}
+          loadHistory={rdv.loadHistory}
+        />
+      )}
+      {form && (
+        <RdvFormModal
+          key={form.initial?.id || "new"}
+          dark={dark} initial={form.initial} vendeurNames={vendeurNames} vehicles={vehicles} rows={rdv.rows}
+          onSave={form.initial ? editSave : createSave}
+          onClose={() => setForm(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [dark, setDark] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
@@ -8483,6 +10006,9 @@ export default function App() {
   const canProspect = useProspectionAccess(authUserId);
   const marketingMe = useMarketingAccess(authUserId);
   const canMarketing = !!marketingMe;
+  const rdvMe = useRdvAccess(authUserId);
+  const rdvData = useRdv(rdvMe);
+  const rdvOverdueCount = useMemo(() => { const n = new Date(); return rdvData.rows.filter((r) => rdvIsOverdue(r, n)).length; }, [rdvData.rows]);
 
   const mySiteScope = useMemo(() => {
     if (isSuperAdmin(vendorName)) return null;
@@ -8523,9 +10049,10 @@ export default function App() {
   }, [vehicles, challengeConfig, alertSettings.challengeSeuilJours]);
   useEffect(() => {
     if (tab === "vendeurs" || tab === "permissions") { setTab("vehicules"); return; }
+    if (tab === "rdv" && rdvMe === null) { setTab("vehicules"); return; }
     const gated = { dossiers: permissions.dossiers, accidentes: permissions.accidentes, dashboard: permissions.dashboard };
     if (tab in gated && !gated[tab]) setTab("vehicules");
-  }, [tab, permissions]);
+  }, [tab, permissions, rdvMe]);
 
   useEffect(() => {
     if (!unlocked || vehicles.length === 0) return;
@@ -8627,6 +10154,7 @@ export default function App() {
         legendOpen={legendOpen}
         setLegendOpen={setLegendOpen}
         canImport={permissions.import}
+        navAccess={{ prospect: canProspect, marketing: canMarketing, rdv: rdvMe?.role || "" }}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-8 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
@@ -8655,7 +10183,7 @@ export default function App() {
       ) : (
         <div className="mx-auto w-full max-w-[1400px] px-4 pb-12 pt-6 md:px-8">
           <div className="mb-6 lg:hidden">
-            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} canMarketing={canMarketing} />
+            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} canMarketing={canMarketing} rdvMe={rdvMe} rdvOverdueCount={rdvOverdueCount} />
           </div>
           <div className="flex items-start gap-8">
             <div className="hidden lg:block">
@@ -8669,6 +10197,8 @@ export default function App() {
                 vendorName={vendorName}
                 canProspect={canProspect}
                 canMarketing={canMarketing}
+                rdvMe={rdvMe}
+                rdvOverdueCount={rdvOverdueCount}
               />
             </div>
             <div key={tab} className="pl-fade-in min-w-0 flex-1 space-y-6">
@@ -8680,6 +10210,7 @@ export default function App() {
               dossiers: ["Dossiers", "Import MyAna et attribution des ventes"],
               accidentes: ["Accidentés", "Véhicules signalés hors service"],
               reglages: ["Réglages", "Vendeurs, sites, alertes et sauvegardes"],
+              rdv: rdvMe ? (rdvMe.role === "admin" ? ["Rapports RDV", "Rendez-vous clients et suivi par vendeur"] : ["Mes rendez-vous", "Votre journée et votre suivi"]) : null,
             }[tab];
             return meta ? <PageHeader dark={dark} title={meta[0]} subtitle={meta[1]} /> : null;
           })()}
@@ -8702,6 +10233,10 @@ export default function App() {
           ) : tab === "prospection" ? (
             canProspect ? (
               <ProspectionTab dark={dark} currentUserName={vendorName} showToast={showToast} />
+            ) : null
+          ) : tab === "rdv" ? (
+            rdvMe ? (
+              <RdvTab dark={dark} me={rdvMe} rdv={rdvData} vendeursList={vendeursList} vehicles={vehicles} dossiers={dossiers} showToast={showToast} />
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (

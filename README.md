@@ -55,6 +55,12 @@ Ouvrez l'adresse ci-dessus, entrez le code **Legrand27**, importez vos deux fich
 - Les données partagées (imports, réservations, accidentés) passent maintenant par **Supabase** au lieu du système propre à Claude — c'est ce qui permet à toute l'équipe de voir les mêmes données en temps réel, peu importe qui ouvre le lien.
 - Le thème (clair/sombre), le nom du vendeur et le déverrouillage du code d'accès restent en local sur chaque navigateur (`localStorage`) — pas besoin de les partager.
 
+## Rapports RDV (bêta)
+
+Onglet « Rapports RDV » : l'administrateur (Steven) crée les rendez-vous clients, chaque vendeur ne voit que les siens et remplit le suivi (Honoré / Absent / Vendu / Perdu, relance, motif de perte, dossier).
+Exécuter **une fois** `sql/rdv.sql` dans Supabase > SQL Editor (relançable sans risque). Il crée les tables protégées (RLS), l'historique des modifications, la corbeille (30 jours) et la purge à 24 mois.
+Les vendeurs s'ajoutent ensuite depuis l'onglet, section « Gestion » (le vendeur doit avoir son email renseigné dans Réglages et s'être connecté une fois).
+
 ## Sécurité — à lire
 
 - Le code **Legrand27** et la clé Supabase sont visibles dans le code source de la page (n'importe qui peut les lire via les outils de développement du navigateur). Ça filtre les visiteurs occasionnels, pas un accès malveillant déterminé.
