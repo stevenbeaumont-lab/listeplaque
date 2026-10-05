@@ -6,7 +6,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing, Sparkles,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -749,12 +749,9 @@ function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarke
   return [
     { id: "vehicules", label: "Véhicules", group: "Stock" },
     { id: "logistique", label: "Logistique", group: "Stock" },
-    { id: "convoyage", label: "Convoyage", group: "Stock" },
     canProspect && { id: "prospection", label: "Prospection", group: "Stock", beta: true },
-    { id: "challenge", label: "Challenge", group: "Performance" },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Performance" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Gestion" },
-    { id: "documents", label: "Documents", group: "Gestion", beta: true },
     canMarketing && { id: "marketing", label: "Marketing", group: "Gestion", beta: true },
     permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Gestion" },
     permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Gestion" },
@@ -5729,6 +5726,148 @@ async function marketingExec(fn, attempts = 3) {
   }
 }
 
+// ───────── Premium : saisie rapide, brouillons de tâches, point hebdo ─────────
+function marketingNorm(x) {
+  return String(x || "").replace(/[’‘]/g, "'").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+const MARKETING_WEEKDAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+
+// Lit une expression de date à partir du mot i : renvoie { iso, used } (used = nombre de mots consommés) ou null.
+function marketingParseDateAt(tokens, i, today) {
+  if (tokens[i] == null) return null;
+  const clean = (x) => marketingNorm(x).replace(/[.,;]+$/, "");
+  const w = clean(tokens[i]);
+  const n1 = clean(tokens[i + 1] || "");
+  const n2 = clean(tokens[i + 2] || "");
+  const todayDay = new Date(today + "T12:00:00").getDay();
+  if (w === "aujourd'hui" || w === "aujourdhui" || w === "auj") return { iso: today, used: 1 };
+  if (w === "demain") return { iso: marketingAddDays(today, 1), used: 1 };
+  if (w === "apres-demain" || w === "apresdemain") return { iso: marketingAddDays(today, 2), used: 1 };
+  const wd = MARKETING_WEEKDAYS.indexOf(w);
+  if (wd >= 0) return { iso: marketingAddDays(today, ((wd - todayDay + 7) % 7) || 7), used: n1 === "prochain" ? 2 : 1 };
+  if (w === "semaine" && n1 === "prochaine") return { iso: marketingAddDays(today, ((1 - todayDay + 7) % 7) || 7), used: 2 };
+  let m = w.match(/^\+(\d+)(j|jour|jours|d)$/);
+  if (m) return { iso: marketingAddDays(today, Number(m[1])), used: 1 };
+  m = w.match(/^\+(\d+)(s|sem|semaine|semaines)$/);
+  if (m) return { iso: marketingAddDays(today, Number(m[1]) * 7), used: 1 };
+  if (w === "dans" && /^\d+$/.test(n1)) {
+    if (/^(j|jour|jours)$/.test(n2)) return { iso: marketingAddDays(today, Number(n1)), used: 3 };
+    if (/^(s|sem|semaine|semaines)$/.test(n2)) return { iso: marketingAddDays(today, Number(n1) * 7), used: 3 };
+  }
+  m = w.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (m) {
+    const d = Number(m[1]), mo = Number(m[2]);
+    if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+    let y = m[3] ? Number(m[3]) : Number(today.slice(0, 4));
+    if (m[3] && y < 100) y += 2000;
+    let iso = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (new Date(iso + "T12:00:00").getDate() !== d) return null; // 31/02 etc.
+    if (!m[3] && iso < today) iso = `${y + 1}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    return { iso, used: 1 };
+  }
+  return null;
+}
+
+// « Relancer l'agence visuels demain @Ophélie #black ! relance vendredi » → champs d'une tâche.
+//  @prénom = attribution · #mot = projet · ! = priorité haute · date = échéance · « relance <date> » · hebdo/mensuel/chaque mois = récurrence
+function marketingParseQuick(input, ctx) {
+  const members = ctx.members || [], projects = ctx.projects || [], today = ctx.today || prospectionTodayISO();
+  const tokens = String(input || "").trim().split(/\s+/).filter(Boolean);
+  const out = { titre: "", echeance: null, relance: null, assignee: null, project_id: null, priorite: "Normale", recurrence: null };
+  const keep = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tk = tokens[i];
+    const n = marketingNorm(tk).replace(/[.,;]+$/, "");
+    const n1 = marketingNorm(tokens[i + 1] || "");
+    if (tk === "!" || tk === "!!") { out.priorite = "Haute"; continue; }
+    if (tk.startsWith("@") && tk.length > 1) {
+      const q = marketingNorm(tk.slice(1));
+      const m = members.find((x) => marketingNorm(x).startsWith(q));
+      if (m) { out.assignee = m; continue; }
+    }
+    if (tk.startsWith("#") && tk.length > 1) {
+      const q = marketingNorm(tk.slice(1)).replace(/[-_]/g, " ");
+      const p = projects.find((x) => x.statut !== "Terminé" && marketingNorm(x.titre).includes(q)) || projects.find((x) => marketingNorm(x.titre).includes(q));
+      if (p) { out.project_id = p.id; continue; }
+    }
+    if (n === "hebdo" || n === "hebdomadaire") { out.recurrence = "hebdo"; continue; }
+    if (n === "mensuel" || n === "mensuelle") { out.recurrence = "mensuel"; continue; }
+    if (n === "trimestriel" || n === "trimestrielle") { out.recurrence = "trimestriel"; continue; }
+    if (n === "chaque" && ["semaine", "mois", "trimestre"].includes(n1)) {
+      out.recurrence = n1 === "semaine" ? "hebdo" : n1 === "mois" ? "mensuel" : "trimestriel";
+      i += 1; continue;
+    }
+    if ((n === "relance" || n === "rappel") && !out.relance) {
+      const d = marketingParseDateAt(tokens, i + 1, today);
+      if (d) { out.relance = d.iso; i += d.used; continue; }
+    }
+    if (!out.echeance) {
+      const d = marketingParseDateAt(tokens, i, today);
+      if (d) { out.echeance = d.iso; i += d.used - 1; continue; }
+    }
+    keep.push(tk);
+  }
+  out.titre = keep.join(" ").trim();
+  return out;
+}
+
+let marketingKeySeq = 0;
+const marketingKey = () => "k" + ++marketingKeySeq;
+// Brouillon de tâche (avant création du projet) : offset/gap gardent le calage sur la deadline.
+function marketingDraftFromTemplate(tpl, deadline, assignee) {
+  return tpl.tasks.map((tt) => {
+    const gap = tt.relance ?? 2;
+    const echeance = deadline ? marketingAddDays(deadline, tt.offset) : "";
+    return { k: marketingKey(), titre: tt.titre, offset: tt.offset, gap, echeance, relance: echeance ? marketingAddDays(echeance, -gap) : "", assignee: assignee || "", priorite: tt.haute ? "Haute" : "Normale", dateEdited: false };
+  });
+}
+function marketingDraftFromProject(project, tasks) {
+  return tasks
+    .filter((t) => t.project_id === project.id)
+    .sort((a, b) => (a.echeance || "9999").localeCompare(b.echeance || "9999"))
+    .map((t) => {
+      const offset = project.deadline && t.echeance ? marketingDaysBetween(project.deadline, t.echeance) : null;
+      const gap = t.echeance && t.relance ? marketingDaysBetween(t.relance, t.echeance) : null;
+      return { k: marketingKey(), titre: t.titre, offset, gap, echeance: offset != null ? "" : t.echeance || "", relance: offset != null ? "" : t.relance || "", assignee: t.assignee || "", priorite: t.priorite || "Normale", dateEdited: false };
+    });
+}
+// Quand la deadline change, les tâches calées dessus (et pas modifiées à la main) suivent.
+function marketingRedateDraft(draft, deadline) {
+  return draft.map((t) => {
+    if (t.offset == null || t.dateEdited) return t;
+    const echeance = deadline ? marketingAddDays(deadline, t.offset) : "";
+    return { ...t, echeance, relance: echeance && t.gap != null ? marketingAddDays(echeance, -t.gap) : "" };
+  });
+}
+
+// Texte prêt à coller (mail, WhatsApp, point d'équipe).
+function marketingDigest({ tasks, projects, today, scopeLabel }) {
+  const todayDay = new Date(today + "T12:00:00").getDay();
+  const monday = marketingAddDays(today, -((todayDay + 6) % 7));
+  const weekEnd = marketingAddDays(today, 7);
+  const open = tasks.filter((t) => t.statut !== "Fait");
+  const who = (t) => (t.assignee ? ` (${t.assignee})` : "");
+  const line = (t, extra) => `  • ${t.titre}${who(t)}${extra ? " — " + extra : ""}`;
+  const doneWeek = tasks.filter((t) => t.statut === "Fait" && t.done_at && prospectionTodayISO(new Date(t.done_at)) >= monday);
+  const late = open.filter((t) => t.echeance && t.echeance < today).sort((a, b) => a.echeance.localeCompare(b.echeance));
+  const relances = open.filter((t) => t.relance && t.relance <= today);
+  const upcoming = open.filter((t) => t.echeance && t.echeance >= today && t.echeance <= weekEnd).sort((a, b) => a.echeance.localeCompare(b.echeance));
+  const activeProjects = projects.filter((p) => p.statut !== "Terminé").sort((a, b) => (a.deadline || "9999").localeCompare(b.deadline || "9999"));
+  const out = [`Point marketing Ford Caen — ${marketingFrDate(today, true)}${scopeLabel ? " · " + scopeLabel : ""}`, ""];
+  const block = (title, items, fmt) => { out.push(`${title} (${items.length})`); if (items.length) items.forEach((t) => out.push(fmt(t))); else out.push("  —"); out.push(""); };
+  block("Terminé cette semaine", doneWeek, (t) => line(t));
+  block("En retard", late, (t) => line(t, `échéance ${marketingFrDate(t.echeance)}`));
+  block("Relances à faire", relances, (t) => line(t, `relance ${marketingFrDate(t.relance)}`));
+  block("À venir (7 jours)", upcoming, (t) => line(t, marketingFrDate(t.echeance, true)));
+  out.push(`Projets en cours (${activeProjects.length})`);
+  activeProjects.forEach((p) => {
+    const pr = marketingProjectProgress(p, tasks);
+    out.push(`  • ${p.titre} — ${pr.done}/${pr.total} tâches${p.deadline ? ` — deadline ${marketingFrDate(p.deadline)} (${marketingRelativeLabel(p.deadline, today)})` : ""}`);
+  });
+  if (!activeProjects.length) out.push("  —");
+  return out.join("\n");
+}
+
 
 // Retourne le nom du membre (ex. "Ophélie") si le compte connecté est dans marketing_members, sinon "".
 // (RLS applique la vraie restriction côté base.)
@@ -5813,9 +5952,9 @@ function useMarketing() {
     await refresh();
   }, [refresh]);
 
-  // Crée ou met à jour une tâche. Quand une tâche récurrente passe à "Fait", la prochaine occurrence
-  // est créée automatiquement (et la récurrence est portée par la nouvelle tâche, pas par l'ancienne).
-  const saveTask = useCallback(async (t, previous) => {
+  // Crée ou met à jour une tâche (sans recharger). Quand une tâche récurrente passe à "Fait", la prochaine
+  // occurrence est créée automatiquement (et la récurrence est portée par la nouvelle tâche, pas par l'ancienne).
+  const saveTaskRaw = useCallback(async (t, previous) => {
     const row = marketingCleanTask(t);
     const nowDone = row.statut === "Fait";
     row.done_at = nowDone ? (previous?.statut === "Fait" ? previous.done_at : new Date().toISOString()) : null;
@@ -5828,11 +5967,27 @@ function useMarketing() {
     const data = await marketingExec(() =>
       t.id ? supabase.from("marketing_tasks").update(row).eq("id", t.id).select().single() : supabase.from("marketing_tasks").insert(row).select().single()
     );
-    await refresh();
     return { data, next };
-  }, [refresh]);
+  }, []);
+
+  const saveTask = useCallback(async (t, previous) => {
+    try { return await saveTaskRaw(t, previous); } finally { await refresh(); }
+  }, [saveTaskRaw, refresh]);
 
   const toggleDone = useCallback((task) => saveTask({ ...task, statut: task.statut === "Fait" ? "À faire" : "Fait" }, task), [saveTask]);
+
+  // Action groupée : items = [{ task, fields }] ; un seul rechargement à la fin.
+  const bulkUpdate = useCallback(async (items) => {
+    let done = 0;
+    try {
+      for (const { task, fields } of items) {
+        if (fields.statut === "Fait" && task.statut !== "Fait") await saveTaskRaw({ ...task, ...fields }, task);
+        else await marketingExec(() => supabase.from("marketing_tasks").update(fields).eq("id", task.id));
+        done++;
+      }
+    } finally { await refresh(); }
+    return done;
+  }, [saveTaskRaw, refresh]);
 
   const patchTask = useCallback(async (id, fields) => {
     await marketingExec(() => supabase.from("marketing_tasks").update(fields).eq("id", id));
@@ -5844,7 +5999,7 @@ function useMarketing() {
     await refresh();
   }, [refresh]);
 
-  return { projects, tasks, members, loading, error, saveProject, removeProject, saveTask, toggleDone, patchTask, removeTask, reload: refresh };
+  return { projects, tasks, members, loading, error, saveProject, removeProject, saveTask, toggleDone, bulkUpdate, patchTask, removeTask, reload: refresh };
 }
 
 
@@ -5885,15 +6040,27 @@ function MarketingDateChip({ dark, kind, iso, today, done }) {
   );
 }
 
-function MarketingTaskRow({ dark, t, project, today, onToggle, onOpen, onRelance, showProject = true }) {
+function MarketingTaskRow({ dark, t, project, today, onToggle, onOpen, onRelance, onReschedule, selectable, selected, onSelect, showProject = true }) {
   const s = marketingStyles(dark);
   const done = t.statut === "Fait";
   const relanceDue = !done && t.relance && t.relance <= today;
+  const late = !done && t.echeance && t.echeance < today;
+  const miniBtn = `rounded-md border px-2 py-0.5 font-semibold ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`;
   return (
     <div
       onClick={() => onOpen(t.id)}
-      className={`pl-interactive flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 ${s.card} ${dark ? "hover:border-zinc-700" : "hover:border-stone-300"}`}
+      className={`pl-interactive flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 ${selected ? (dark ? "border-blue-600 bg-blue-500/10" : "border-blue-500 bg-blue-50") : s.card} ${dark ? "hover:border-zinc-700" : "hover:border-stone-300"}`}
     >
+      {selectable && (
+        <input
+          type="checkbox"
+          aria-label="Sélectionner la tâche"
+          checked={!!selected}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => onSelect(t.id)}
+          className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-blue-700"
+        />
+      )}
       <button
         type="button"
         aria-label={done ? "Rouvrir la tâche" : "Marquer comme faite"}
@@ -5919,7 +6086,15 @@ function MarketingTaskRow({ dark, t, project, today, onToggle, onOpen, onRelance
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]" onClick={(e) => e.stopPropagation()}>
             <span className={s.sub}>Relancé ?</span>
             {[["Reporter +2 j", 2], ["+1 sem", 7], ["Clore", 0]].map(([l, d]) => (
-              <button key={l} type="button" onClick={() => onRelance(t, d)} className={`rounded-md border px-2 py-0.5 font-semibold ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>{l}</button>
+              <button key={l} type="button" onClick={() => onRelance(t, d)} className={miniBtn}>{l}</button>
+            ))}
+          </div>
+        )}
+        {late && onReschedule && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]" onClick={(e) => e.stopPropagation()}>
+            <span className={s.sub}>Replanifier :</span>
+            {[["Aujourd'hui", 0], ["Demain", 1], ["+1 sem", 7]].map(([l, d]) => (
+              <button key={l} type="button" onClick={() => onReschedule(t, d)} className={miniBtn}>{l}</button>
             ))}
           </div>
         )}
@@ -6066,13 +6241,20 @@ function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, m
 }
 
 
-function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, blocked, onClose, onSave, onDelete, onOpenTask, onNewTask, onToggleTask, onQuickAddTask, showToast }) {
+function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects, tasks, members, me, blocked, onClose, onSave, onDelete, onDuplicate, onOpenTask, onNewTask, onToggleTask, onQuickAddTask, showToast }) {
   const s = marketingStyles(dark);
   const isNew = projectId === "new";
   const today = prospectionTodayISO();
   const live = isNew ? null : projects.find((x) => x.id === projectId);
-  const [p, setP] = useState(() => (isNew ? { statut: "À lancer", responsable: me || "", deadline: "", categorie: "" } : live));
+  const source = isNew && duplicateOf ? projects.find((x) => x.id === duplicateOf) : null;
+  const [p, setP] = useState(() => {
+    if (!isNew) return live;
+    if (source) return { titre: `${source.titre} (copie)`, description: source.description || "", categorie: source.categorie || "", responsable: source.responsable || me || "", statut: "À lancer", deadline: "" };
+    return { titre: "", statut: "À lancer", responsable: me || "", deadline: "", categorie: "", description: "" };
+  });
+  const [draft, setDraft] = useState(() => (source ? marketingDraftFromProject(source, tasks) : []));
   const [tplId, setTplId] = useState("");
+  const [draftInput, setDraftInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [quick, setQuick] = useState("");
@@ -6086,25 +6268,47 @@ function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, 
   useEffect(() => { if (!isNew && !live) onClose(); }, [isNew, live, onClose]);
   if (!p) return null;
 
-  const tpl = MARKETING_TEMPLATES.find((t) => t.id === tplId) || null;
-  const tplTasks = isNew ? marketingBuildTemplateTasks(tpl, p.deadline, p.responsable) : [];
-  const lateTplCount = tplTasks.filter((t) => t.echeance < today).length;
   const myTasks = isNew ? [] : tasks.filter((t) => t.project_id === projectId);
   const sorted = [...myTasks].sort((a, b) => (a.statut === "Fait") - (b.statut === "Fait") || (a.echeance || "9999").localeCompare(b.echeance || "9999"));
   const prog = isNew ? null : marketingProjectProgress(live, tasks);
+  const ctx = { members, projects, today };
 
+  const changeDeadline = (e) => {
+    const deadline = e.target.value;
+    setP((x) => ({ ...x, deadline }));
+    setDraft((d) => marketingRedateDraft(d, deadline));
+  };
   const pickTemplate = (id) => {
     setTplId(id);
     const t = MARKETING_TEMPLATES.find((x) => x.id === id);
-    if (t) setP((x) => ({ ...x, categorie: x.categorie || t.categorie, titre: x.titre || t.label }));
+    if (!t) { setDraft([]); return; }
+    setP((x) => ({ ...x, categorie: x.categorie || t.categorie, titre: x.titre || t.label }));
+    setDraft(marketingDraftFromTemplate(t, p.deadline, p.responsable));
   };
+  const updateDraft = (k, patch) => setDraft((d) => d.map((t) => (t.k === k ? { ...t, ...patch } : t)));
+  const changeDraftDate = (t, echeance) => {
+    const gapRelance = t.gap != null && echeance ? marketingAddDays(echeance, -t.gap) : t.relance;
+    updateDraft(t.k, { echeance, relance: gapRelance, dateEdited: true });
+  };
+  const addDraft = () => {
+    const raw = draftInput.trim();
+    if (!raw) return;
+    let item = { titre: raw, echeance: "", relance: "", assignee: p.responsable || "", priorite: "Normale" };
+    if (premium) {
+      const q = marketingParseQuick(raw, ctx);
+      if (q.titre) item = { titre: q.titre, echeance: q.echeance || "", relance: q.relance || "", assignee: q.assignee || p.responsable || "", priorite: q.priorite };
+    }
+    setDraft((d) => [...d, { k: marketingKey(), offset: null, gap: null, dateEdited: true, ...item }]);
+    setDraftInput("");
+  };
+
   const save = async () => {
-    if (!(p.titre || "").trim()) { showToast("Donnez un titre au projet", { type: "error" }); return; }
-    if (tpl && !p.deadline) { showToast("Indiquez la deadline pour caler les tâches du modèle", { type: "error" }); return; }
+    if (!(p.titre || "").trim()) { showToast("Donnez un nom au projet", { type: "error" }); return; }
+    const rows = draft.filter((t) => (t.titre || "").trim()).map(({ titre, echeance, relance, assignee, priorite }) => ({ titre, echeance, relance, assignee, priorite }));
     setSaving(true);
     try {
-      await onSave(p, tplTasks);
-      showToast(isNew && tplTasks.length ? `Projet créé avec ${tplTasks.length} tâches` : "Projet enregistré");
+      await onSave(p, rows);
+      showToast(isNew && rows.length ? `Projet créé avec ${rows.length} tâche${rows.length > 1 ? "s" : ""}` : "Projet enregistré");
       onClose();
     } catch (e) {
       showToast(`Échec de l'enregistrement : ${e.message || e}`, { type: "error" });
@@ -6116,25 +6320,39 @@ function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, 
     catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
   };
   const addQuick = async () => {
-    const titre = quick.trim();
-    if (!titre) return;
+    const raw = quick.trim();
+    if (!raw) return;
     setQuick("");
-    try { await onQuickAddTask(projectId, titre, p.responsable || me); }
-    catch (e) { setQuick(titre); showToast(`Ajout impossible : ${e.message || e}`, { type: "error" }); }
+    let fields = { titre: raw, assignee: p.responsable || me };
+    if (premium) {
+      const q = marketingParseQuick(raw, ctx);
+      if (q.titre) fields = { titre: q.titre, echeance: q.echeance, relance: q.relance, priorite: q.priorite, recurrence: q.recurrence, assignee: q.assignee || p.responsable || me };
+    }
+    try { await onQuickAddTask(projectId, fields); }
+    catch (e) { setQuick(raw); showToast(`Ajout impossible : ${e.message || e}`, { type: "error" }); }
   };
 
+  const lateDraft = draft.filter((t) => t.echeance && t.echeance < today).length;
+  const needsDeadline = !p.deadline && draft.some((t) => t.offset != null);
+  const miniSel = `${s.input} !w-auto`;
+
   return (
-    <MarketingDrawer dark={dark} onClose={onClose} title={isNew ? "Nouveau projet" : live.titre}>
+    <MarketingDrawer
+      dark={dark}
+      onClose={onClose}
+      title={isNew ? (source ? "Dupliquer le projet" : "Nouveau projet") : live.titre}
+      right={!isNew && <button type="button" onClick={() => onDuplicate(projectId)} className={s.ghostBtn}>Dupliquer</button>}
+    >
       <div className="space-y-4">
-        {isNew && (
+        {isNew && !source && (
           <div>
             <div className={s.label}>Partir d'un modèle (optionnel)</div>
             <div className="grid gap-2 sm:grid-cols-2">
-              {[{ id: "", label: "Projet vide", desc: "Vous ajoutez vos tâches vous-même" }, ...MARKETING_TEMPLATES].map((t) => (
+              {[{ id: "", label: "Projet vide", desc: "Vous ajoutez vos propres tâches" }, ...MARKETING_TEMPLATES].map((t) => (
                 <button
                   key={t.id || "vide"}
                   type="button"
-                  onClick={() => (t.id ? pickTemplate(t.id) : setTplId(""))}
+                  onClick={() => pickTemplate(t.id)}
                   className={`pl-interactive rounded-xl border p-3 text-left ${tplId === t.id ? "border-blue-600 ring-2 ring-blue-600/20" : dark ? "border-zinc-800 hover:border-zinc-700" : "border-stone-200 hover:border-stone-300"} ${dark ? "bg-zinc-900/40" : "bg-white"}`}
                 >
                   <div className={`text-sm font-semibold ${s.title}`}>{t.label}</div>
@@ -6146,13 +6364,13 @@ function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, 
         )}
 
         <div>
-          <div className={s.label}>Titre *</div>
+          <div className={s.label}>Nom du projet *</div>
           <input autoFocus={isNew} className={s.input} value={p.titre || ""} onChange={set("titre")} placeholder="Ex. Portes ouvertes Transit — novembre" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className={s.label}>Deadline</div>
-            <input type="date" className={s.input} value={p.deadline || ""} onChange={set("deadline")} />
+            <input type="date" className={s.input} value={p.deadline || ""} onChange={changeDeadline} />
           </div>
           <div>
             <div className={s.label}>Statut</div>
@@ -6168,11 +6386,9 @@ function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, 
             </select>
           </div>
           <div>
-            <div className={s.label}>Catégorie</div>
-            <select className={s.input} value={p.categorie || ""} onChange={set("categorie")}>
-              <option value="">—</option>
-              {MARKETING_CATEGORIES.map((x) => <option key={x}>{x}</option>)}
-            </select>
+            <div className={s.label}>Catégorie (libre)</div>
+            <input className={s.input} list="marketing-categories" value={p.categorie || ""} onChange={set("categorie")} placeholder="Choisir ou écrire…" />
+            <datalist id="marketing-categories">{MARKETING_CATEGORIES.map((x) => <option key={x} value={x} />)}</datalist>
           </div>
         </div>
         <div>
@@ -6180,24 +6396,35 @@ function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, 
           <textarea rows={3} className={s.input} value={p.description || ""} onChange={set("description")} placeholder="Objectif, cible, budget, liens…" />
         </div>
 
-        {isNew && tpl && (
-          <div className={`rounded-xl border p-3 ${s.card}`}>
-            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Tâches qui seront créées ({tpl.tasks.length})</div>
-            {!p.deadline ? (
-              <div className={`text-sm ${s.muted}`}>Choisissez la deadline : les dates des tâches et des relances se calent dessus automatiquement.</div>
-            ) : (
-              <>
-                <ul className="space-y-1">
-                  {tplTasks.map((t, i) => (
-                    <li key={i} className="flex items-center justify-between gap-3 text-sm">
-                      <span className={`min-w-0 truncate ${s.title}`}>{t.titre}</span>
-                      <span className={`shrink-0 text-xs ${t.echeance < today ? "text-rose-500" : s.sub}`}>{marketingFrDate(t.echeance)}</span>
-                    </li>
-                  ))}
-                </ul>
-                {lateTplCount > 0 && <div className={`mt-2 text-xs ${dark ? "text-amber-400" : "text-amber-700"}`}>{lateTplCount} tâche(s) tomberont déjà en retard avec cette deadline — vous pourrez ajuster leurs dates ensuite.</div>}
-              </>
-            )}
+        {isNew && (
+          <div>
+            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Tâches du projet ({draft.length})</div>
+            {needsDeadline && <div className={`mb-2 text-xs ${s.muted}`}>Choisissez la deadline : les dates des tâches se calent dessus automatiquement (vous pouvez ensuite les modifier une à une).</div>}
+            {draft.length === 0 && <div className={`mb-2 text-sm ${s.sub}`}>Aucune tâche pour l'instant — ajoutez les vôtres ci-dessous ou partez d'un modèle.</div>}
+            <div className="space-y-2">
+              {draft.map((t) => (
+                <div key={t.k} className={`flex flex-wrap items-center gap-2 rounded-xl border p-2 ${s.card}`}>
+                  <input aria-label="Titre de la tâche" className={`${s.input} min-w-[170px] flex-1`} value={t.titre} onChange={(e) => updateDraft(t.k, { titre: e.target.value })} />
+                  <input aria-label="Échéance" type="date" className={miniSel} value={t.echeance || ""} onChange={(e) => changeDraftDate(t, e.target.value)} />
+                  <select aria-label="Attribuée à" className={miniSel} value={t.assignee || ""} onChange={(e) => updateDraft(t.k, { assignee: e.target.value })}>
+                    <option value="">—</option>
+                    {members.map((m) => <option key={m}>{m}</option>)}
+                  </select>
+                  <button type="button" aria-label="Retirer la tâche" onClick={() => setDraft((d) => d.filter((x) => x.k !== t.k))} className={`rounded-lg p-1.5 ${dark ? "text-zinc-500 hover:bg-zinc-800 hover:text-rose-400" : "text-stone-400 hover:bg-stone-100 hover:text-rose-600"}`}><X size={14} /></button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                className={s.input}
+                value={draftInput}
+                onChange={(e) => setDraftInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addDraft()}
+                placeholder={premium ? "Ajouter une tâche… ex. « Valider visuels vendredi @Ophélie »" : "Ajouter une tâche (Entrée pour valider)"}
+              />
+              <button type="button" onClick={addDraft} className={s.primaryBtn} aria-label="Ajouter la tâche"><Plus size={16} /></button>
+            </div>
+            {lateDraft > 0 && <div className={`mt-2 text-xs ${dark ? "text-amber-400" : "text-amber-700"}`}>{lateDraft} tâche(s) ont une date déjà passée — ajustez-les ou ajoutez de la marge sur la deadline.</div>}
           </div>
         )}
 
@@ -6224,7 +6451,7 @@ function MarketingProjectFiche({ dark, projectId, projects, tasks, members, me, 
                 value={quick}
                 onChange={(e) => setQuick(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addQuick()}
-                placeholder="Ajouter une tâche (Entrée pour valider)"
+                placeholder={premium ? "Ajouter une tâche… ex. « Relancer agence demain ! »" : "Ajouter une tâche (Entrée pour valider)"}
               />
               <button type="button" onClick={addQuick} className={s.primaryBtn} aria-label="Ajouter"><Plus size={16} /></button>
             </div>
@@ -6253,17 +6480,25 @@ function MarketingTab({ dark, me, showToast }) {
   const today = prospectionTodayISO();
   const weekEnd = marketingAddDays(today, 7);
 
+  const [premium, setPremium] = useState(() => loadLocal("dsr:marketing-premium", true));
+  useEffect(() => { saveLocal("dsr:marketing-premium", premium); }, [premium]);
   const [vue, setVue] = useState(() => loadLocal("dsr:marketing-vue", "jour"));
   useEffect(() => { saveLocal("dsr:marketing-vue", vue); }, [vue]);
+  const vueEff = !premium && vue === "tableau" ? "jour" : vue;
   const [scope, setScope] = useState(() => loadLocal("dsr:marketing-scope", ""));
   useEffect(() => { saveLocal("dsr:marketing-scope", scope); }, [scope]);
   const [openProject, setOpenProject] = useState(null);
+  const [dupSource, setDupSource] = useState(null);
   const [openTask, setOpenTask] = useState(null);
   const [taskPrefill, setTaskPrefill] = useState(null);
   const [projFilter, setProjFilter] = useState("actifs");
   const [taskFilter, setTaskFilter] = useState({ statut: "ouvertes", project: "", q: "" });
   const [calMonth, setCalMonth] = useState(() => today.slice(0, 7) + "-01");
   const [calSel, setCalSel] = useState(today);
+  const [selected, setSelected] = useState([]);
+  const [quickText, setQuickText] = useState("");
+  const [dragId, setDragId] = useState(null);
+  const quickRef = useRef(null);
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const scoped = useMemo(
@@ -6272,8 +6507,11 @@ function MarketingTab({ dark, me, showToast }) {
   );
 
   const closeTask = useCallback(() => { setOpenTask(null); setTaskPrefill(null); }, []);
-  const closeProject = useCallback(() => setOpenProject(null), []);
-  const newTask = (prefill) => { setTaskPrefill(prefill || null); setOpenTask("new"); };
+  const closeProject = useCallback(() => { setOpenProject(null); setDupSource(null); }, []);
+  const newTask = useCallback((prefill) => { setTaskPrefill(prefill || null); setOpenTask("new"); }, []);
+  const newProject = useCallback(() => { setDupSource(null); setOpenProject("new"); }, []);
+  const duplicateProject = (id) => { setDupSource(id); setOpenProject("new"); };
+  const changeVue = (k) => { setVue(k); setSelected([]); };
 
   const onToggle = async (t) => {
     const wasDone = t.statut === "Fait";
@@ -6288,12 +6526,92 @@ function MarketingTab({ dark, me, showToast }) {
       showToast(days > 0 ? `Relance reportée au ${marketingFrDate(marketingAddDays(today, days))}` : "Relance clôturée");
     } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
   };
-  const quickAddTask = async (project_id, titre, assignee) => {
-    await data.saveTask({ project_id, titre, assignee, statut: "À faire", priorite: "Normale" });
+  const onReschedule = async (t, days) => {
+    try {
+      await data.patchTask(t.id, { echeance: marketingAddDays(today, days) });
+      showToast(`Échéance replanifiée au ${marketingFrDate(marketingAddDays(today, days))}`);
+    } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const quickAddTask = async (project_id, fields) => {
+    await data.saveTask({ project_id, statut: "À faire", priorite: "Normale", ...fields });
+  };
+  const moveTask = async (t, statut) => {
+    if (t.statut === statut) return;
+    try {
+      const { next } = await data.saveTask({ ...t, statut }, t);
+      if (next) showToast(`Prochaine occurrence le ${marketingFrDate(next.echeance)}`);
+    } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
+  };
+
+  // ── Premium : saisie rapide ──
+  const parsed = useMemo(() => (quickText.trim() ? marketingParseQuick(quickText, { members, projects, today }) : null), [quickText, members, projects, today]);
+  const submitQuick = async () => {
+    if (!parsed) return;
+    if (!parsed.titre) { showToast("Il manque le titre de la tâche", { type: "error" }); return; }
+    try {
+      await data.saveTask({ ...parsed, assignee: parsed.assignee || me, statut: "À faire" });
+      showToast(`Tâche ajoutée${parsed.echeance ? " · échéance " + marketingFrDate(parsed.echeance) : ""}`);
+      setQuickText("");
+    } catch (e) { showToast(`Ajout impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const copyDigest = async () => {
+    const txt = marketingDigest({ tasks: scoped, projects, today, scopeLabel: scope && scope !== "__none" ? scope : "" });
+    try {
+      await navigator.clipboard.writeText(txt);
+      showToast("Point de la semaine copié — prêt à coller");
+    } catch (e) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = txt; document.body.appendChild(ta); ta.select();
+        const okCopy = document.execCommand("copy");
+        document.body.removeChild(ta);
+        showToast(okCopy ? "Point de la semaine copié — prêt à coller" : "Copie impossible", { type: okCopy ? "success" : "error" });
+      } catch (e2) { showToast("Copie impossible", { type: "error" }); }
+    }
+  };
+
+  // ── Premium : raccourcis clavier ──
+  useEffect(() => {
+    if (!premium) return;
+    const VUE_KEYS = { 1: "jour", 2: "projets", 3: "taches", 4: "tableau", 5: "calendrier" };
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if (typing || openProject || openTask) return;
+      const k = e.key.toLowerCase();
+      if (k === "n") { e.preventDefault(); newTask(); }
+      else if (k === "p") { e.preventDefault(); newProject(); }
+      else if (k === "q") { e.preventDefault(); quickRef.current?.focus(); }
+      else if (VUE_KEYS[k]) { e.preventDefault(); setVue(VUE_KEYS[k]); setSelected([]); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [premium, openProject, openTask, newTask, newProject]);
+
+  const toggleSelect = (id) => setSelected((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
+  const runBulk = async (label, makeFields) => {
+    const items = tasks.filter((t) => selected.includes(t.id)).map((t) => ({ task: t, fields: makeFields(t) }));
+    try {
+      const n = await data.bulkUpdate(items);
+      showToast(`${n} tâche${n > 1 ? "s" : ""} · ${label}`);
+      setSelected([]);
+    } catch (e) { showToast(`Action groupée interrompue : ${e.message || e}`, { type: "error" }); }
   };
 
   const row = (t, extra = {}) => (
-    <MarketingTaskRow key={t.id} dark={dark} t={t} project={projectById.get(t.project_id)} today={today} onToggle={onToggle} onOpen={setOpenTask} onRelance={onRelance} {...extra} />
+    <MarketingTaskRow
+      key={t.id}
+      dark={dark}
+      t={t}
+      project={projectById.get(t.project_id)}
+      today={today}
+      onToggle={onToggle}
+      onOpen={setOpenTask}
+      onRelance={onRelance}
+      onReschedule={premium ? onReschedule : undefined}
+      {...extra}
+    />
   );
 
   // ───────────── Vue "Aujourd'hui" ─────────────
@@ -6409,6 +6727,33 @@ function MarketingTab({ dark, me, showToast }) {
   };
 
   // ───────────── Vue "Tâches" ─────────────
+  const bulkBar = (list) => {
+    const allIds = list.slice(0, 300).map((t) => t.id);
+    const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id));
+    const btn = `rounded-lg border px-2.5 py-1 text-xs font-semibold ${dark ? "border-zinc-600 text-zinc-100 hover:bg-zinc-800" : "border-blue-300 text-blue-900 hover:bg-white"}`;
+    return (
+      <div className={`sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 shadow-sm ${dark ? "border-blue-700/50 bg-zinc-900" : "border-blue-200 bg-blue-50"}`}>
+        <span className={`text-sm font-semibold ${s.title}`}>{selected.length} sélectionnée{selected.length > 1 ? "s" : ""}</span>
+        <button type="button" className={btn} onClick={() => setSelected(allSelected ? [] : allIds)}>{allSelected ? "Tout désélectionner" : "Tout sélectionner"}</button>
+        <span className="mx-1 hidden h-4 w-px bg-current opacity-20 sm:block" />
+        <button type="button" className={btn} onClick={() => runBulk("terminées", () => ({ statut: "Fait" }))}>Terminer</button>
+        <button type="button" className={btn} onClick={() => runBulk("replanifiées à demain", () => ({ echeance: marketingAddDays(today, 1) }))}>Demain</button>
+        <button type="button" className={btn} onClick={() => runBulk("replanifiées à +1 semaine", () => ({ echeance: marketingAddDays(today, 7) }))}>+1 sem</button>
+        <select
+          aria-label="Attribuer à"
+          className={`${s.input} !h-8 !w-auto !py-0 text-xs`}
+          value=""
+          onChange={(e) => { const v = e.target.value; if (v) runBulk(v === "__none" ? "attribution retirée" : `attribuées à ${v}`, () => ({ assignee: v === "__none" ? null : v })); }}
+        >
+          <option value="">Attribuer à…</option>
+          {members.map((m) => <option key={m} value={m}>{m}</option>)}
+          <option value="__none">Personne</option>
+        </select>
+        <button type="button" className={`ml-auto text-xs font-semibold underline ${s.muted}`} onClick={() => setSelected([])}>Annuler</button>
+      </div>
+    );
+  };
+
   const vueTaches = () => {
     const q = taskFilter.q.trim().toLowerCase();
     const list = scoped
@@ -6431,10 +6776,11 @@ function MarketingTab({ dark, me, showToast }) {
             {projects.map((p) => <option key={p.id} value={p.id}>{p.titre}</option>)}
           </select>
         </div>
+        {premium && selected.length > 0 && bulkBar(list)}
         {list.length === 0 ? (
           <EmptyState dark={dark} icon={List} title="Aucune tâche" subtitle="Ajustez les filtres ou créez une tâche." />
         ) : (
-          <div className="space-y-2">{list.slice(0, 300).map((t) => row(t))}</div>
+          <div className="space-y-2">{list.slice(0, 300).map((t) => row(t, premium ? { selectable: true, selected: selected.includes(t.id), onSelect: toggleSelect } : {}))}</div>
         )}
         {list.length > 300 && <div className={`text-xs ${s.sub}`}>300 premières tâches affichées — affinez avec les filtres.</div>}
       </div>
@@ -6527,7 +6873,77 @@ function MarketingTab({ dark, me, showToast }) {
     );
   };
 
-  const VUES = [["jour", "Aujourd'hui"], ["projets", "Projets"], ["taches", "Tâches"], ["calendrier", "Calendrier"]];
+  // ───────────── Vue "Tableau" (premium) ─────────────
+  const vueTableau = () => {
+    const cols = [
+      ["À faire", dark ? "bg-zinc-900/40" : "bg-stone-100/70"],
+      ["En cours", dark ? "bg-blue-500/5" : "bg-blue-50/70"],
+      ["Fait", dark ? "bg-emerald-500/5" : "bg-emerald-50/70"],
+    ];
+    const recentDone = scoped.filter((t) => t.statut === "Fait").sort((a, b) => (b.done_at || "").localeCompare(a.done_at || "")).slice(0, 15);
+    const colTasks = (st) =>
+      st === "Fait" ? recentDone : scoped.filter((t) => t.statut === st).sort((a, b) => (marketingUrgencyDate(a) || "9999").localeCompare(marketingUrgencyDate(b) || "9999"));
+    const nextOf = { "À faire": "En cours", "En cours": "Fait" };
+    const prevOf = { "En cours": "À faire", Fait: "En cours" };
+    return (
+      <div className="grid gap-3 lg:grid-cols-3">
+        {cols.map(([st, bg]) => {
+          const list = colTasks(st);
+          return (
+            <div
+              key={st}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = e.dataTransfer?.getData("text/plain") || dragId;
+                const t = tasks.find((x) => x.id === id);
+                setDragId(null);
+                if (t) moveTask(t, st);
+              }}
+              className={`min-h-[140px] rounded-2xl border p-2.5 ${bg} ${dark ? "border-zinc-800" : "border-stone-200"}`}
+            >
+              <div className={`mb-2 flex items-center justify-between px-1 text-xs font-bold uppercase tracking-widest ${s.sub}`}>
+                <span>{st}</span><span>{st === "Fait" ? `${list.length} récentes` : list.length}</span>
+              </div>
+              <div className="space-y-2">
+                {list.map((t) => {
+                  const pr = projectById.get(t.project_id);
+                  return (
+                    <div
+                      key={t.id}
+                      draggable
+                      onDragStart={(e) => { setDragId(t.id); e.dataTransfer?.setData("text/plain", t.id); }}
+                      onDragEnd={() => setDragId(null)}
+                      onClick={() => setOpenTask(t.id)}
+                      className={`cursor-grab rounded-xl border p-2.5 text-sm active:cursor-grabbing ${s.card} ${dragId === t.id ? "opacity-50" : ""}`}
+                    >
+                      <div className={`flex items-start justify-between gap-2 font-medium ${t.statut === "Fait" ? "line-through " + s.sub : s.title}`}>
+                        <span className="min-w-0 break-words">{t.titre}</span>
+                        {t.priorite === "Haute" && t.statut !== "Fait" && <Flag size={12} className="mt-1 shrink-0 text-rose-500" />}
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <MarketingDateChip dark={dark} kind="echeance" iso={t.echeance} today={today} done={t.statut === "Fait"} />
+                        <MarketingDateChip dark={dark} kind="relance" iso={t.relance} today={today} done={t.statut === "Fait"} />
+                        {pr && <span className={`max-w-[140px] truncate rounded-full px-2 py-0.5 text-[11px] ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>{pr.titre}</span>}
+                        {t.assignee && <span className={`ml-auto text-[11px] font-semibold ${s.sub}`}>{t.assignee}</span>}
+                      </div>
+                      <div className="mt-2 flex gap-1.5 text-[11px]" onClick={(e) => e.stopPropagation()}>
+                        {prevOf[t.statut] && <button type="button" onClick={() => moveTask(t, prevOf[t.statut])} className={`rounded-md border px-2 py-0.5 font-semibold ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>← {prevOf[t.statut]}</button>}
+                        {nextOf[t.statut] && <button type="button" onClick={() => moveTask(t, nextOf[t.statut])} className={`rounded-md border px-2 py-0.5 font-semibold ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>{nextOf[t.statut]} →</button>}
+                      </div>
+                    </div>
+                  );
+                })}
+                {list.length === 0 && <div className={`px-1 py-4 text-center text-xs ${s.sub}`}>Glissez une tâche ici</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const VUES = [["jour", "Aujourd'hui"], ["projets", "Projets"], ["taches", "Tâches"], ...(premium ? [["tableau", "Tableau"]] : []), ["calendrier", "Calendrier"]];
 
   if (error) {
     return (
@@ -6538,33 +6954,80 @@ function MarketingTab({ dark, me, showToast }) {
   return (
     <div className="space-y-4">
       <div>
-        <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${s.muted}`}>
-          <Megaphone size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
-          Marketing · Ford Caen
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${s.muted}`}>
+            <Megaphone size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
+            Marketing · Ford Caen
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={premium}
+            onClick={() => setPremium((v) => !v)}
+            title="Active la saisie rapide, le tableau, les actions groupées, les raccourcis clavier et le point de la semaine"
+            className={`pl-interactive flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${premium ? "border-amber-400/60 bg-gradient-to-r from-amber-400/20 to-orange-400/20 " + (dark ? "text-amber-300" : "text-amber-800") : dark ? "border-zinc-700 text-zinc-500" : "border-stone-300 text-stone-400"}`}
+          >
+            <Sparkles size={12} />Premium {premium ? "activé" : "désactivé"}
+          </button>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-          <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`}>
+          <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par personne">
             <option value="">Toute l'équipe</option>
             {members.map((m) => <option key={m}>{m}</option>)}
             <option value="__none">Non attribuées</option>
           </select>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap gap-2">
+            {premium && <button onClick={copyDigest} className={s.ghostBtn}>Copier le point de la semaine</button>}
             <button onClick={() => newTask()} className={s.ghostBtn}>Nouvelle tâche</button>
-            <button onClick={() => setOpenProject("new")} className={s.primaryBtn}>Nouveau projet</button>
+            <button onClick={newProject} className={s.primaryBtn}>Nouveau projet</button>
           </div>
         </div>
       </div>
+
+      {premium && (
+        <div className={`rounded-2xl border p-3 ${dark ? "border-amber-500/30 bg-amber-500/5" : "border-amber-300/70 bg-amber-50/60"}`}>
+          <div className="flex gap-2">
+            <input
+              ref={quickRef}
+              value={quickText}
+              onChange={(e) => setQuickText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitQuick(); else if (e.key === "Escape") { setQuickText(""); e.target.blur(); } }}
+              placeholder="Ajout rapide : « Relancer l'agence visuels demain @Ophélie #black ! »"
+              aria-label="Ajout rapide d'une tâche"
+              className={s.input}
+            />
+            <button type="button" onClick={submitQuick} disabled={!parsed} className={s.primaryBtn}>Ajouter</button>
+          </div>
+          <div className={`mt-2 flex min-h-[20px] flex-wrap items-center gap-1.5 text-[11px] ${s.sub}`}>
+            {parsed ? (
+              <>
+                <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>{parsed.titre || "⚠ titre manquant"}</span>
+                {parsed.echeance && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-blue-500/20 text-blue-300" : "bg-blue-100 text-blue-800"}`}>Échéance {marketingFrDate(parsed.echeance, true)}</span>}
+                {parsed.relance && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800"}`}>Relance {marketingFrDate(parsed.relance, true)}</span>}
+                <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>→ {parsed.assignee || me || "non attribuée"}</span>
+                {parsed.project_id && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>Projet : {projectById.get(parsed.project_id)?.titre}</span>}
+                {parsed.priorite === "Haute" && <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">Priorité haute</span>}
+                {parsed.recurrence && <span className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-white text-stone-700"}`}>↻ {MARKETING_RECURRENCE_LABEL[parsed.recurrence]}</span>}
+                <span>· Entrée pour créer</span>
+              </>
+            ) : (
+              <span>@prénom pour attribuer · #projet · ! priorité · « demain », « vendredi », « 12/11 », « +3j » pour l'échéance · « relance lundi » · « chaque semaine »</span>
+            )}
+          </div>
+          <div className={`mt-1 hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : <b>Q</b> ajout rapide · <b>N</b> nouvelle tâche · <b>P</b> nouveau projet · <b>1–5</b> changer de vue</div>
+        </div>
+      )}
 
       <div className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
         {VUES.map(([k, l]) => (
           <button
             key={k}
-            onClick={() => setVue(k)}
-            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vue === k ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
+            onClick={() => changeVue(k)}
+            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vueEff === k ? "bg-blue-700 text-white" : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
           >
             {l}
             {k === "jour" && dueCount > 0 && (
-              <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${vue === k ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>{dueCount}</span>
+              <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${vueEff === k ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>{dueCount}</span>
             )}
           </button>
         ))}
@@ -6573,18 +7036,22 @@ function MarketingTab({ dark, me, showToast }) {
       {loading ? (
         <div className="flex h-40 items-center justify-center"><RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={20} /></div>
       ) : (
-        <div key={vue} className="pl-fade-in">
-          {vue === "jour" && vueJour()}
-          {vue === "projets" && vueProjets()}
-          {vue === "taches" && vueTaches()}
-          {vue === "calendrier" && vueCalendrier()}
+        <div key={vueEff} className="pl-fade-in">
+          {vueEff === "jour" && vueJour()}
+          {vueEff === "projets" && vueProjets()}
+          {vueEff === "taches" && vueTaches()}
+          {vueEff === "tableau" && vueTableau()}
+          {vueEff === "calendrier" && vueCalendrier()}
         </div>
       )}
 
       {openProject && (
         <MarketingProjectFiche
+          key={`${openProject}:${dupSource || ""}`}
           dark={dark}
           projectId={openProject}
+          duplicateOf={dupSource}
+          premium={premium}
           projects={projects}
           tasks={tasks}
           members={members}
@@ -6593,6 +7060,7 @@ function MarketingTab({ dark, me, showToast }) {
           onClose={closeProject}
           onSave={data.saveProject}
           onDelete={data.removeProject}
+          onDuplicate={duplicateProject}
           onOpenTask={setOpenTask}
           onNewTask={(project_id) => newTask({ project_id })}
           onToggleTask={onToggle}
@@ -6657,7 +7125,11 @@ export default function App() {
     return saved ? { orderNumber: saved } : null;
   });
   const [resetConfirm, setResetConfirm] = useState(false);
-  const [tab, setTab] = useState(() => loadLocal("dsr:ui-tab", "vehicules"));
+  // Onglets retirés de la navigation (non utilisés) : si l'un d'eux était mémorisé, on retombe sur Véhicules.
+  const [tab, setTab] = useState(() => {
+    const saved = loadLocal("dsr:ui-tab", "vehicules");
+    return ["convoyage", "challenge", "documents"].includes(saved) ? "vehicules" : saved;
+  });
   const [filters, setFilters] = useState(() =>
     loadLocal("dsr:ui-filters", { modele: "all", site: "all", typeVente: [], vu: "all", statut: "all", vendeur: "all", carrosserie: "all", boite: "all", query: "" })
   );
