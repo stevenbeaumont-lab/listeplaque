@@ -5,7 +5,7 @@ import {
   Car, Truck, Search, Bell, Sun, Moon, RefreshCw,
   Upload, X, ChevronRight, User, AlertTriangle,
   RotateCcw, FileSpreadsheet, Zap, SlidersHorizontal, CheckCircle2,
-  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing, Sparkles, Paperclip, ExternalLink, Phone, CalendarPlus, Printer, Copy, Pencil,
+  CalendarClock, History, Info, Trash2, Plus, Download, Lock, Bookmark, Layers, Users, TrendingUp, List, LayoutGrid, FileText, Settings, ArrowRightLeft, Trophy, MessageSquare, FolderOpen, Target, Megaphone, ChevronLeft, Check, Repeat, Flag, BellRing, Sparkles, Paperclip, ExternalLink, Phone, CalendarPlus, Printer, Copy, Pencil, MapPin,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -4037,10 +4037,12 @@ function computeStats(vehicles) {
 // Onglet visible uniquement pour les comptes présents dans prospection_members
 // (accès géré côté base via RLS — voir useProspectionAccess ci-dessous).
 // ---------------------------------------------------------------------------
-const PROSPECTION_STATUTS = ["À contacter", "Contacté", "RDV fixé", "Offre envoyée", "Gagné", "Perdu"];
+// "Prospect" = premier contact passif (cartes de visite / flyers déposés, passage sans rencontrer le décideur).
+const PROSPECTION_STATUTS = ["À contacter", "Prospect", "Contacté", "RDV fixé", "Offre envoyée", "Gagné", "Perdu"];
 // Orange volontairement absent de cette palette : il reste réservé au statut "Réservé" des véhicules.
 const PROSPECTION_STATUT_COLORS = {
   "À contacter": "#6B7280",
+  "Prospect": "#0EA5E9",
   "Contacté": "#2563EB",
   "RDV fixé": "#7C3AED",
   "Offre envoyée": "#0D9488",
@@ -4056,6 +4058,15 @@ const PROSPECTION_CLIENT_COLOR = "#94A3B8";
 const PROSPECTION_SECTEURS = ["BTP", "Artisans", "Transport et logistique", "Agriculture", "Commerce", "Services", "Santé", "Collectivités", "Industrie", "Location / VTC"];
 const PROSPECTION_MODELES = ["Transit", "Transit Custom", "Transit Connect", "Transit Courier", "E-Transit", "Ranger", "Puma", "Kuga", "Explorer", "Mustang Mach-E", "Flotte mixte"];
 const PROSPECTION_TYPES_ACTION = ["Appel", "Email", "Visite", "RDV", "Relance", "Autre"];
+// Critères de qualification du parc automobile de l'entreprise (taille = champ « flotte » existant).
+const PROSPECTION_MARQUES = ["Ford", "Renault", "Peugeot", "Citroën", "Volkswagen", "Mercedes", "Toyota", "Fiat", "Opel", "Iveco", "Nissan", "Dacia"];
+const PROSPECTION_ENERGIES = ["Gazole", "Essence", "Électrique", "Hybride"];
+const PROSPECTION_PERIODICITES = [[6, "Tous les 6 mois"], [12, "Tous les ans"], [24, "Tous les 2 ans"], [36, "Tous les 3 ans"], [48, "Tous les 4 ans"], [60, "Tous les 5 ans"]];
+const PROSPECTION_PERIODICITE_DEFAUT = 12; // utilisée pour « Pas de besoin » quand la périodicité n'est pas renseignée
+const PROSPECTION_RAPPEL_AVANCE_MOIS = 2; // on rappelle 2 mois avant l'échéance estimée si le dernier renouvellement est connu
+const PROSPECTION_PROSPECT_RELANCE_JOURS = 10; // relance après dépôt de cartes
+// Colonnes ajoutées par sql/prospection-criteres.sql
+const PROSPECTION_CRITERE_COLS = ["marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement"];
 const PROSPECTION_CAEN_CENTER = { lat: 49.1829, lng: -0.3707 };
 const PROSPECTION_OBJECTIF_SEMAINE = 25;
 
@@ -4098,6 +4109,69 @@ function prospectionMapsDirectionsUrl(p) {
   return p.lat != null
     ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([p.adresse, p.code_postal, p.commune].filter(Boolean).join(" "))}`;
+}
+
+// --- Commercial automatique : « LEROY Anthony » (nom de compte) -> « Anthony » (liste des commerciaux B2B).
+function prospectionNorm(s) {
+  return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+function prospectionCommercialFor(name) {
+  const tokens = prospectionNorm(name).split(/[^a-z0-9]+/).filter(Boolean);
+  return PROSPECTION_COMMERCIAUX.find((c) => tokens.includes(prospectionNorm(c))) || "";
+}
+
+// --- Champs multi-valeurs stockés en texte « Ford, Renault ».
+function prospectionListOf(s) {
+  return String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
+}
+function prospectionToggleInList(s, item) {
+  const l = prospectionListOf(s);
+  const i = l.findIndex((x) => prospectionNorm(x) === prospectionNorm(item));
+  if (i >= 0) l.splice(i, 1); else l.push(item);
+  return l.join(", ");
+}
+
+// --- Dates de rappel selon la périodicité de renouvellement du parc.
+function prospectionAddMonthsISO(iso, n) {
+  const [y, m, d] = (iso || prospectionTodayISO()).split("-").map(Number);
+  const t = new Date(y, m - 1 + n, 1);
+  const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  t.setDate(Math.min(d, last));
+  return prospectionTodayISO(t);
+}
+// Prochain renouvellement estimé = dernier renouvellement (si connu, sinon aujourd'hui) + périodicité.
+// Le rappel est posé 2 mois avant l'échéance quand le dernier renouvellement est connu (pour préparer l'offre),
+// jamais avant demain.
+function prospectionRenewalPlan(p, todayISO) {
+  const today = todayISO || prospectionTodayISO();
+  const months = parseInt(p.renouvellement_mois, 10) || 0;
+  const usedDefault = !months;
+  const per = months || PROSPECTION_PERIODICITE_DEFAUT;
+  const known = !!p.dernier_renouvellement;
+  const next = prospectionAddMonthsISO(known ? p.dernier_renouvellement : today, per);
+  let rappel = known ? prospectionAddMonthsISO(next, -PROSPECTION_RAPPEL_AVANCE_MOIS) : next;
+  const t = new Date(today + "T00:00");
+  t.setDate(t.getDate() + 1);
+  const tomorrow = prospectionTodayISO(t);
+  if (rappel < tomorrow) rappel = tomorrow;
+  return { months: per, usedDefault, next, rappel, known };
+}
+// Statut suivant une action loguée : un premier contact réel fait sortir de « À contacter » / « Prospect ».
+function prospectionStatutAfterAction(statut, type) {
+  if (statut === "À contacter") return "Contacté";
+  if (statut === "Prospect" && type !== "Visite") return "Contacté";
+  return statut;
+}
+// Position GPS du navigateur (null si refusée / indisponible).
+function prospectionGetPosition() {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  });
 }
 
 // Géocodage via l'API Géoplateforme de l'IGN (ex-API Adresse) : gratuite, sans clé.
@@ -4258,7 +4332,7 @@ async function prospectionSearchIndustrialZones(center, radiusKm) {
 }
 
 // Import/export CSV compatibles avec l'export de l'ancienne application de prospection (séparateur ";").
-const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
+const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
 function prospectionParseCsvLine(line, sep) {
   const out = [];
   let cur = "";
@@ -4314,7 +4388,7 @@ function useProspectionAccess(userId) {
   return allowed;
 }
 
-const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", "modele", "statut", "commercial", "relance", "prochaine", "notes", "client_existant"];
+const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", ...PROSPECTION_CRITERE_COLS, "modele", "statut", "commercial", "relance", "prochaine", "notes", "client_existant"];
 function prospectionCleanRow(p) {
   const row = {};
   for (const k of PROSPECTION_EDITABLE_FIELDS) {
@@ -4322,10 +4396,27 @@ function prospectionCleanRow(p) {
     if (k === "client_existant") { row[k] = !!v; continue; }
     if (typeof v === "string") v = v.trim();
     if (v === "" || v === undefined) v = null;
-    if (k === "flotte" && v != null) v = parseInt(v, 10) || null;
+    if ((k === "flotte" || k === "renouvellement_mois") && v != null) v = parseInt(v, 10) || null;
+    if ((k === "marques" || k === "energies") && v != null) v = prospectionListOf(v).join(", ") || null;
+    if ((k === "relance" || k === "dernier_renouvellement") && v != null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      // import CSV : accepte aussi JJ/MM/AAAA
+      const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      v = m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : null;
+    }
     row[k] = v;
   }
   return row;
+}
+// Tant que sql/prospection-criteres.sql n'a pas été exécuté, la base ignore les 5 critères :
+// on enregistre le reste de la fiche plutôt que de perdre la saisie.
+function prospectionIsMissingCritereCol(err) {
+  const m = `${err?.message || ""} ${err?.details || ""}`;
+  return PROSPECTION_CRITERE_COLS.some((c) => m.includes(c)) && /column|schema cache/i.test(m);
+}
+function prospectionStripCriteres(row) {
+  const r = { ...row };
+  PROSPECTION_CRITERE_COLS.forEach((c) => delete r[c]);
+  return r;
 }
 
 // Sur le terrain, le réseau peut couper un instant — on retente automatiquement avant d'abandonner,
@@ -4392,13 +4483,19 @@ function useProspection() {
       row.lat = g?.lat ?? null;
       row.lng = g?.lng ?? null;
     }
-    const { data, error: err } = await prospectionWithRetry(() =>
-      p.id ? supabase.from("prospects").update(row).eq("id", p.id).select().single() : supabase.from("prospects").insert(row).select().single()
+    const send = (r) => prospectionWithRetry(() =>
+      p.id ? supabase.from("prospects").update(r).eq("id", p.id).select().single() : supabase.from("prospects").insert(r).select().single()
     );
+    let { data, error: err } = await send(row);
+    let criteresIgnores = false;
+    if (err && prospectionIsMissingCritereCol(err)) {
+      ({ data, error: err } = await send(prospectionStripCriteres(row)));
+      criteresIgnores = !err;
+    }
     if (err) throw err;
     lastSig.current = "";
     await load();
-    return data;
+    return criteresIgnores ? { ...data, _criteresIgnores: true } : data;
   }, [load]);
 
   const remove = useCallback(async (id) => {
@@ -4443,7 +4540,8 @@ function useProspection() {
       if (!row.societe) continue;
       const g = await prospectionGeocode(row);
       if (g) { row.lat = g.lat; row.lng = g.lng; }
-      const { error: err } = await supabase.from("prospects").insert(row);
+      let { error: err } = await supabase.from("prospects").insert(row);
+      if (err && prospectionIsMissingCritereCol(err)) ({ error: err } = await supabase.from("prospects").insert(prospectionStripCriteres(row)));
       if (err) throw err;
       onProgress?.(++done, rows.length);
       await new Promise((res) => setTimeout(res, 60));
@@ -4497,9 +4595,12 @@ function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
 function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, newPrefill, onClose, onSave, onDelete, onAddAction, showToast }) {
   // Toujours relu en direct par identifiant (jamais une copie figée) — se remonte automatiquement
   // avec les mises à jour temps réel de useProspection tant que le popup reste ouvert.
-  const prospect = prospectId === "new" ? { statut: "À contacter", commercial: "", relance: prospectionAddDaysISO(0), ...newPrefill } : prospects.find((x) => x.id === prospectId);
+  // Nouveau prospect : le commercial est celui du compte connecté (si c'est un des commerciaux B2B).
+  const autoCommercial = prospectionCommercialFor(me);
+  const prospect = prospectId === "new" ? { statut: "À contacter", commercial: autoCommercial, relance: prospectionAddDaysISO(0), ...newPrefill } : prospects.find((x) => x.id === prospectId);
   const isNew = prospectId === "new";
   const [p, setP] = useState(prospect);
+  const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [logType, setLogType] = useState("Appel");
@@ -4514,17 +4615,75 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  // Position GPS -> adresse. En création, lancée automatiquement (silencieuse si refusée) ; le bouton « Ma position » la relance.
+  const locate = useCallback(async (manual) => {
+    setLocating(true);
+    const pos = await prospectionGetPosition();
+    if (!pos) {
+      setLocating(false);
+      if (manual) showToast("Position indisponible — autorisez la localisation ou saisissez l'adresse", { type: "error" });
+      return;
+    }
+    const a = await prospectionReverseGeocode(pos.lat, pos.lng);
+    setLocating(false);
+    if (!a) { if (manual) showToast("Adresse introuvable pour cette position", { type: "error" }); return; }
+    setP((x) => (!manual && (x.adresse || x.commune)
+      ? x // l'utilisateur a déjà saisi/choisi une adresse entre-temps
+      : { ...x, adresse: a.adresse, code_postal: a.code_postal, commune: a.commune, lat: pos.lat, lng: pos.lng, _coordsFromSuggestion: true }));
+    if (manual) showToast("Adresse remplie selon votre position");
+  }, [showToast]);
+  useEffect(() => {
+    if (prospectId !== "new") return;
+    const pre = newPrefill || {};
+    if (pre.adresse || pre.commune || pre.lat != null) return; // création depuis la carte / OSM : l'adresse vient déjà de là
+    locate(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prospectId]);
+  // Création depuis la carte : l'adresse / le nom du lieu arrivent après l'ouverture de la fiche (géocodage inverse).
+  useEffect(() => {
+    if (prospectId !== "new" || !newPrefill) return;
+    setP((x) => {
+      const next = { ...x };
+      let changed = false;
+      for (const [k, v] of Object.entries(newPrefill)) {
+        if (v === undefined || v === "" || v === null) continue;
+        if (k === "lat" || k === "lng" || k === "_coordsFromSuggestion") continue;
+        if (!x[k]) { next[k] = v; changed = true; }
+      }
+      return changed ? next : x;
+    });
+  }, [prospectId, newPrefill]);
+
   if (!prospect) return null; // supprimé par quelqu'un d'autre pendant que le popup était ouvert
 
   const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   const labelCls = `flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
+  const chipCls = (on) => `pl-interactive rounded-full border px-2.5 py-1 text-xs font-semibold normal-case tracking-normal transition-colors ${on ? "border-blue-700 bg-blue-700 text-white" : dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`;
+  const renewal = prospectionRenewalPlan(p);
+
+  // « Pas de besoin pour le moment » : pose la relance selon la périodicité de renouvellement du parc.
+  const noNeed = () => {
+    const plan = prospectionRenewalPlan(p);
+    setP((x) => ({ ...x, relance: plan.rappel, renouvellement_mois: x.renouvellement_mois || plan.months, ...(x.statut === "À contacter" || x.statut === "Prospect" ? { statut: "Contacté" } : {}) }));
+    showToast(`Rappel posé au ${new Date(plan.rappel + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} — pensez à enregistrer`);
+  };
+  const onStatutChange = (e) => {
+    const s = e.target.value;
+    setP((x) => ({
+      ...x,
+      statut: s,
+      // Cartes déposées : on repasse voir dans quelques jours (sans écraser une relance déjà planifiée dans le futur).
+      ...(s === "Prospect" && (!x.relance || x.relance <= prospectionTodayISO()) ? { relance: prospectionAddDaysISO(PROSPECTION_PROSPECT_RELANCE_JOURS) } : {}),
+    }));
+  };
 
   const save = async () => {
     if (!p.societe?.trim()) { showToast("Indiquez le nom de la société", { type: "error" }); return; }
     setSaving(true);
     try {
-      await onSave(p, isNew ? null : prospect);
-      showToast(isNew ? "Prospect ajouté" : "Prospect enregistré");
+      const saved = await onSave(p, isNew ? null : prospect);
+      if (saved?._criteresIgnores) showToast("Fiche enregistrée, mais les critères du parc ne le sont pas encore : le script SQL « prospection-criteres.sql » doit être exécuté", { type: "error" });
+      else showToast(isNew ? "Prospect ajouté" : "Prospect enregistré");
       onClose();
     } catch (e) {
       showToast(`Enregistrement impossible — ${e.message}`, { type: "error" });
@@ -4537,7 +4696,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
     if (isNew) { showToast("Enregistrez d'abord le prospect", { type: "error" }); return; }
     if (!logTxt.trim() && logType === "Autre") return;
     await onAddAction(prospect.id, logType, logTxt.trim(), me);
-    if (p.statut === "À contacter") setP((x) => ({ ...x, statut: "Contacté" }));
+    setP((x) => ({ ...x, statut: prospectionStatutAfterAction(x.statut, logType) }));
     setLogTxt("");
   };
 
@@ -4592,7 +4751,17 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className={`${labelCls} sm:col-span-2`}>Société *<input className={inputCls} value={p.societe || ""} onChange={set("societe")} autoFocus={isNew} /></label>
           <label className={`${labelCls} sm:col-span-2`}>
-            Adresse
+            <span className="flex items-center justify-between">
+              Adresse
+              <button
+                type="button"
+                onClick={() => locate(true)}
+                disabled={locating}
+                className={`pl-interactive flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold normal-case tracking-normal transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+              >
+                <MapPin size={12} /> {locating ? "Localisation…" : "Ma position"}
+              </button>
+            </span>
             <ProspectionAdresseInput
               dark={dark}
               value={p.adresse}
@@ -4607,7 +4776,6 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             <input className={inputCls} list="prospection-secteurs" value={p.secteur || ""} onChange={set("secteur")} />
             <datalist id="prospection-secteurs">{PROSPECTION_SECTEURS.map((s) => <option key={s} value={s} />)}</datalist>
           </label>
-          <label className={labelCls}>Taille de flotte (véhicules)<input type="number" min="0" className={inputCls} value={p.flotte ?? ""} onChange={set("flotte")} /></label>
           <label className={labelCls}>Contact<input className={inputCls} value={p.contact || ""} onChange={set("contact")} /></label>
           <label className={labelCls}>Fonction<input className={inputCls} value={p.fonction || ""} onChange={set("fonction")} /></label>
           <label className={labelCls}>Téléphone<input type="tel" className={inputCls} value={p.tel || ""} onChange={set("tel")} /></label>
@@ -4617,9 +4785,74 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             <input className={inputCls} list="prospection-modeles" value={p.modele || ""} onChange={set("modele")} />
             <datalist id="prospection-modeles">{PROSPECTION_MODELES.map((s) => <option key={s} value={s} />)}</datalist>
           </label>
+          <section data-testid="prospect-criteres" className={`rounded-xl border p-3.5 sm:col-span-2 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
+            <h3 className={`mb-3 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Qualification du parc (5 critères)</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className={labelCls}>1 · Taille du parc (véhicules)<input type="number" min="0" className={inputCls} value={p.flotte ?? ""} onChange={set("flotte")} /></label>
+              <label className={labelCls}>
+                4 · Décideur
+                <div className="flex gap-1.5">
+                  <input className={inputCls} value={p.decideur || ""} onChange={set("decideur")} placeholder="Nom et fonction du décideur" />
+                  {p.contact && !p.decideur && (
+                    <button type="button" onClick={() => setP((x) => ({ ...x, decideur: [x.contact, x.fonction].filter(Boolean).join(", ") }))} className={`pl-interactive shrink-0 rounded-lg border px-2 text-[11px] font-semibold normal-case tracking-normal ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>
+                      = Contact
+                    </button>
+                  )}
+                </div>
+              </label>
+              <div className={`${labelCls} sm:col-span-2`}>
+                2 · Marques du parc
+                <div className="flex flex-wrap gap-1.5">
+                  {[...PROSPECTION_MARQUES, ...prospectionListOf(p.marques).filter((m) => !PROSPECTION_MARQUES.some((x) => prospectionNorm(x) === prospectionNorm(m)))].map((m) => (
+                    <button key={m} type="button" aria-pressed={prospectionListOf(p.marques).some((x) => prospectionNorm(x) === prospectionNorm(m))} onClick={() => setP((x) => ({ ...x, marques: prospectionToggleInList(x.marques, m) }))} className={chipCls(prospectionListOf(p.marques).some((x) => prospectionNorm(x) === prospectionNorm(m)))}>{m}</button>
+                  ))}
+                  <input
+                    placeholder="+ Autre marque"
+                    className={`w-32 rounded-full border px-2.5 py-1 text-xs font-normal normal-case tracking-normal outline-none ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-200" : "border-stone-300 bg-white text-stone-700"}`}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      const v = e.currentTarget.value.trim();
+                      if (v) { setP((x) => (prospectionListOf(x.marques).some((y) => prospectionNorm(y) === prospectionNorm(v)) ? x : { ...x, marques: prospectionToggleInList(x.marques, v) })); e.currentTarget.value = ""; }
+                    }}
+                  />
+                </div>
+              </div>
+              <div className={`${labelCls} sm:col-span-2`}>
+                3 · Énergie du parc
+                <div className="flex flex-wrap gap-1.5">
+                  {PROSPECTION_ENERGIES.map((en) => {
+                    const on = prospectionListOf(p.energies).some((x) => prospectionNorm(x) === prospectionNorm(en));
+                    return <button key={en} type="button" aria-pressed={on} onClick={() => setP((x) => ({ ...x, energies: prospectionToggleInList(x.energies, en) }))} className={chipCls(on)}>{en}</button>;
+                  })}
+                </div>
+              </div>
+              <label className={labelCls}>
+                5 · Périodicité de renouvellement
+                <select className={inputCls} value={p.renouvellement_mois ?? ""} onChange={(e) => setP((x) => ({ ...x, renouvellement_mois: e.target.value ? parseInt(e.target.value, 10) : "" }))}>
+                  <option value="">Non renseignée</option>
+                  {PROSPECTION_PERIODICITES.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
+                  {p.renouvellement_mois && !PROSPECTION_PERIODICITES.some(([m]) => m === Number(p.renouvellement_mois)) && <option value={p.renouvellement_mois}>Tous les {p.renouvellement_mois} mois</option>}
+                </select>
+              </label>
+              <label className={labelCls}>
+                Dernier renouvellement (si connu)
+                <input type="date" className={inputCls} value={p.dernier_renouvellement || ""} onChange={set("dernier_renouvellement")} />
+              </label>
+              <div className={`flex flex-wrap items-center gap-2 text-xs sm:col-span-2 ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                <button type="button" data-testid="no-need" onClick={noNeed} className={`pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
+                  Pas de besoin pour le moment
+                </button>
+                <span>
+                  Rappel proposé le <strong>{new Date(renewal.rappel + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</strong>
+                  {renewal.known ? ` (renouvellement estimé ${new Date(renewal.next + "T00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}, rappel ${PROSPECTION_RAPPEL_AVANCE_MOIS} mois avant)` : renewal.usedDefault ? ` (périodicité non renseignée : ${renewal.months} mois par défaut)` : ` (dans ${renewal.months} mois)`}
+                </span>
+              </div>
+            </div>
+          </section>
           <label className={labelCls}>
             Statut
-            <select className={inputCls} value={p.statut} onChange={set("statut")}>{PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
+            <select className={inputCls} value={p.statut} onChange={onStatutChange}>{PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
           </label>
           <label className={labelCls}>
             Commercial
@@ -5281,7 +5514,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
     if (Object.keys(merged).length) setNewPrefill((p) => (p ? { ...p, ...merged } : p));
   };
   const closeFiche = () => { setOpenId(null); setNewPrefill(null); };
-  const [filters, setFilters] = useState({ q: "", statut: "", secteur: "" });
+  const [filters, setFilters] = useState({ q: "", statut: "", secteur: "", energie: "" });
   const [importing, setImporting] = useState("");
   const [importAsClient, setImportAsClient] = useState(false);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
@@ -5297,15 +5530,40 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
 
   const scoped = scope ? funnelProspects.filter((p) => p.commercial === scope) : funnelProspects;
 
+  const autoCommercial = prospectionCommercialFor(currentUserName);
+
   const addAction = async (id, type, texte, par) => {
     await data.addAction(id, type, texte, par);
     const p = prospects.find((x) => x.id === id);
-    if (p?.statut === "À contacter") await data.patch(id, { statut: "Contacté" });
+    const next = p ? prospectionStatutAfterAction(p.statut, type) : null;
+    if (p && next !== p.statut) await data.patch(id, { statut: next });
   };
 
   const snooze = async (p, n) => {
-    await data.patch(p.id, { relance: prospectionAddDaysISO(n), ...(p.statut === "À contacter" ? { statut: "Contacté" } : {}) });
+    await data.patch(p.id, { relance: prospectionAddDaysISO(n), ...(p.statut === "À contacter" || p.statut === "Prospect" ? { statut: "Contacté" } : {}) });
     await data.addAction(p.id, "Relance", `Reportée de ${n} jours`, currentUserName);
+  };
+
+  // Cartes de visite / flyers déposés sans rencontrer le décideur -> statut « Prospect » + repasser dans quelques jours.
+  const cartesDeposees = async (p) => {
+    const relance = prospectionAddDaysISO(PROSPECTION_PROSPECT_RELANCE_JOURS);
+    await data.addAction(p.id, "Visite", "Cartes de visite déposées", currentUserName);
+    await data.patch(p.id, { statut: "Prospect", relance });
+    showToast(`Cartes déposées chez ${p.societe} — relance le ${prospectionFrDate(relance)}`, { type: "celebrate" });
+  };
+
+  // Pas de besoin pour le moment : rappel posé selon la périodicité de renouvellement du parc.
+  const pasDeBesoin = async (p) => {
+    const plan = prospectionRenewalPlan(p);
+    const fields = { relance: plan.rappel, ...(p.renouvellement_mois ? {} : { renouvellement_mois: plan.months }), ...(p.statut === "À contacter" || p.statut === "Prospect" ? { statut: "Contacté" } : {}) };
+    try {
+      await data.patch(p.id, fields);
+    } catch (e) {
+      if (!prospectionIsMissingCritereCol(e)) throw e;
+      await data.patch(p.id, { relance: plan.rappel, ...(fields.statut ? { statut: fields.statut } : {}) });
+    }
+    await data.addAction(p.id, "Relance", `Pas de besoin pour le moment — rappel le ${prospectionFrDate(plan.rappel)} (${plan.months} mois)`, currentUserName);
+    showToast(`Rappel de ${p.societe} posé au ${prospectionFrDate(plan.rappel)}${plan.usedDefault ? " (périodicité par défaut : 12 mois)" : ""}`);
   };
 
   const quickVisit = async (p) => {
@@ -5333,7 +5591,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   };
 
   const confirmImport = async () => {
-    const rows = (skipDuplicates ? pendingImport.rows.filter((r) => !r._duplicate) : pendingImport.rows).map(({ _duplicate, ...r }) => r);
+    const rows = (skipDuplicates ? pendingImport.rows.filter((r) => !r._duplicate) : pendingImport.rows).map(({ _duplicate, ...r }) => ({ ...r, commercial: (r.commercial || "").trim() || (importAsClient ? "" : autoCommercial) }));
     setPendingImport(null);
     if (rows.length === 0) { showToast("Rien à importer — toutes les lignes étaient des doublons"); setSkipDuplicates(true); return; }
     try {
@@ -5355,7 +5613,8 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
     (p) =>
       (!filters.statut || p.statut === filters.statut) &&
       (!filters.secteur || p.secteur === filters.secteur) &&
-      (!q || [p.societe, p.contact, p.commune, p.adresse, p.notes, p.tel].join(" ").toLowerCase().includes(q))
+      (!filters.energie || prospectionListOf(p.energies).includes(filters.energie)) &&
+      (!q || [p.societe, p.contact, p.decideur, p.commune, p.adresse, p.notes, p.tel, p.marques].join(" ").toLowerCase().includes(q))
   );
 
   const inputCls = `rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
@@ -5385,6 +5644,9 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           {p.societe} <ProspectionRelancePill dark={dark} p={p} />
         </div>
         <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.contact, p.tel, p.commune, p.statut, !scope && p.commercial].filter(Boolean).join(" · ")}</div>
+        {(p.flotte || p.marques || p.energies) && (
+          <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.flotte && `${p.flotte} véh.`, p.marques, p.energies].filter(Boolean).join(" · ")}</div>
+        )}
         {p.prochaine && <div className={`text-sm ${dark ? "text-zinc-400" : "text-stone-600"}`}>À faire : {p.prochaine}</div>}
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -5399,6 +5661,12 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           </a>
         )}
         <button onClick={() => quickVisit(p)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-emerald-700 text-emerald-400" : "border-emerald-300 text-emerald-700"}`}>Visité</button>
+        {(p.statut === "À contacter" || p.statut === "Prospect") && (
+          <button onClick={() => cartesDeposees(p)} title="Cartes de visite / flyers déposés" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-sky-700 text-sky-400" : "border-sky-300 text-sky-700"}`}>Cartes déposées</button>
+        )}
+        {p.statut !== "Gagné" && p.statut !== "Perdu" && (
+          <button onClick={() => pasDeBesoin(p)} title="Pas de besoin : rappel selon la périodicité de renouvellement" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>Pas de besoin</button>
+        )}
         <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>
         <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>
         <button onClick={() => setOpenId(p.id)} className="rounded-lg bg-blue-700 px-2.5 py-1 text-sm font-semibold text-white">Ouvrir</button>
@@ -5448,7 +5716,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
             {items.map((p) => (
               <button key={p.id} onClick={() => setOpenId(p.id)} className={`pl-interactive mb-2 block w-full rounded-xl border p-2.5 text-left ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
                 <div className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</div>
-                <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.flotte && `${p.flotte} véh.`, p.modele].filter(Boolean).join(" · ")}</div>
+                <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.flotte && `${p.flotte} véh.`, p.energies, p.modele].filter(Boolean).join(" · ")}</div>
                 <div className="mt-1.5 flex items-center justify-between">
                   <span title={p.commercial} className="grid h-6 w-6 place-items-center rounded-full bg-blue-700 text-[10px] font-bold text-white">{prospectionInitials(p.commercial)}</span>
                   <ProspectionRelancePill dark={dark} p={p} />
@@ -5478,6 +5746,10 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         <select value={filters.secteur} onChange={(e) => setFilters({ ...filters, secteur: e.target.value })} className={inputCls}>
           <option value="">Tous les secteurs</option>
           {PROSPECTION_SECTEURS.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select value={filters.energie} onChange={(e) => setFilters({ ...filters, energie: e.target.value })} className={inputCls}>
+          <option value="">Toutes énergies</option>
+          {PROSPECTION_ENERGIES.map((s) => <option key={s}>{s}</option>)}
         </select>
         <button onClick={exportCsv} className={`pl-interactive flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
           <Download size={14} /> Exporter en CSV
@@ -5524,7 +5796,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           <table className="w-full text-sm">
             <thead>
               <tr className={`border-b text-left text-xs ${dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-500"}`}>
-                {["Société", "Contact", "Commune", "Secteur", "Flotte", "Statut", "Commercial", "Relance"].map((h) => (
+                {["Société", "Contact", "Décideur", "Commune", "Secteur", "Flotte", "Marques", "Énergie", "Renouv.", "Statut", "Commercial", "Relance"].map((h) => (
                   <th key={h} className="whitespace-nowrap px-3 py-2 font-semibold">{h}</th>
                 ))}
               </tr>
@@ -5537,9 +5809,13 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
                     {p.lat == null && <span title="Adresse non localisée" className={dark ? "ml-1 text-zinc-600" : "ml-1 text-stone-400"}>·</span>}
                   </td>
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.contact}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.decideur}</td>
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.commune}</td>
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.secteur}</td>
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.flotte}</td>
+                  <td className={`max-w-[160px] truncate px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`} title={p.marques || ""}>{p.marques}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.energies}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.renouvellement_mois ? (p.renouvellement_mois % 12 === 0 ? `${p.renouvellement_mois / 12} an${p.renouvellement_mois > 12 ? "s" : ""}` : `${p.renouvellement_mois} mois`) : ""}</td>
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.statut}</td>
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.commercial}</td>
                   <td className="whitespace-nowrap px-3 py-2"><ProspectionRelancePill dark={dark} p={p} /></td>
