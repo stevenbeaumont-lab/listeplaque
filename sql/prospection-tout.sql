@@ -12,7 +12,7 @@
 --      energies                énergies du parc, séparées par des virgules  ex. « Gazole, Électrique »
 --      decideur                nom + fonction du décideur
 --      renouvellement_mois     périodicité de renouvellement du parc (en mois) -> date de relance des Prospects
---      dernier_renouvellement  date du dernier renouvellement, si connue
+--      prochain_renouvellement date du prochain renouvellement, si connue (rappel 2 mois avant)
 --      derniere_proposition    date de la dernière proposition envoyée (relance en général à 5 jours)
 --      motif_perte             pourquoi le prospect est perdu (ex. ne veut plus entendre parler de la marque)
 --    (la taille du parc reste la colonne existante « flotte »)
@@ -25,7 +25,7 @@ alter table public.prospects
   add column if not exists energies text,
   add column if not exists decideur text,
   add column if not exists renouvellement_mois integer,
-  add column if not exists dernier_renouvellement date,
+  add column if not exists prochain_renouvellement date,
   add column if not exists derniere_proposition date,
   add column if not exists motif_perte text;
 

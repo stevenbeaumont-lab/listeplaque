@@ -4080,12 +4080,12 @@ const PROSPECTION_TYPES_ACTION = ["Appel", "Email", "Visite", "RDV", "Relance", 
 const PROSPECTION_MARQUES = ["Ford", "Renault", "Peugeot", "Citroën", "Volkswagen", "Mercedes", "Toyota", "Fiat", "Opel", "Iveco", "Nissan", "Dacia"];
 const PROSPECTION_ENERGIES = ["Gazole", "Essence", "Électrique", "Hybride"];
 const PROSPECTION_PERIODICITES = [[6, "Tous les 6 mois"], [12, "Tous les ans"], [24, "Tous les 2 ans"], [36, "Tous les 3 ans"], [48, "Tous les 4 ans"], [60, "Tous les 5 ans"]];
-const PROSPECTION_RAPPEL_AVANCE_MOIS = 2; // on rappelle 2 mois avant l'échéance estimée si le dernier renouvellement est connu
+const PROSPECTION_RAPPEL_AVANCE_MOIS = 2; // on rappelle 2 mois avant la date de prochain renouvellement si elle est connue
 const PROSPECTION_PROPOSITION_RELANCE_JOURS = 5; // relance 5 jours après l'envoi d'une proposition
 const PROSPECTION_PERDU_RELANCE_MOIS = 6; // un prospect perdu est à recontacter dans 6 mois
 const PROSPECTION_RELANCE_DEFAUT_JOURS = 10; // date de relance proposée quand aucune périodicité n'est renseignée
 // Colonnes ajoutées par sql/prospection-criteres.sql
-const PROSPECTION_CRITERE_COLS = ["marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement", "motif_perte", "derniere_proposition"];
+const PROSPECTION_CRITERE_COLS = ["marques", "energies", "decideur", "renouvellement_mois", "prochain_renouvellement", "motif_perte", "derniere_proposition"];
 const PROSPECTION_CAEN_CENTER = { lat: 49.1829, lng: -0.3707 };
 const PROSPECTION_OBJECTIF_SEMAINE = 25;
 
@@ -4229,16 +4229,15 @@ function prospectionAddMonthsISO(iso, n) {
   t.setDate(Math.min(d, last));
   return prospectionTodayISO(t);
 }
-// Prochain renouvellement estimé = dernier renouvellement (si connu, sinon aujourd'hui) + périodicité.
-// Le rappel est posé 2 mois avant l'échéance quand le dernier renouvellement est connu (pour préparer l'offre),
-// jamais avant demain.
-// Retourne null tant que la périodicité n'est pas renseignée (la date de relance est alors à définir à la main).
+// Prochain renouvellement : la date saisie si elle est connue, sinon aujourd'hui + périodicité.
+// Quand la date est connue, le rappel est posé 2 mois avant (pour préparer l'offre), jamais avant demain.
+// Retourne null tant que ni la date ni la périodicité ne sont renseignées (la date de relance est alors à définir à la main).
 function prospectionRenewalPlan(p, todayISO) {
   const today = todayISO || prospectionTodayISO();
   const per = parseInt(p.renouvellement_mois, 10) || 0;
-  if (!per) return null;
-  const known = !!p.dernier_renouvellement;
-  const next = prospectionAddMonthsISO(known ? p.dernier_renouvellement : today, per);
+  const known = !!p.prochain_renouvellement;
+  if (!per && !known) return null;
+  const next = known ? p.prochain_renouvellement : prospectionAddMonthsISO(today, per);
   let rappel = known ? prospectionAddMonthsISO(next, -PROSPECTION_RAPPEL_AVANCE_MOIS) : next;
   const t = new Date(today + "T00:00");
   t.setDate(t.getDate() + 1);
@@ -4247,16 +4246,35 @@ function prospectionRenewalPlan(p, todayISO) {
   return { months: per, next, rappel, known };
 }
 // Position GPS du navigateur (null si refusée / indisponible).
-function prospectionGetPosition() {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) { resolve(null); return; }
+// Position : d'abord précise (GPS), puis — si le GPS n'a pas répondu à temps (fréquent sur ordinateur) — approximative (Wi-Fi / réseau).
+// Renvoie { pos } ou { code } avec code = 1 refusée, 2 indisponible, 3 trop long, 0 non supportée.
+function prospectionLocate() {
+  // Le délai du navigateur ne court qu'après la réponse à la demande d'autorisation : on ajoute le nôtre pour ne jamais rester bloqué.
+  const once = (opts) => new Promise((resolve) => {
+    const guard = setTimeout(() => resolve({ code: 3 }), opts.timeout + 4000);
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      (pos) => { clearTimeout(guard); resolve({ pos: { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy } }); },
+      (err) => { clearTimeout(guard); resolve({ code: err?.code || 2 }); },
+      opts
     );
   });
+  return (async () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return { code: 0 };
+    const first = await once({ enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 });
+    if (first.pos || first.code === 1) return first;
+    return once({ enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60000 });
+  })();
 }
+async function prospectionGetPosition() {
+  const r = await prospectionLocate();
+  return r.pos || null;
+}
+const PROSPECTION_LOCATE_MESSAGES = {
+  0: "Localisation non disponible sur cet appareil",
+  1: "Localisation refusée — autorisez-la pour ce site (cadenas à gauche de l'adresse → Localisation → Autoriser), puis réessayez",
+  2: "Position introuvable — activez la localisation de l'appareil (Windows : Paramètres → Confidentialité → Localisation) ou utilisez un téléphone",
+  3: "La position met trop de temps à répondre — réessayez, ou utilisez un téléphone",
+};
 
 // Géocodage via l'API Géoplateforme de l'IGN (ex-API Adresse) : gratuite, sans clé.
 const PROSPECTION_GEOCODE_BASE = "https://data.geopf.fr/geocodage/search";
@@ -4423,7 +4441,7 @@ async function prospectionSearchIndustrialZones(center, radiusKm) {
 }
 
 // Import/export CSV compatibles avec l'export de l'ancienne application de prospection (séparateur ";").
-const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement", "modele", "statut", "commercial", "relance", "derniere_proposition", "motif_perte", "notes"];
+const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "marques", "energies", "decideur", "renouvellement_mois", "prochain_renouvellement", "modele", "statut", "commercial", "relance", "derniere_proposition", "motif_perte", "notes"];
 function prospectionParseCsvLine(line, sep) {
   const out = [];
   let cur = "";
@@ -4509,7 +4527,7 @@ function prospectionCleanRow(p) {
     if (v === "" || v === undefined) v = null;
     if ((k === "flotte" || k === "renouvellement_mois") && v != null) v = parseInt(v, 10) || null;
     if ((k === "marques" || k === "energies") && v != null) v = prospectionListOf(v).join(", ") || null;
-    if ((k === "relance" || k === "dernier_renouvellement" || k === "derniere_proposition") && v != null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    if ((k === "relance" || k === "prochain_renouvellement" || k === "derniere_proposition") && v != null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
       // import CSV : accepte aussi JJ/MM/AAAA
       const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       v = m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : null;
@@ -5124,15 +5142,15 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 </select>
               </label>
               <label className={labelCls}>
-                Dernier renouvellement (si connu)
-                <input type="date" className={inputCls} value={p.dernier_renouvellement || ""} onChange={(e) => setP((x) => withRenewalRelance({ ...x, dernier_renouvellement: e.target.value }))} />
+                Prochain renouvellement (si connu)
+                <input type="date" className={inputCls} value={p.prochain_renouvellement || ""} onChange={(e) => setP((x) => withRenewalRelance({ ...x, prochain_renouvellement: e.target.value || null }))} />
               </label>
               <p data-testid="relance-info" className={`text-xs sm:col-span-2 ${dark ? "text-zinc-400" : "text-stone-500"}`}>
                 {p.statut !== "Prospect"
-                  ? "La périodicité sert à calculer la date de relance d'un prospect en cours."
+                  ? "La date de prochain renouvellement (ou la périodicité) sert à calculer la date de relance d'un prospect en cours."
                   : renewal
-                  ? <>Date de relance calculée d'après la périodicité : <strong>{fmtLong(renewal.rappel)}</strong>{renewal.known ? ` (renouvellement estimé en ${new Date(renewal.next + "T00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}, rappel ${PROSPECTION_RAPPEL_AVANCE_MOIS} mois avant)` : ` (dans ${renewal.months} mois)`}.</>
-                  : "Sans périodicité de renouvellement, définissez vous-même la date de relance ci-dessous."}
+                  ? <>Date de relance calculée : <strong>{fmtLong(renewal.rappel)}</strong>{renewal.known ? ` (prochain renouvellement en ${new Date(renewal.next + "T00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}, rappel ${PROSPECTION_RAPPEL_AVANCE_MOIS} mois avant)` : ` (dans ${renewal.months} mois, d'après la périodicité)`}.</>
+                  : "Sans prochain renouvellement ni périodicité, définissez vous-même la date de relance ci-dessous."}
               </p>
             </div>
           </section>
@@ -5528,6 +5546,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [zonesLoading, setZonesLoading] = useState(false);
   const [showIndustrialZones, setShowIndustrialZones] = useState(true);
   const [busy, setBusy] = useState("");
+  const [locating, setLocating] = useState(false);
   const [mapFiltersOpen, setMapFiltersOpen] = useState(false);
   const [zoomTick, setZoomTick] = useState(0);
   const [osmPlaces, setOsmPlaces] = useState([]);
@@ -5854,18 +5873,18 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     });
   }, [industrialZones, showIndustrialZones, zoomTick]);
 
-  const locateMe = () => {
-    if (!navigator.geolocation) { showToast("Localisation non disponible sur cet appareil", { type: "error" }); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        mapRef.current?.setView([latitude, longitude], 16);
-        if (myLocationMarkerRef.current) mapRef.current.removeLayer(myLocationMarkerRef.current);
-        myLocationMarkerRef.current = L.circleMarker([latitude, longitude], { radius: 8, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }).addTo(mapRef.current);
-      },
-      () => showToast("Position indisponible — vérifiez que la localisation est autorisée", { type: "error" }),
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+  const locateMe = async () => {
+    if (locating) return;
+    setLocating(true);
+    const r = await prospectionLocate();
+    setLocating(false);
+    if (!r.pos) { showToast(PROSPECTION_LOCATE_MESSAGES[r.code] || PROSPECTION_LOCATE_MESSAGES[2], { type: "error" }); return; }
+    const map = mapRef.current;
+    if (!map) return;
+    map.setView([r.pos.lat, r.pos.lng], r.pos.accuracy > 2000 ? 13 : 16);
+    if (myLocationMarkerRef.current) map.removeLayer(myLocationMarkerRef.current);
+    myLocationMarkerRef.current = L.circleMarker([r.pos.lat, r.pos.lng], { radius: 8, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }).addTo(map);
+    if (r.pos.accuracy > 2000) showToast("Position approximative (réseau) — précision de quelques kilomètres");
   };
 
   const searchIndustrialZones = async () => {
@@ -5897,7 +5916,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
           onClick={locateMe}
           className={`pl-interactive flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
         >
-          <Target size={14} /> Me localiser
+          <Target size={14} /> {locating ? "Localisation…" : "Me localiser"}
         </button>
         <button
           data-testid="map-legende-btn"
