@@ -4037,18 +4037,26 @@ function computeStats(vehicles) {
 // Onglet visible uniquement pour les comptes présents dans prospection_members
 // (accès géré côté base via RLS — voir useProspectionAccess ci-dessous).
 // ---------------------------------------------------------------------------
-// "Prospect" = premier contact passif (cartes de visite / flyers déposés, passage sans rencontrer le décideur).
-const PROSPECTION_STATUTS = ["À contacter", "Prospect", "Contacté", "RDV fixé", "Offre envoyée", "Gagné", "Perdu"];
+// Quatre statuts : « Prospect » (en cours de prospection), « Proposition envoyée » (relance en général à 72 h),
+// « Gagné » et « Perdu » (avec un motif : ex. ne veut plus entendre parler de la marque).
+// Un Prospect et une Proposition envoyée ont toujours une date de relance.
+const PROSPECTION_STATUTS = ["Prospect", "Proposition envoyée", "Gagné", "Perdu"];
 // Orange volontairement absent de cette palette : il reste réservé au statut "Réservé" des véhicules.
 const PROSPECTION_STATUT_COLORS = {
-  "À contacter": "#6B7280",
   "Prospect": "#0EA5E9",
-  "Contacté": "#2563EB",
-  "RDV fixé": "#7C3AED",
-  "Offre envoyée": "#0D9488",
+  "Proposition envoyée": "#7C3AED",
   "Gagné": "#16A34A",
   "Perdu": "#94A3B8",
 };
+const PROSPECTION_MOTIFS_PERTE = ["Ne veut plus entendre parler de la marque", "Pas de besoin durable", "Parti chez un concurrent", "Injoignable", "Société fermée / disparue", "Autre"];
+// Anciens statuts : « Offre envoyée » devient « Proposition envoyée » ; À contacter / Contacté / RDV fixé -> Prospect.
+function prospectionStatutOf(statut) {
+  if (statut === "Gagné" || statut === "Perdu" || statut === "Proposition envoyée") return statut;
+  return statut === "Offre envoyée" ? "Proposition envoyée" : "Prospect";
+}
+function prospectionNeedsRelance(statut) {
+  return statut === "Prospect" || statut === "Proposition envoyée";
+}
 const PROSPECTION_COMMERCIAL_COLORS = ["#1D4ED8", "#0D9488", "#7C3AED", "#DB2777", "#0891B2", "#65A30D"];
 // Couleur des clients existants (CRM) sur la carte — volontairement distincte de toutes les couleurs
 // de statut/commercial ci-dessus, et associée à une forme de marqueur différente (losange vs rond).
@@ -4062,11 +4070,11 @@ const PROSPECTION_TYPES_ACTION = ["Appel", "Email", "Visite", "RDV", "Relance", 
 const PROSPECTION_MARQUES = ["Ford", "Renault", "Peugeot", "Citroën", "Volkswagen", "Mercedes", "Toyota", "Fiat", "Opel", "Iveco", "Nissan", "Dacia"];
 const PROSPECTION_ENERGIES = ["Gazole", "Essence", "Électrique", "Hybride"];
 const PROSPECTION_PERIODICITES = [[6, "Tous les 6 mois"], [12, "Tous les ans"], [24, "Tous les 2 ans"], [36, "Tous les 3 ans"], [48, "Tous les 4 ans"], [60, "Tous les 5 ans"]];
-const PROSPECTION_PERIODICITE_DEFAUT = 12; // utilisée pour « Pas de besoin » quand la périodicité n'est pas renseignée
 const PROSPECTION_RAPPEL_AVANCE_MOIS = 2; // on rappelle 2 mois avant l'échéance estimée si le dernier renouvellement est connu
-const PROSPECTION_PROSPECT_RELANCE_JOURS = 10; // relance après dépôt de cartes
+const PROSPECTION_PROPOSITION_RELANCE_JOURS = 3; // relance 72 h après l'envoi d'une proposition
+const PROSPECTION_RELANCE_DEFAUT_JOURS = 10; // date de relance proposée quand aucune périodicité n'est renseignée
 // Colonnes ajoutées par sql/prospection-criteres.sql
-const PROSPECTION_CRITERE_COLS = ["marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement"];
+const PROSPECTION_CRITERE_COLS = ["marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement", "motif_perte", "derniere_proposition"];
 const PROSPECTION_CAEN_CENTER = { lat: 49.1829, lng: -0.3707 };
 const PROSPECTION_OBJECTIF_SEMAINE = 25;
 
@@ -4142,11 +4150,11 @@ function prospectionAddMonthsISO(iso, n) {
 // Prochain renouvellement estimé = dernier renouvellement (si connu, sinon aujourd'hui) + périodicité.
 // Le rappel est posé 2 mois avant l'échéance quand le dernier renouvellement est connu (pour préparer l'offre),
 // jamais avant demain.
+// Retourne null tant que la périodicité n'est pas renseignée (la date de relance est alors à définir à la main).
 function prospectionRenewalPlan(p, todayISO) {
   const today = todayISO || prospectionTodayISO();
-  const months = parseInt(p.renouvellement_mois, 10) || 0;
-  const usedDefault = !months;
-  const per = months || PROSPECTION_PERIODICITE_DEFAUT;
+  const per = parseInt(p.renouvellement_mois, 10) || 0;
+  if (!per) return null;
   const known = !!p.dernier_renouvellement;
   const next = prospectionAddMonthsISO(known ? p.dernier_renouvellement : today, per);
   let rappel = known ? prospectionAddMonthsISO(next, -PROSPECTION_RAPPEL_AVANCE_MOIS) : next;
@@ -4154,13 +4162,7 @@ function prospectionRenewalPlan(p, todayISO) {
   t.setDate(t.getDate() + 1);
   const tomorrow = prospectionTodayISO(t);
   if (rappel < tomorrow) rappel = tomorrow;
-  return { months: per, usedDefault, next, rappel, known };
-}
-// Statut suivant une action loguée : un premier contact réel fait sortir de « À contacter » / « Prospect ».
-function prospectionStatutAfterAction(statut, type) {
-  if (statut === "À contacter") return "Contacté";
-  if (statut === "Prospect" && type !== "Visite") return "Contacté";
-  return statut;
+  return { months: per, next, rappel, known };
 }
 // Position GPS du navigateur (null si refusée / indisponible).
 function prospectionGetPosition() {
@@ -4332,7 +4334,7 @@ async function prospectionSearchIndustrialZones(center, radiusKm) {
 }
 
 // Import/export CSV compatibles avec l'export de l'ancienne application de prospection (séparateur ";").
-const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement", "modele", "statut", "commercial", "relance", "prochaine", "notes"];
+const PROSPECTION_CSV_COLS = ["societe", "secteur", "adresse", "code_postal", "commune", "contact", "fonction", "tel", "email", "flotte", "marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement", "modele", "statut", "commercial", "relance", "derniere_proposition", "motif_perte", "notes"];
 function prospectionParseCsvLine(line, sep) {
   const out = [];
   let cur = "";
@@ -4388,17 +4390,18 @@ function useProspectionAccess(userId) {
   return allowed;
 }
 
-const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", ...PROSPECTION_CRITERE_COLS, "modele", "statut", "commercial", "relance", "prochaine", "notes", "client_existant"];
+const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", ...PROSPECTION_CRITERE_COLS, "modele", "statut", "commercial", "relance", "notes", "client_existant"];
 function prospectionCleanRow(p) {
   const row = {};
   for (const k of PROSPECTION_EDITABLE_FIELDS) {
     let v = p[k];
     if (k === "client_existant") { row[k] = !!v; continue; }
+    if (k === "statut") { row[k] = prospectionStatutOf(typeof v === "string" ? v.trim() : v); continue; }
     if (typeof v === "string") v = v.trim();
     if (v === "" || v === undefined) v = null;
     if ((k === "flotte" || k === "renouvellement_mois") && v != null) v = parseInt(v, 10) || null;
     if ((k === "marques" || k === "energies") && v != null) v = prospectionListOf(v).join(", ") || null;
-    if ((k === "relance" || k === "dernier_renouvellement") && v != null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    if ((k === "relance" || k === "dernier_renouvellement" || k === "derniere_proposition") && v != null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
       // import CSV : accepte aussi JJ/MM/AAAA
       const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       v = m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : null;
@@ -4453,7 +4456,7 @@ function useProspection() {
     const sig = `${p.data.length}:${p.data[0]?.updated_at}|${a.data.length}:${a.data[0]?.created_at}`;
     if (sig !== lastSig.current) {
       lastSig.current = sig;
-      setProspects(p.data);
+      setProspects(p.data.map((x) => ({ ...x, statut: prospectionStatutOf(x.statut) })));
       setActions(a.data);
     }
     setError(null);
@@ -4597,7 +4600,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   // avec les mises à jour temps réel de useProspection tant que le popup reste ouvert.
   // Nouveau prospect : le commercial est celui du compte connecté (si c'est un des commerciaux B2B).
   const autoCommercial = prospectionCommercialFor(me);
-  const prospect = prospectId === "new" ? { statut: "À contacter", commercial: autoCommercial, relance: prospectionAddDaysISO(0), ...newPrefill } : prospects.find((x) => x.id === prospectId);
+  const prospect = prospectId === "new" ? { statut: "Prospect", commercial: autoCommercial, relance: prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS), ...newPrefill } : prospects.find((x) => x.id === prospectId);
   const isNew = prospectId === "new";
   const [p, setP] = useState(prospect);
   const [locating, setLocating] = useState(false);
@@ -4660,28 +4663,39 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   const labelCls = `flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
   const chipCls = (on) => `pl-interactive rounded-full border px-2.5 py-1 text-xs font-semibold normal-case tracking-normal transition-colors ${on ? "border-blue-700 bg-blue-700 text-white" : dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`;
   const renewal = prospectionRenewalPlan(p);
+  const fmtLong = (iso) => new Date(iso + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 
-  // « Pas de besoin pour le moment » : pose la relance selon la périodicité de renouvellement du parc.
-  const noNeed = () => {
-    const plan = prospectionRenewalPlan(p);
-    setP((x) => ({ ...x, relance: plan.rappel, renouvellement_mois: x.renouvellement_mois || plan.months, ...(x.statut === "À contacter" || x.statut === "Prospect" ? { statut: "Contacté" } : {}) }));
-    showToast(`Rappel posé au ${new Date(plan.rappel + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} — pensez à enregistrer`);
+  // Prospect : la date de relance vient de la périodicité de renouvellement si elle est renseignée (sinon, à définir).
+  // Se recalcule quand la périodicité ou le dernier renouvellement change ; reste modifiable à la main ensuite.
+  const withRenewalRelance = (x) => {
+    const plan = x.statut === "Prospect" ? prospectionRenewalPlan(x) : null;
+    return plan ? { ...x, relance: plan.rappel } : x;
   };
   const onStatutChange = (e) => {
     const s = e.target.value;
-    setP((x) => ({
-      ...x,
-      statut: s,
-      // Cartes déposées : on repasse voir dans quelques jours (sans écraser une relance déjà planifiée dans le futur).
-      ...(s === "Prospect" && (!x.relance || x.relance <= prospectionTodayISO()) ? { relance: prospectionAddDaysISO(PROSPECTION_PROSPECT_RELANCE_JOURS) } : {}),
-    }));
+    setP((x) => {
+      const y = { ...x, statut: s };
+      if (s === "Prospect") {
+        const z = withRenewalRelance(y);
+        if (z !== y) return z;
+        if (!y.relance || y.relance <= prospectionTodayISO()) y.relance = prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS);
+      } else if (s === "Proposition envoyée") {
+        // Proposition envoyée : on relance sous 72 h, et on date l'envoi.
+        y.relance = prospectionAddDaysISO(PROSPECTION_PROPOSITION_RELANCE_JOURS);
+        if (x.statut !== "Proposition envoyée") y.derniere_proposition = prospectionTodayISO();
+      }
+      return y;
+    });
   };
 
   const save = async () => {
     if (!p.societe?.trim()) { showToast("Indiquez le nom de la société", { type: "error" }); return; }
+    if (prospectionNeedsRelance(p.statut) && !p.relance) { showToast("Définissez une date de relance (ou renseignez la périodicité de renouvellement)", { type: "error" }); return; }
+    if (p.statut === "Perdu" && !p.motif_perte) { showToast("Indiquez pourquoi ce prospect est perdu", { type: "error" }); return; }
     setSaving(true);
     try {
-      const saved = await onSave(p, isNew ? null : prospect);
+      const toSave = { ...p, ...(p.statut !== "Perdu" ? { motif_perte: null } : { relance: null }), ...(p.statut === "Proposition envoyée" && !p.derniere_proposition ? { derniere_proposition: prospectionTodayISO() } : {}) };
+      const saved = await onSave(toSave, isNew ? null : prospect);
       if (saved?._criteresIgnores) showToast("Fiche enregistrée, mais les critères du parc ne le sont pas encore : le script SQL « prospection-criteres.sql » doit être exécuté", { type: "error" });
       else showToast(isNew ? "Prospect ajouté" : "Prospect enregistré");
       onClose();
@@ -4696,7 +4710,6 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
     if (isNew) { showToast("Enregistrez d'abord le prospect", { type: "error" }); return; }
     if (!logTxt.trim() && logType === "Autre") return;
     await onAddAction(prospect.id, logType, logTxt.trim(), me);
-    setP((x) => ({ ...x, statut: prospectionStatutAfterAction(x.statut, logType) }));
     setLogTxt("");
   };
 
@@ -4829,7 +4842,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               </div>
               <label className={labelCls}>
                 5 · Périodicité de renouvellement
-                <select className={inputCls} value={p.renouvellement_mois ?? ""} onChange={(e) => setP((x) => ({ ...x, renouvellement_mois: e.target.value ? parseInt(e.target.value, 10) : "" }))}>
+                <select className={inputCls} value={p.renouvellement_mois ?? ""} onChange={(e) => setP((x) => withRenewalRelance({ ...x, renouvellement_mois: e.target.value ? parseInt(e.target.value, 10) : "" }))}>
                   <option value="">Non renseignée</option>
                   {PROSPECTION_PERIODICITES.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
                   {p.renouvellement_mois && !PROSPECTION_PERIODICITES.some(([m]) => m === Number(p.renouvellement_mois)) && <option value={p.renouvellement_mois}>Tous les {p.renouvellement_mois} mois</option>}
@@ -4837,17 +4850,13 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               </label>
               <label className={labelCls}>
                 Dernier renouvellement (si connu)
-                <input type="date" className={inputCls} value={p.dernier_renouvellement || ""} onChange={set("dernier_renouvellement")} />
+                <input type="date" className={inputCls} value={p.dernier_renouvellement || ""} onChange={(e) => setP((x) => withRenewalRelance({ ...x, dernier_renouvellement: e.target.value }))} />
               </label>
-              <div className={`flex flex-wrap items-center gap-2 text-xs sm:col-span-2 ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-                <button type="button" data-testid="no-need" onClick={noNeed} className={`pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
-                  Pas de besoin pour le moment
-                </button>
-                <span>
-                  Rappel proposé le <strong>{new Date(renewal.rappel + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</strong>
-                  {renewal.known ? ` (renouvellement estimé ${new Date(renewal.next + "T00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}, rappel ${PROSPECTION_RAPPEL_AVANCE_MOIS} mois avant)` : renewal.usedDefault ? ` (périodicité non renseignée : ${renewal.months} mois par défaut)` : ` (dans ${renewal.months} mois)`}
-                </span>
-              </div>
+              <p data-testid="relance-info" className={`text-xs sm:col-span-2 ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                {renewal
+                  ? <>Date de relance calculée d'après la périodicité : <strong>{fmtLong(renewal.rappel)}</strong>{renewal.known ? ` (renouvellement estimé en ${new Date(renewal.next + "T00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}, rappel ${PROSPECTION_RAPPEL_AVANCE_MOIS} mois avant)` : ` (dans ${renewal.months} mois)`}.</>
+                  : "Sans périodicité de renouvellement, définissez vous-même la date de relance ci-dessous."}
+              </p>
             </div>
           </section>
           <label className={labelCls}>
@@ -4861,8 +4870,26 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               {commerciaux.map((n) => <option key={n}>{n}</option>)}
             </select>
           </label>
-          <label className={labelCls}>Prochaine relance<input type="date" className={inputCls} value={p.relance || ""} min={isNew ? prospectionTodayISO() : undefined} onChange={set("relance")} /></label>
-          <label className={`${labelCls} sm:col-span-2`}>Prochaine action<input className={inputCls} value={p.prochaine || ""} onChange={set("prochaine")} /></label>
+          {p.statut === "Perdu" ? (
+            <label className={`${labelCls} sm:col-span-2`}>
+              Motif de la perte *
+              <select data-testid="motif-perte" className={inputCls} value={p.motif_perte || ""} onChange={set("motif_perte")}>
+                <option value="">Choisir un motif…</option>
+                {PROSPECTION_MOTIFS_PERTE.map((m) => <option key={m}>{m}</option>)}
+              </select>
+            </label>
+          ) : prospectionNeedsRelance(p.statut) ? (
+            <label className={labelCls}>
+              Date de relance *
+              <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} min={isNew ? prospectionTodayISO() : undefined} onChange={set("relance")} />
+            </label>
+          ) : null}
+          {p.statut === "Proposition envoyée" && (
+            <label className={labelCls}>
+              Dernière proposition envoyée le
+              <input type="date" data-testid="derniere-proposition" className={inputCls} value={p.derniere_proposition || ""} onChange={set("derniere_proposition")} />
+            </label>
+          )}
           <label className={`${labelCls} sm:col-span-2`}>Notes<textarea rows={3} className={inputCls} value={p.notes || ""} onChange={set("notes")} /></label>
         </div>
 
@@ -5534,36 +5561,25 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
 
   const addAction = async (id, type, texte, par) => {
     await data.addAction(id, type, texte, par);
-    const p = prospects.find((x) => x.id === id);
-    const next = p ? prospectionStatutAfterAction(p.statut, type) : null;
-    if (p && next !== p.statut) await data.patch(id, { statut: next });
   };
 
   const snooze = async (p, n) => {
-    await data.patch(p.id, { relance: prospectionAddDaysISO(n), ...(p.statut === "À contacter" || p.statut === "Prospect" ? { statut: "Contacté" } : {}) });
+    await data.patch(p.id, { relance: prospectionAddDaysISO(n) });
     await data.addAction(p.id, "Relance", `Reportée de ${n} jours`, currentUserName);
   };
 
-  // Cartes de visite / flyers déposés sans rencontrer le décideur -> statut « Prospect » + repasser dans quelques jours.
-  const cartesDeposees = async (p) => {
-    const relance = prospectionAddDaysISO(PROSPECTION_PROSPECT_RELANCE_JOURS);
-    await data.addAction(p.id, "Visite", "Cartes de visite déposées", currentUserName);
-    await data.patch(p.id, { statut: "Prospect", relance });
-    showToast(`Cartes déposées chez ${p.societe} — relance le ${prospectionFrDate(relance)}`, { type: "celebrate" });
-  };
-
-  // Pas de besoin pour le moment : rappel posé selon la périodicité de renouvellement du parc.
-  const pasDeBesoin = async (p) => {
-    const plan = prospectionRenewalPlan(p);
-    const fields = { relance: plan.rappel, ...(p.renouvellement_mois ? {} : { renouvellement_mois: plan.months }), ...(p.statut === "À contacter" || p.statut === "Prospect" ? { statut: "Contacté" } : {}) };
+  // Proposition envoyée : statut + date d'envoi + relance à 72 h.
+  const propositionEnvoyee = async (p) => {
+    const relance = prospectionAddDaysISO(PROSPECTION_PROPOSITION_RELANCE_JOURS);
+    const fields = { statut: "Proposition envoyée", relance, derniere_proposition: prospectionTodayISO() };
     try {
       await data.patch(p.id, fields);
     } catch (e) {
       if (!prospectionIsMissingCritereCol(e)) throw e;
-      await data.patch(p.id, { relance: plan.rappel, ...(fields.statut ? { statut: fields.statut } : {}) });
+      await data.patch(p.id, { statut: fields.statut, relance });
     }
-    await data.addAction(p.id, "Relance", `Pas de besoin pour le moment — rappel le ${prospectionFrDate(plan.rappel)} (${plan.months} mois)`, currentUserName);
-    showToast(`Rappel de ${p.societe} posé au ${prospectionFrDate(plan.rappel)}${plan.usedDefault ? " (périodicité par défaut : 12 mois)" : ""}`);
+    await data.addAction(p.id, "Autre", "Proposition envoyée", currentUserName);
+    showToast(`Proposition envoyée à ${p.societe} — relance le ${prospectionFrDate(relance)}`, { type: "celebrate" });
   };
 
   const quickVisit = async (p) => {
@@ -5647,7 +5663,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         {(p.flotte || p.marques || p.energies) && (
           <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.flotte && `${p.flotte} véh.`, p.marques, p.energies].filter(Boolean).join(" · ")}</div>
         )}
-        {p.prochaine && <div className={`text-sm ${dark ? "text-zinc-400" : "text-stone-600"}`}>À faire : {p.prochaine}</div>}
+        {p.statut === "Perdu" && p.motif_perte && <div className={`text-sm ${dark ? "text-zinc-400" : "text-stone-600"}`}>Perdu : {p.motif_perte}</div>}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {p.tel && (
@@ -5661,11 +5677,8 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           </a>
         )}
         <button onClick={() => quickVisit(p)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-emerald-700 text-emerald-400" : "border-emerald-300 text-emerald-700"}`}>Visité</button>
-        {(p.statut === "À contacter" || p.statut === "Prospect") && (
-          <button onClick={() => cartesDeposees(p)} title="Cartes de visite / flyers déposés" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-sky-700 text-sky-400" : "border-sky-300 text-sky-700"}`}>Cartes déposées</button>
-        )}
-        {p.statut !== "Gagné" && p.statut !== "Perdu" && (
-          <button onClick={() => pasDeBesoin(p)} title="Pas de besoin : rappel selon la périodicité de renouvellement" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>Pas de besoin</button>
+        {p.statut === "Prospect" && (
+          <button onClick={() => propositionEnvoyee(p)} title="Proposition envoyée : relance dans 72 h" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-violet-700 text-violet-300" : "border-violet-300 text-violet-700"}`}>Proposition envoyée</button>
         )}
         <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>
         <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>
@@ -5687,15 +5700,13 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
     const late = scoped.filter((p) => prospectionRelanceState(p) === "late").sort(byDate);
     const due = scoped.filter((p) => prospectionRelanceState(p) === "due");
     const semaine = scoped.filter((p) => prospectionRelanceState(p) === "future" && p.relance <= prospectionAddDaysISO(7)).sort(byDate);
-    const jamais = scoped.filter((p) => p.statut === "À contacter" && !p.relance);
     if (!scoped.length) return <EmptyState dark={dark} icon={Target} title="Aucun prospect pour l'instant" subtitle="Commencez par en ajouter un." />;
-    if (!late.length && !due.length && !semaine.length && !jamais.length) return <EmptyState dark={dark} icon={CheckCircle2} title="Rien à relancer cette semaine" />;
+    if (!late.length && !due.length && !semaine.length) return <EmptyState dark={dark} icon={CheckCircle2} title="Rien à relancer cette semaine" />;
     return (
       <>
         <Block title="En retard" items={late} />
         <Block title="À relancer aujourd'hui" items={due} />
         <Block title="Cette semaine" items={semaine} />
-        <Block title="Jamais contactés" items={jamais} />
       </>
     );
   };
@@ -5852,7 +5863,9 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
                 const badgeColor = PROSPECTION_TEAM_COLORS[t] ? (i === 0 ? PROSPECTION_TEAM_COLORS[t].main : PROSPECTION_TEAM_COLORS[t].light) : "#1D4ED8";
                 const l = prospects.filter((p) => p.commercial === n);
                 const nbActions = actions.filter((a) => a.par === n && new Date(a.created_at).getTime() >= weekAgo).length;
-                const rdv = l.filter((p) => ["RDV fixé", "Offre envoyée", "Gagné"].includes(p.statut)).length;
+                const enCours = l.filter((p) => p.statut === "Prospect").length;
+                const propositions = l.filter((p) => p.statut === "Proposition envoyée").length;
+                const perdus = l.filter((p) => p.statut === "Perdu").length;
                 const gagnes = l.filter((p) => p.statut === "Gagné");
                 const vehicules = gagnes.reduce((s, p) => s + (p.flotte || 0), 0);
                 const retard = l.filter((p) => prospectionRelanceState(p) === "late").length;
@@ -5866,8 +5879,12 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
                     <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Prospects en portefeuille</dt>
                       <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length}</dd>
-                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>RDV obtenus</dt>
-                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{rdv}</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Prospects en cours</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{enCours}</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Propositions envoyées</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{propositions}</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Perdus</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{perdus}</dd>
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Affaires gagnées</dt>
                       <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{gagnes.length}{vehicules ? ` (${vehicules} véh.)` : ""}</dd>
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Taux de transformation</dt>
