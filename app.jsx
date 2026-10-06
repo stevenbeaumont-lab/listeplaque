@@ -4376,16 +4376,16 @@ function prospectsToCsv(prospects) {
 // { allowed, readOnly } : allowed = le compte est dans prospection_members ; readOnly = membre en lecture seule
 // (colonne lecture_seule, ex. marketing / direction). La vraie restriction est appliquée par la RLS côté base.
 function useProspectionAccess(userId) {
-  const [access, setAccess] = useState({ allowed: false, readOnly: false });
+  const [access, setAccess] = useState({ allowed: false, readOnly: false, canImport: false });
   useEffect(() => {
     let alive = true;
-    if (!userId) { setAccess({ allowed: false, readOnly: false }); return; }
+    if (!userId) { setAccess({ allowed: false, readOnly: false, canImport: false }); return; }
     supabase
       .from("prospection_members")
       .select("*")
       .eq("user_id", userId)
       .maybeSingle()
-      .then(({ data }) => { if (alive) setAccess({ allowed: !!data, readOnly: !!data?.lecture_seule }); });
+      .then(({ data }) => { if (alive) setAccess({ allowed: !!data, readOnly: !!data?.lecture_seule, canImport: !!data?.peut_importer }); });
     return () => { alive = false; };
   }, [userId]);
   return access;
@@ -4980,6 +4980,34 @@ function prospectionOsmIcon({ selected } = {}) {
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
 }
 
+function prospectionCibleIcon(g) {
+  const star = g.cibleMois;
+  const size = star ? 20 : 13;
+  const html = star
+    ? `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#F59E0B;border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.4);color:#fff;font-size:12px;line-height:${size - 4}px;text-align:center;font-weight:700;">★</div>`
+    : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#94A3B8;border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.35);"></div>`;
+  return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
+}
+function prospectionCiblePopupHtml(g) {
+  const contact = [[g.prenom, g.nom].filter(Boolean).map(campagneTitleCase).join(" "), g.fonction].filter(Boolean).join(" · ");
+  const parc = [g.parc_vu > 0 && `${g.parc_vu} utilitaire(s)`, g.parc_vp > 0 && `${g.parc_vp} voiture(s)`, g.vp_elec > 0 && "électrique"].filter(Boolean).join(" · ");
+  return [
+    `<div style="min-width:200px;font-size:13px;line-height:1.45;color:#292524;">`,
+    `<span style="display:inline-block;margin-bottom:2px;border-radius:9999px;background:#e2e8f0;color:#475569;font-size:10px;font-weight:700;padding:1px 6px;">CAMPAGNE DATANÉO</span>`,
+    g.clientFord ? ` <span style="display:inline-block;margin-bottom:2px;border-radius:9999px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;">CLIENT FORD</span>` : "",
+    g.cibleMois ? ` <span style="display:inline-block;margin-bottom:2px;border-radius:9999px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:1px 6px;">★ CIBLE DU MOIS</span>` : "",
+    `<br/><b>${prospectionEscapeHtml(g.societe)}</b>`,
+    g.libelle_naf ? `<div style="color:#78716c;">${prospectionEscapeHtml(g.libelle_naf)}</div>` : "",
+    contact ? `<div>${prospectionEscapeHtml(contact)}</div>` : "",
+    parc ? `<div>${prospectionEscapeHtml(parc)}</div>` : "",
+    `<div style="color:#78716c;">${prospectionEscapeHtml([g.adresse, g.commune].filter(Boolean).join(", "))}</div>`,
+    `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">`,
+    `<button data-action="add" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ajouter à la prospection</button>`,
+    `<a href="${prospectionMapsDirectionsUrl(g)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
+    `</div></div>`,
+  ].join("");
+}
+
 const PROSPECTION_ZONE_COLOR = "#78350F";
 function prospectionZoneIcon() {
   const html = `<div style="width:16px;height:16px;background:${PROSPECTION_ZONE_COLOR};border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>`;
@@ -5033,6 +5061,12 @@ function prospectionPopupHtml(p) {
     `</div></div>`,
   ];
   return lines.join("");
+}
+
+// Étiquette permanente sur la carte : tronquée pour ne pas masquer les points voisins.
+function prospectionShortLabel(s) {
+  const t = String(s || "");
+  return t.length > 28 ? t.slice(0, 27).trimEnd() + "…" : t;
 }
 
 function prospectionClusterPoints(map, points, cellPx) {
@@ -5127,7 +5161,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       } else {
         marker.on("click", () => onSingleClick(c.items[0]));
         marker.bindPopup(buildPopup(c.items[0]));
-        marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+        marker.bindTooltip(prospectionEscapeHtml(prospectionShortLabel(c.items[0].societe || c.items[0].nom)), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
         // Les boutons d'action sont reliés une seule fois par délégation (voir prospectionWirePopupActions) :
         // ils lisent toujours l'item courant sur le marqueur, jamais une valeur figée à la création.
         if (onPopupAction) prospectionWirePopupActions(marker, onPopupAction);
@@ -5140,8 +5174,8 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       marker.setIcon(icon);
       if (!isCluster) {
         marker.setPopupContent(buildPopup(c.items[0]));
-        if (marker.getTooltip()) marker.setTooltipContent(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom));
-        else marker.bindTooltip(prospectionEscapeHtml(c.items[0].societe || c.items[0].nom), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+        if (marker.getTooltip()) marker.setTooltipContent(prospectionEscapeHtml(prospectionShortLabel(c.items[0].societe || c.items[0].nom)));
+        else marker.bindTooltip(prospectionEscapeHtml(prospectionShortLabel(c.items[0].societe || c.items[0].nom)), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
       } else {
         marker.setPopupContent(prospectionClusterPopupHtml(marker._prospectionItems, buildPopup));
         if (marker.getTooltip()) marker.unbindTooltip();
@@ -5153,11 +5187,12 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast }) {
+function ProspectMap({ dark, prospects, clients, cibles = [], onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
+  const [showCibles, setShowCibles] = useState(true);
   const [mapZoom, setMapZoom] = useState(11);
   const [showOsm, setShowOsm] = useState(true);
   const [showTeamZones, setShowTeamZones] = useState(true);
@@ -5174,6 +5209,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
   const clientMarkersRef = useRef(new Map());
+  const cibleMarkersRef = useRef(new Map());
   const osmMarkersRef = useRef(new Map());
   const zoneMarkersRef = useRef(new Map());
   const osmFetchTimer = useRef(null);
@@ -5205,6 +5241,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
   const missing = prospects.filter((p) => p.lat == null);
   const clientTooFar = mapZoom < PROSPECTION_CLIENT_MIN_ZOOM;
   const clientsPlaced = showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null) : [];
+  const ciblesPlaced = showCibles && !clientTooFar ? cibles.filter((g) => g.lat != null && g.lng != null) : [];
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
   const legend = colorBy === "statut" ? PROSPECTION_STATUTS.map((s) => [s, PROSPECTION_STATUT_COLORS[s]]) : commerciaux.map((n) => [n, colorOfCommercial[n]]);
@@ -5249,7 +5286,7 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
     // applique ses classes juste après) : on force un recalcul juste après.
     setTimeout(() => map.invalidateSize(), 100);
     setTimeout(() => map.invalidateSize(), 400);
-    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); osmMarkersRef.current.clear(); clearTimeout(osmFetchTimer.current); osmAbortRef.current?.abort(); };
+    return () => { map.remove(); mapRef.current = null; markersRef.current.clear(); clientMarkersRef.current.clear(); cibleMarkersRef.current.clear(); osmMarkersRef.current.clear(); clearTimeout(osmFetchTimer.current); osmAbortRef.current?.abort(); };
   }, []);
 
   // Synchronise les marqueurs des prospects visibles (regroupés visuellement quand ils sont proches).
@@ -5283,6 +5320,21 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
     });
   }, [clientsPlaced, selectedId, zoomTick]);
+
+  // Entreprises des campagnes Datanéo pas encore en prospection (pastilles grises, étoile = cible du mois).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const clusters = prospectionClusterPoints(map, ciblesPlaced.map((g) => ({ ...g, id: g.key })), 60);
+    prospectionSyncClusterLayer(map, cibleMarkersRef, clusters, {
+      buildIcon: (g) => prospectionCibleIcon(g),
+      buildPopup: prospectionCiblePopupHtml,
+      onSingleClick: () => {},
+      onPopupAction: (g, action) => { if (action === "add") onAddCible?.(g); },
+      buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#64748B" }),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ciblesPlaced, zoomTick]);
 
   // Trace la ligne de partage nord/sud entre les deux binômes, avec une zone teintée de chaque côté.
   const teamZoneLayerRef = useRef(null);
@@ -5415,6 +5467,12 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
                     Afficher les clients existants ({clients.length})
                   </label>
                 )}
+                {cibles.length > 0 && (
+                  <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                    <input data-testid="map-cibles" type="checkbox" checked={showCibles} onChange={(e) => setShowCibles(e.target.checked)} className="accent-blue-700" />
+                    Afficher les campagnes Datanéo ({cibles.length})
+                  </label>
+                )}
                 <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
                   <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
                   Découvrir les entreprises alentour (OSM)
@@ -5456,6 +5514,11 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
             Zoomez pour voir les entreprises alentour
           </span>
         )}
+        {showCibles && clientTooFar && cibles.length > 0 && (
+          <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
+            Zoomez sur un secteur pour voir les {cibles.length} entreprises des campagnes
+          </span>
+        )}
         {showClients && clientTooFar && clients.length > 0 && (
           <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
             Zoomez sur un secteur pour voir les {clients.length} clients existants
@@ -5481,6 +5544,12 @@ function ProspectMap({ dark, prospects, clients, commerciaux, onOpen, onAddFromO
           <span className="flex items-center gap-1.5">
             <i className="inline-block h-2.5 w-2.5" style={{ background: PROSPECTION_CLIENT_COLOR, transform: "rotate(45deg)" }} />
             Client existant (losange)
+          </span>
+        )}
+        {showCibles && cibles.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <i className="inline-block h-3 w-3 rounded-full" style={{ background: "#94A3B8" }} />
+            Entreprise d'une campagne ({cibles.length}), <span style={{ color: "#F59E0B" }}>★</span> cible du mois
           </span>
         )}
         {showOsm && osmPlaces.length > 0 && (
@@ -5516,7 +5585,850 @@ function ProspectionRelancePill({ dark, p }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{lbl}</span>;
 }
 
-function ProspectionTab({ dark, currentUserName, readOnly, showToast }) {
+// ============================================================================
+// Campagnes Datanéo : import d'un fichier de ciblage, adresses retrouvées par SIRET,
+// sélection libre puis ajout à la prospection. (SQL : sql/prospection-campagnes.sql)
+// ============================================================================
+// <<campagnes-logic
+const CAMPAGNE_FIX_CHARS = { "ę": "ê", "č": "è", "ŕ": "à", "Ę": "Ê", "Č": "È", "Ŕ": "À" };
+// Les exports Datanéo ouverts avec le mauvais encodage abîment les accents (« revętement » pour « revêtement »).
+function campagneFixText(s) {
+  return String(s ?? "").replace(/[ęčŕĘČŔ]/g, (c) => CAMPAGNE_FIX_CHARS[c]);
+}
+function campagneHeaderKey(h) {
+  return prospectionNorm(h).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+const CAMPAGNE_COLS = {
+  id_dataneo: "id_dataneo", siret: "siret", code_naf: "code_naf", libelle_naf: "libelle_naf",
+  raison_sociale: "societe", societe: "societe", entreprise: "societe", nom_entreprise: "societe",
+  code_postal: "code_postal", cp: "code_postal", commune: "commune", ville: "commune", adresse: "adresse",
+  civ: "civilite", civilite: "civilite", nom: "nom", prenom: "prenom", fonction: "fonction",
+  email: "email", tel: "tel", telephone: "tel",
+  vp_ford: "vp_ford", vu_ford: "vu_ford", parc_vp: "parc_vp", parc_vu: "parc_vu", vp_elec: "vp_elec",
+};
+const CAMPAGNE_INT_COLS = ["vp_ford", "vu_ford", "parc_vp", "parc_vu", "vp_elec"];
+function campagneInt(v) {
+  const n = parseInt(String(v ?? "").trim(), 10);
+  return Number.isFinite(n) ? n : null;
+}
+function campagneSiret(v) {
+  const d = String(v ?? "").replace(/\D/g, "");
+  if (!d) return "";
+  return d.length === 13 ? "0" + d : d; // un zéro de tête perdu par Excel
+}
+// Lit un export Datanéo (texte séparé par tabulations, « ; » ou « , »). Retourne les lignes prêtes à insérer.
+function campagneParseFile(text) {
+  const raw = String(text || "").replace(/^﻿/, "").replace(/\r/g, "");
+  const fixed = (raw.match(/[ęčŕĘČŔ]/g) || []).length;
+  const clean = campagneFixText(raw);
+  const lines = clean.split("\n").filter((l) => l.trim());
+  const empty = { rows: [], recognized: [], ignored: [], fixed: 0, duplicates: 0 };
+  if (lines.length < 2) return empty;
+  const sep = ["\t", ";", ","].map((s) => [s, lines[0].split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const split = (l) => (sep === "\t" ? l.split("\t") : prospectionParseCsvLine(l, sep));
+  const headers = split(lines[0]).map((h) => h.trim());
+  const keys = headers.map((h) => campagneHeaderKey(h));
+  const recognized = [];
+  const ignored = [];
+  keys.forEach((k, i) => (CAMPAGNE_COLS[k] ? recognized : ignored).push(headers[i]));
+  const seen = new Set();
+  let duplicates = 0;
+  const rows = [];
+  for (const line of lines.slice(1)) {
+    const cells = split(line);
+    const row = { extra: {} };
+    keys.forEach((k, i) => {
+      const v = (cells[i] ?? "").trim();
+      const f = CAMPAGNE_COLS[k];
+      if (f) row[f] = v;
+      else if (v) row.extra[headers[i]] = v;
+    });
+    if (!row.societe) continue;
+    row.siret = campagneSiret(row.siret);
+    CAMPAGNE_INT_COLS.forEach((c) => { row[c] = campagneInt(row[c]); });
+    if (row.email) row.email = row.email.toLowerCase();
+    if (row.siret) {
+      if (seen.has(row.siret)) { duplicates++; continue; }
+      seen.add(row.siret);
+    }
+    rows.push(row);
+  }
+  return { rows, recognized, ignored, fixed, duplicates };
+}
+
+const CAMPAGNE_MOIS = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
+// « 11254_Ciblage_Ranger_Septembre_2026.xls » -> { nom: « Ranger Septembre 2026 », mois: « 2026-09-01 » }
+function campagneNameFromFile(filename) {
+  let base = String(filename || "").replace(/\.[a-z0-9]{2,4}$/i, "").replace(/^[0-9a-f]{8}-/i, "").replace(/[_]+/g, " ").trim();
+  base = base.replace(/^\d{3,6}\s+/, "").replace(/^ciblage\s+/i, "");
+  base = base.replace(/((?:19|20)\d{2})\s+\d$/, "$1").trim(); // « 2026 2 » : suffixe de téléchargement en double
+  const norm = prospectionNorm(base);
+  const mi = CAMPAGNE_MOIS.findIndex((m) => new RegExp(`\\b${m}\\b`).test(norm));
+  const y = norm.match(/\b(20\d{2})\b/);
+  const mois = mi >= 0 && y ? `${y[1]}-${String(mi + 1).padStart(2, "0")}-01` : "";
+  return { nom: base, mois };
+}
+
+const CAMPAGNE_SMALL_WORDS = new Set(["de", "du", "des", "la", "le", "les", "et", "en", "sur", "sous", "aux", "au", "d", "l"]);
+function campagneTitleCase(s) {
+  const t = String(s ?? "").trim().toLowerCase();
+  if (!t) return "";
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+  let first = true;
+  return t.replace(/[\p{L}\d]+(?:['’][\p{L}\d]+)*/gu, (w) => {
+    const wasFirst = first;
+    first = false;
+    if (!wasFirst && CAMPAGNE_SMALL_WORDS.has(w)) return w;
+    return w.split(/(['’])/).map(cap).join("");
+  });
+}
+
+function campagneIsFordClient(c) {
+  return (c.vp_ford || 0) > 0 || (c.vu_ford || 0) > 0;
+}
+
+// Réponse de l'annuaire des entreprises (recherche-entreprises.api.gouv.fr) -> adresse de l'établissement.
+function campagneAddressFromSearch(json, siret) {
+  const r = json?.results?.[0];
+  if (!r) return null;
+  const pool = [...(r.matching_etablissements || []), r.siege].filter(Boolean);
+  const e = pool.find((x) => String(x.siret) === String(siret));
+  if (!e) return null;
+  const cp = String(e.code_postal || "").trim();
+  const communeRaw = String(e.libelle_commune || e.commune || "").trim();
+  let adr = String(e.adresse || "").trim();
+  const tail = [cp, communeRaw].filter(Boolean).join(" ");
+  if (adr && tail && adr.toUpperCase().endsWith(tail.toUpperCase())) adr = adr.slice(0, adr.length - tail.length).trim();
+  if (!adr) adr = [e.numero_voie, e.indice_repetition, e.type_voie, e.libelle_voie].filter(Boolean).join(" ");
+  const lat = parseFloat(e.latitude);
+  const lng = parseFloat(e.longitude);
+  if (!adr && !cp && !communeRaw && !Number.isFinite(lat)) return null;
+  return {
+    adresse: campagneTitleCase(adr.replace(/,\s*$/, "")),
+    code_postal: cp,
+    commune: campagneTitleCase(communeRaw),
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+  };
+}
+const campagneSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Un appel par SIRET (limite du service : 7 par seconde). Une erreur réseau remonte à l'appelant.
+async function campagneLookupSiret(siret, { fetchFn, sleepFn } = {}) {
+  const f = fetchFn || ((u) => fetch(u));
+  const sl = sleepFn || campagneSleep;
+  for (let i = 0; i < 4; i++) {
+    const r = await f(`https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(siret)}&per_page=1&page=1`);
+    if (r.status === 429) { await sl(1200 * (i + 1)); continue; }
+    if (!r.ok) return null;
+    return campagneAddressFromSearch(await r.json(), siret);
+  }
+  throw new Error("Trop de requêtes — réessayez dans une minute");
+}
+
+// Regroupe les lignes par SIRET : une entreprise présente dans deux campagnes n'apparaît qu'une fois.
+function campagneGroupCibles(cibles) {
+  const map = new Map();
+  for (const c of cibles) {
+    const key = c.siret || `id:${c.id}`;
+    let g = map.get(key);
+    if (!g) { g = { key, siret: c.siret || "", rows: [], campagneIds: [] }; map.set(key, g); }
+    g.rows.push(c);
+    if (!g.campagneIds.includes(c.campagne_id)) g.campagneIds.push(c.campagne_id);
+  }
+  return [...map.values()].map((g) => {
+    const pick = (k) => g.rows.map((r) => r[k]).find((v) => v != null && v !== "") ?? "";
+    const max = (k) => g.rows.reduce((m, r) => Math.max(m, r[k] || 0), 0);
+    const pos = g.rows.find((r) => r.lat != null && r.lng != null);
+    return {
+      ...g,
+      id: g.key,
+      societe: g.rows[0].societe,
+      code_naf: pick("code_naf"),
+      libelle_naf: pick("libelle_naf"),
+      code_postal: pick("code_postal"),
+      commune: pos?.commune || pick("commune"),
+      adresse: pos?.adresse || pick("adresse"),
+      lat: pos?.lat ?? null,
+      lng: pos?.lng ?? null,
+      civilite: pick("civilite"),
+      nom: pick("nom"),
+      prenom: pick("prenom"),
+      fonction: pick("fonction"),
+      email: pick("email"),
+      tel: pick("tel"),
+      vp_ford: max("vp_ford"),
+      vu_ford: max("vu_ford"),
+      parc_vp: max("parc_vp"),
+      parc_vu: max("parc_vu"),
+      vp_elec: max("vp_elec"),
+      clientFord: g.rows.some(campagneIsFordClient),
+      cibleMois: g.rows.some((r) => r.cible_mois),
+      prospectId: pick("prospect_id") || null,
+      essaiAdresse: g.rows.every((r) => !!r.adresse_essai_le),
+    };
+  });
+}
+
+// Filtres de l'écran Campagnes. f = { q, ford: "" | "hors" | "clients", naf, cp, vu, elec, mois, adresse, masquerAjoutees }
+const CAMPAGNE_VU_RANGES = { "1-2": [1, 2], "3-5": [3, 5], "6-10": [6, 10], "11+": [11, Infinity] };
+function campagneFilterGroups(groups, f, nomsDejaProspects) {
+  const q = prospectionNorm(f.q || "");
+  const range = CAMPAGNE_VU_RANGES[f.vu];
+  return groups.filter((g) => {
+    if (f.masquerAjoutees && (g.prospectId || nomsDejaProspects?.has(prospectionNorm(g.societe)))) return false;
+    if (f.ford === "hors" && g.clientFord) return false;
+    if (f.ford === "clients" && !g.clientFord) return false;
+    if (f.naf && g.libelle_naf !== f.naf) return false;
+    if (f.cp && g.code_postal !== f.cp) return false;
+    if (range && !(g.parc_vu >= range[0] && g.parc_vu <= range[1])) return false;
+    if (f.elec && !(g.vp_elec > 0)) return false;
+    if (f.mois && !g.cibleMois) return false;
+    if (f.adresse && g.lat == null) return false;
+    if (q && !prospectionNorm([g.societe, g.nom, g.prenom, g.fonction, g.commune, g.code_postal, g.libelle_naf, g.email].join(" ")).includes(q)) return false;
+    return true;
+  });
+}
+function campagneSortGroups(groups, mode) {
+  const a = [...groups];
+  if (mode === "az") return a.sort((x, y) => x.societe.localeCompare(y.societe, "fr"));
+  if (mode === "commune") return a.sort((x, y) => (x.commune || x.code_postal).localeCompare(y.commune || y.code_postal, "fr") || x.societe.localeCompare(y.societe, "fr"));
+  return a.sort((x, y) => (y.cibleMois ? 1 : 0) - (x.cibleMois ? 1 : 0) || (y.parc_vu + y.parc_vp) - (x.parc_vu + x.parc_vp) || x.societe.localeCompare(y.societe, "fr"));
+}
+
+// Secteur Prospection d'après le code NAF (division = 2 premiers chiffres).
+function campagneSecteurFromNaf(code) {
+  const d = parseInt(String(code || "").slice(0, 2), 10);
+  if (!Number.isFinite(d)) return "";
+  if (d >= 1 && d <= 3) return "Agriculture";
+  if (d >= 10 && d <= 33) return "Industrie";
+  if (d >= 41 && d <= 43) return "BTP";
+  if (d === 45 || d === 46 || d === 47) return "Commerce";
+  if (d === 77) return "Location / VTC";
+  if (d >= 49 && d <= 53) return "Transport et logistique";
+  if (d === 55 || d === 56) return "Services";
+  if (d === 84) return "Collectivités";
+  if (d === 85) return "Collectivités";
+  if (d >= 86 && d <= 88) return "Santé";
+  if (d >= 58 && d <= 82) return "Services";
+  return "";
+}
+
+// Fiche prospect préremplie à partir d'une cible (parc, énergie, décideur, contact…).
+function campagneProspectFields(g, campagneNoms) {
+  const civ = g.civilite ? campagneTitleCase(g.civilite).replace(/^Mme$/, "Mme") : "";
+  const nomComplet = [campagneTitleCase(g.prenom), campagneTitleCase(g.nom)].filter(Boolean).join(" ");
+  const contact = [civ, nomComplet].filter(Boolean).join(" ");
+  const decideur = [nomComplet, g.fonction].filter(Boolean).join(", ");
+  const flotte = (g.parc_vp || 0) + (g.parc_vu || 0);
+  return {
+    societe: g.societe,
+    secteur: campagneSecteurFromNaf(g.code_naf),
+    adresse: g.adresse || "",
+    code_postal: g.code_postal || "",
+    commune: g.commune || "",
+    lat: g.lat,
+    lng: g.lng,
+    contact,
+    fonction: g.fonction || "",
+    tel: g.tel || "",
+    email: g.email || "",
+    flotte: flotte || "",
+    marques: g.clientFord ? "Ford" : "",
+    energies: g.vp_elec > 0 ? "Électrique" : "",
+    decideur,
+    notes: `Campagne Datanéo : ${campagneNoms.join(", ")}${g.libelle_naf ? ` · ${g.libelle_naf}` : ""}`,
+    _coordsFromSuggestion: g.lat != null,
+  };
+}
+// campagnes-logic>>
+
+function useCampagnes(enabled) {
+  const [campagnes, setCampagnes] = useState([]);
+  const [cibles, setCibles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [tablesMissing, setTablesMissing] = useState(false);
+  const loadedOnce = useRef(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const c = await supabase.from("prospection_campagnes").select("*").order("created_at", { ascending: false });
+    if (c.error) {
+      setTablesMissing(/relation|does not exist|schema cache/i.test(c.error.message));
+      setError(c.error.message);
+      setLoading(false);
+      return;
+    }
+    // PostgREST renvoie 1000 lignes au plus par requête : on lit par pages.
+    const all = [];
+    for (let from = 0; ; from += 1000) {
+      const r = await supabase.from("prospection_cibles").select("*").order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
+      if (r.error) { setError(r.error.message); setLoading(false); return; }
+      all.push(...r.data);
+      if (r.data.length < 1000) break;
+    }
+    setCampagnes(c.data);
+    setCibles(all);
+    setError(null);
+    setTablesMissing(false);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (enabled && !loadedOnce.current) { loadedOnce.current = true; load(); }
+  }, [enabled, load]);
+
+  const patchLocal = useCallback((pred, fields) => setCibles((prev) => prev.map((c) => (pred(c) ? { ...c, ...fields } : c))), []);
+
+  const importCampagne = useCallback(async ({ nom, mois, but, fichier, rows, onProgress }) => {
+    const { data: camp, error: e1 } = await supabase.from("prospection_campagnes").insert({ nom, mois: mois || null, but: but || null, fichier: fichier || null }).select().single();
+    if (e1) throw e1;
+    // Une entreprise déjà connue (autre campagne) garde son adresse : inutile de la rechercher deux fois.
+    const known = new Map();
+    cibles.forEach((c) => { if (c.siret && c.lat != null && !known.has(c.siret)) known.set(c.siret, c); });
+    const payload = rows.map((r) => {
+      const k = r.siret ? known.get(r.siret) : null;
+      const base = { ...r, campagne_id: camp.id };
+      if (k) Object.assign(base, { adresse: k.adresse, commune: k.commune, lat: k.lat, lng: k.lng, adresse_source: k.adresse_source, adresse_essai_le: k.adresse_essai_le });
+      return base;
+    });
+    const inserted = [];
+    for (let i = 0; i < payload.length; i += 300) {
+      const chunk = payload.slice(i, i + 300);
+      const { data, error: e2 } = await prospectionWithRetry(() => supabase.from("prospection_cibles").insert(chunk).select());
+      if (e2) {
+        await supabase.from("prospection_campagnes").delete().eq("id", camp.id); // pas de campagne à moitié importée
+        throw e2;
+      }
+      inserted.push(...data);
+      onProgress?.(inserted.length, payload.length);
+    }
+    setCampagnes((p) => [camp, ...p]);
+    setCibles((p) => [...p, ...inserted]);
+    return { campagne: camp, count: inserted.length };
+  }, [cibles]);
+
+  const updateCampagne = useCallback(async (id, fields) => {
+    const { error: e } = await supabase.from("prospection_campagnes").update(fields).eq("id", id);
+    if (e) throw e;
+    setCampagnes((p) => p.map((c) => (c.id === id ? { ...c, ...fields } : c)));
+  }, []);
+
+  const deleteCampagne = useCallback(async (id) => {
+    const { error: e } = await supabase.from("prospection_campagnes").delete().eq("id", id);
+    if (e) throw e;
+    setCampagnes((p) => p.filter((c) => c.id !== id));
+    setCibles((p) => p.filter((c) => c.campagne_id !== id));
+  }, []);
+
+  const setCibleMois = useCallback(async (g, value) => {
+    const ids = g.rows.map((r) => r.id);
+    const { error: e } = await supabase.from("prospection_cibles").update({ cible_mois: value }).in("id", ids);
+    if (e) throw e;
+    patchLocal((c) => ids.includes(c.id), { cible_mois: value });
+  }, [patchLocal]);
+
+  // Retrouve l'adresse de chaque entreprise par son SIRET, puis la localise (une seule fois, résultat enregistré).
+  const enrich = useCallback(async (groups, { onProgress, shouldStop } = {}) => {
+    let found = 0;
+    let failed = 0;
+    let netFail = 0;
+    const patches = new Map();
+    for (let i = 0; i < groups.length; i++) {
+      if (shouldStop?.()) return { found, failed, stopped: true, patches };
+      const g = groups[i];
+      let res = null;
+      try {
+        res = await campagneLookupSiret(g.siret);
+        netFail = 0;
+      } catch (e) {
+        netFail++;
+        failed++;
+        if (netFail >= 3) return { found, failed, aborted: true, reason: /Trop de requêtes/.test(e?.message || "") ? e.message : "l'annuaire des entreprises est injoignable depuis ce navigateur", patches };
+        await campagneSleep(500);
+        continue;
+      }
+      const patch = { adresse_essai_le: new Date().toISOString() };
+      if (res) {
+        let { lat, lng } = res;
+        if (lat == null) {
+          const geo = await prospectionGeocode(res);
+          lat = geo?.lat ?? null;
+          lng = geo?.lng ?? null;
+        }
+        Object.assign(patch, { adresse: res.adresse || null, code_postal: res.code_postal || g.code_postal || null, commune: res.commune || null, lat, lng, adresse_source: lat != null ? "siret" : null });
+        if (lat != null) found++; else failed++;
+      } else failed++;
+      const { data, error: e } = await supabase.from("prospection_cibles").update(patch).eq("siret", g.siret).select("id");
+      if (e || !data?.length) return { found, failed, aborted: true, reason: e?.message || "Droits insuffisants pour enregistrer les adresses", patches };
+      patchLocal((c) => c.siret === g.siret, patch);
+      patches.set(g.siret, patch);
+      onProgress?.(i + 1, groups.length);
+      await campagneSleep(160); // reste sous 7 requêtes par seconde
+    }
+    return { found, failed, patches };
+  }, [patchLocal]);
+
+  const linkProspect = useCallback(async (g, prospectId, par) => {
+    const ids = g.rows.map((r) => r.id);
+    const patch = { prospect_id: prospectId, ajoute_par: par || null, ajoute_le: new Date().toISOString() };
+    const { error: e } = await supabase.from("prospection_cibles").update(patch).in("id", ids);
+    if (e) throw e;
+    patchLocal((c) => ids.includes(c.id), patch);
+  }, [patchLocal]);
+
+  // Crée un prospect par entreprise (statut Prospect, relance choisie) et le relie à sa cible.
+  const createProspects = useCallback(async (groups, { commercial, relance, par, onProgress }) => {
+    const nomOf = (id) => campagnes.find((c) => c.id === id)?.nom || "";
+    let created = 0;
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (g.prospectId) continue;
+      const fields = campagneProspectFields(g, g.campagneIds.map(nomOf).filter(Boolean));
+      const row = prospectionCleanRow({ ...fields, statut: "Prospect", commercial, relance });
+      const send = (r) => prospectionWithRetry(() => supabase.from("prospects").insert(r).select("id").single());
+      let { data, error: e } = await send(row);
+      if (e && prospectionIsMissingCritereCol(e)) ({ data, error: e } = await send(prospectionStripCriteres(row)));
+      if (e) throw e;
+      await linkProspect(g, data.id, par);
+      created++;
+      onProgress?.(i + 1, groups.length);
+    }
+    return created;
+  }, [campagnes, linkProspect]);
+
+  return { campagnes, cibles, loading, error, tablesMissing, reload: load, importCampagne, updateCampagne, deleteCampagne, setCibleMois, enrich, linkProspect, createProspects };
+}
+
+function CampagneImportModal({ dark, existingSirets, onClose, onImport }) {
+  const [file, setFile] = useState(null);
+  const [parsed, setParsed] = useState(null);
+  const [nom, setNom] = useState("");
+  const [mois, setMois] = useState("");
+  const [but, setBut] = useState("");
+  const [progress, setProgress] = useState("");
+  const [err, setErr] = useState("");
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  const labelCls = `flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
+
+  const pick = async (f) => {
+    setErr("");
+    try {
+      const buf = await f.arrayBuffer();
+      const head = new Uint8Array(buf.slice(0, 4));
+      if ((head[0] === 0x50 && head[1] === 0x4b) || (head[0] === 0xd0 && head[1] === 0xcf)) {
+        setErr("Ce fichier est un vrai classeur Excel. Ouvrez-le dans Excel puis « Enregistrer sous » au format CSV ou texte (séparateur tabulation).");
+        return;
+      }
+      let text = new TextDecoder("utf-8").decode(buf);
+      if (text.includes("�")) text = new TextDecoder("windows-1252").decode(buf);
+      const p = campagneParseFile(text);
+      if (!p.rows.length) { setErr("Aucune entreprise reconnue : le fichier doit avoir une colonne RAISON_SOCIALE (ou SOCIETE)."); return; }
+      const guess = campagneNameFromFile(f.name);
+      setFile(f);
+      setParsed(p);
+      setNom(guess.nom);
+      setMois(guess.mois);
+    } catch (e) {
+      setErr(`Lecture impossible — ${e.message}`);
+    }
+  };
+
+  const known = parsed ? parsed.rows.filter((r) => r.siret && existingSirets.has(r.siret)).length : 0;
+  const run = async () => {
+    if (!nom.trim()) { setErr("Donnez un nom à la campagne"); return; }
+    setErr("");
+    setProgress("0");
+    try {
+      await onImport({ nom: nom.trim(), mois, but: but.trim(), fichier: file.name, rows: parsed.rows, onProgress: (i, n) => setProgress(`${i}/${n}`) });
+      onClose();
+    } catch (e) {
+      setProgress("");
+      setErr(`Import impossible — ${e.message}`);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={progress ? undefined : onClose}>
+      <div data-testid="campagne-import" className={`max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border p-5 shadow-xl ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`} onClick={(e) => e.stopPropagation()}>
+        <h3 className={`mb-1 text-lg font-bold ${dark ? "text-zinc-100" : "text-stone-900"}`}>Importer une campagne Datanéo</h3>
+        <p className={`mb-4 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Déposez le fichier de ciblage tel qu'il sort de Datanéo (.xls, .csv ou .txt). Les adresses sont retrouvées ensuite à partir du SIRET.</p>
+        {!parsed ? (
+          <label className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-8 text-sm font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-600"}`}>
+            Choisir le fichier
+            <input data-testid="campagne-file" type="file" accept=".xls,.csv,.txt,.tsv,text/csv,text/plain" hidden onChange={(e) => e.target.files[0] && pick(e.target.files[0])} />
+          </label>
+        ) : (
+          <div className="space-y-3">
+            <div className={`rounded-xl border p-3 text-sm ${dark ? "border-blue-700/40 bg-blue-500/10 text-blue-200" : "border-blue-200 bg-blue-50 text-blue-900"}`}>
+              <b>{parsed.rows.length}</b> entreprise(s) dans « {file.name} ».
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                <li>{parsed.recognized.length} colonne(s) reconnue(s){parsed.ignored.length ? `, ${parsed.ignored.length} conservée(s) telle(s) quelle(s) (${parsed.ignored.join(", ")})` : ""}</li>
+                {parsed.fixed > 0 && <li>{parsed.fixed} accent(s) abîmé(s) corrigé(s) automatiquement</li>}
+                {parsed.duplicates > 0 && <li>{parsed.duplicates} doublon(s) du fichier ignoré(s) (même SIRET)</li>}
+                {known > 0 && <li>{known} entreprise(s) déjà présente(s) dans une autre campagne : elles garderont leur adresse et ne seront affichées qu'une fois</li>}
+              </ul>
+            </div>
+            <label className={labelCls}>Nom de la campagne
+              <input data-testid="campagne-nom" className={inputCls} value={nom} onChange={(e) => setNom(e.target.value)} />
+            </label>
+            <label className={labelCls}>Mois ciblé
+              <input type="month" className={inputCls} value={mois ? mois.slice(0, 7) : ""} onChange={(e) => setMois(e.target.value ? `${e.target.value}-01` : "")} />
+            </label>
+            <label className={labelCls}>But de la campagne (à écrire à la main)
+              <textarea data-testid="campagne-but" rows={3} className={inputCls} value={but} onChange={(e) => setBut(e.target.value)} placeholder="Ex. Proposer le Ranger aux petits parcs d'artisans du bâtiment" />
+            </label>
+          </div>
+        )}
+        {err && <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${dark ? "bg-rose-950 text-rose-200" : "bg-rose-50 text-rose-800"}`}>{err}</div>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} disabled={!!progress} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}>Annuler</button>
+          {parsed && (
+            <button data-testid="campagne-importer" onClick={run} disabled={!!progress} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+              {progress ? `Import… ${progress}` : `Importer ${parsed.rows.length} entreprises`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CAMPAGNE_PAGE = 120;
+function ProspectionCampagnes({ dark, camp, canImport, readOnly, selIds, setSelIds, nomsProspects, commerciaux, me, showToast, onProspectsChanged }) {
+  const { campagnes, cibles, loading, error, tablesMissing } = camp;
+  const [showArchived, setShowArchived] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [filters, setFilters] = useState({ q: "", ford: "", naf: "", cp: "", vu: "", elec: false, mois: false, adresse: false, masquerAjoutees: true });
+  const [sort, setSort] = useState("defaut");
+  const [selected, setSelected] = useState(() => new Set());
+  const [limit, setLimit] = useState(CAMPAGNE_PAGE);
+  const [commercial, setCommercial] = useState(() => prospectionCommercialFor(me) || "");
+  const [relance, setRelance] = useState(() => prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS));
+  const [busy, setBusy] = useState("");
+  const [enrichState, setEnrichState] = useState(null); // { i, n }
+  const stopRef = useRef(false);
+  const canWriteCibles = canImport || !readOnly;
+
+  const campById = useMemo(() => new Map(campagnes.map((c) => [c.id, c])), [campagnes]);
+  const visibleCampagnes = campagnes.filter((c) => showArchived || !c.archivee);
+  const activeIds = useMemo(() => (selIds ? new Set(selIds) : new Set(campagnes.filter((c) => !c.archivee).map((c) => c.id))), [selIds, campagnes]);
+  const groupsAll = useMemo(() => campagneGroupCibles(cibles.filter((c) => activeIds.has(c.campagne_id))), [cibles, activeIds]);
+  const rows = useMemo(() => campagneSortGroups(campagneFilterGroups(groupsAll, filters, nomsProspects), sort), [groupsAll, filters, sort, nomsProspects]);
+  useEffect(() => { setLimit(CAMPAGNE_PAGE); }, [filters, sort, selIds]);
+
+  const nafOptions = useMemo(() => {
+    const m = new Map();
+    groupsAll.forEach((g) => g.libelle_naf && m.set(g.libelle_naf, (m.get(g.libelle_naf) || 0) + 1));
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"));
+  }, [groupsAll]);
+  const cpOptions = useMemo(() => {
+    const m = new Map();
+    groupsAll.forEach((g) => g.code_postal && m.set(g.code_postal, (m.get(g.code_postal) || 0) + 1));
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [groupsAll]);
+
+  const toAddOf = (list) => list.filter((g) => !g.prospectId && !nomsProspects.has(prospectionNorm(g.societe)));
+  const selectedGroups = useMemo(() => groupsAll.filter((g) => selected.has(g.key)), [groupsAll, selected]);
+  const selectedAddable = toAddOf(selectedGroups);
+  const withoutAddress = groupsAll.filter((g) => g.lat == null && g.siret);
+  const untried = withoutAddress.filter((g) => !g.essaiAdresse);
+
+  const toggle = (k) => setSelected((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const selectAllFiltered = () => setSelected(new Set(toAddOf(rows).map((g) => g.key)));
+  const toggleCampagne = (id) => {
+    const cur = new Set(activeIds);
+    cur.has(id) ? cur.delete(id) : cur.add(id);
+    setSelIds([...cur]);
+  };
+
+  const runEnrich = async (list) => {
+    if (!list.length) return;
+    stopRef.current = false;
+    setEnrichState({ i: 0, n: list.length });
+    const res = await camp.enrich(list, { onProgress: (i, n) => setEnrichState({ i, n }), shouldStop: () => stopRef.current });
+    setEnrichState(null);
+    if (res.aborted) showToast(`Recherche interrompue — ${res.reason}. ${res.found} adresse(s) retrouvée(s).`, { type: "error" });
+    else showToast(`${res.found} adresse(s) retrouvée(s)${res.failed ? `, ${res.failed} introuvable(s)` : ""}`);
+  };
+
+  const addToProspection = async () => {
+    if (!selectedAddable.length) { showToast("Rien à ajouter : ces entreprises sont déjà dans la prospection", { type: "error" }); return; }
+    if (!commercial) { showToast("Choisissez le commercial", { type: "error" }); return; }
+    if (!relance) { showToast("Choisissez une date de relance", { type: "error" }); return; }
+    setBusy("0");
+    try {
+      // Les entreprises sans adresse tentent d'abord une recherche par SIRET (comme sur la fiche)
+      const need = selectedAddable.filter((g) => g.lat == null && g.siret && !g.essaiAdresse);
+      const res = need.length ? await camp.enrich(need, {}) : null;
+      const list = selectedAddable.map((g) => {
+        const pt = res?.patches?.get(g.siret);
+        return pt && pt.lat != null ? { ...g, adresse: pt.adresse || g.adresse, code_postal: pt.code_postal || g.code_postal, commune: pt.commune || g.commune, lat: pt.lat, lng: pt.lng } : g;
+      });
+      const n = await camp.createProspects(list, { commercial, relance, par: me, onProgress: (i, t) => setBusy(`${i}/${t}`) });
+      await onProspectsChanged?.();
+      setSelected(new Set());
+      showToast(`${n} prospect(s) ajouté(s) pour ${commercial} — relance le ${prospectionFrDate(relance)}`, { type: "celebrate" });
+    } catch (e) {
+      showToast(`Ajout interrompu — ${e.message}`, { type: "error" });
+      await onProspectsChanged?.();
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const inputCls = `rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  const cardCls = `rounded-2xl border ${dark ? "bg-zinc-900/40 border-zinc-800" : "bg-white border-stone-200"}`;
+  const chip = (on) => `pl-interactive rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${on ? "border-blue-700 bg-blue-700 text-white" : dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`;
+  const muted = dark ? "text-zinc-500" : "text-stone-500";
+  const ink = dark ? "text-zinc-100" : "text-stone-900";
+  const thisMonth = prospectionTodayISO().slice(0, 7);
+
+  if (tablesMissing) {
+    return (
+      <div data-testid="campagnes-sql" className={`rounded-2xl border p-4 text-sm ${dark ? "border-amber-800 bg-amber-950 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+        Les campagnes ne sont pas encore activées : le script SQL « prospection-campagnes.sql » doit être exécuté dans Supabase (une seule fois).
+      </div>
+    );
+  }
+  if (error) return <div className={`rounded-2xl border p-4 text-sm ${dark ? "border-rose-800 bg-rose-950 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-800"}`}>Impossible de charger les campagnes — {error}</div>;
+  if (loading && !campagnes.length) return <div className="flex h-40 items-center justify-center"><RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={22} /></div>;
+
+  const shown = rows.slice(0, limit);
+  const fiche = (g) => [campagneTitleCase(g.prenom), campagneTitleCase(g.nom)].filter(Boolean).join(" ");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className={`text-xs font-bold uppercase tracking-widest ${muted}`}>Campagnes Datanéo ({visibleCampagnes.length})</h3>
+        {campagnes.some((c) => c.archivee) && (
+          <label className={`flex items-center gap-1.5 text-xs ${muted}`}>
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="accent-blue-700" /> Voir les archivées
+          </label>
+        )}
+        {canImport && (
+          <button data-testid="campagne-importer-ouvrir" onClick={() => setImportOpen(true)} className="pl-interactive ml-auto rounded-lg bg-blue-700 px-3.5 py-2 text-sm font-bold text-white hover:bg-blue-500">
+            Importer une campagne
+          </button>
+        )}
+      </div>
+
+      {visibleCampagnes.length === 0 ? (
+        <EmptyState dark={dark} icon={Target} title="Aucune campagne pour l'instant" subtitle={canImport ? "Importez un fichier de ciblage Datanéo." : "Ophélie ou Steven peuvent importer un fichier de ciblage Datanéo."} />
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+          {visibleCampagnes.map((c) => {
+            const mine = cibles.filter((x) => x.campagne_id === c.id);
+            const nbAdresse = mine.filter((x) => x.lat != null).length;
+            const nbAjout = mine.filter((x) => x.prospect_id).length;
+            const on = activeIds.has(c.id);
+            return (
+              <div key={c.id} data-testid="campagne-card" className={`p-4 ${cardCls} ${on ? (dark ? "ring-2 ring-blue-600/60" : "ring-2 ring-blue-600/40") : "opacity-70"}`}>
+                <div className="flex items-start gap-2">
+                  <input type="checkbox" checked={on} onChange={() => toggleCampagne(c.id)} aria-label={`Afficher ${c.nom}`} className="mt-1 accent-blue-700" />
+                  <div className="min-w-0 flex-1">
+                    <div className={`flex flex-wrap items-center gap-1.5 font-semibold ${ink}`}>
+                      {c.nom}
+                      {c.mois && c.mois.slice(0, 7) === thisMonth && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>Ce mois-ci</span>}
+                      {c.archivee && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>Archivée</span>}
+                    </div>
+                    <div className={`text-xs ${muted}`}>{[c.source, c.mois && new Date(c.mois + "T00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })].filter(Boolean).join(" · ")}</div>
+                  </div>
+                </div>
+                <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div><dd className={`text-lg font-bold ${ink}`}>{mine.length}</dd><dt className={muted}>entreprises</dt></div>
+                  <div><dd className={`text-lg font-bold ${ink}`}>{nbAdresse}</dd><dt className={muted}>localisées</dt></div>
+                  <div><dd className={`text-lg font-bold ${ink}`}>{nbAjout}</dd><dt className={muted}>ajoutées</dt></div>
+                </dl>
+                <label className={`mt-3 flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest ${muted}`}>But de la campagne
+                  {canImport ? (
+                    <textarea
+                      data-testid="campagne-but-edit"
+                      rows={2}
+                      defaultValue={c.but || ""}
+                      placeholder="Écrivez le but de cette campagne…"
+                      onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.but || "")) camp.updateCampagne(c.id, { but: v || null }).then(() => showToast("But enregistré")).catch((er) => showToast(er.message, { type: "error" })); }}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-sm font-normal normal-case tracking-normal outline-none focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`}
+                    />
+                  ) : (
+                    <span className={`text-sm font-normal normal-case tracking-normal ${c.but ? (dark ? "text-zinc-300" : "text-stone-700") : muted}`}>{c.but || "But non renseigné"}</span>
+                  )}
+                </label>
+                {canImport && (
+                  <div className="mt-2 flex gap-3 text-xs">
+                    <button onClick={() => camp.updateCampagne(c.id, { archivee: !c.archivee })} className={`underline ${muted}`}>{c.archivee ? "Désarchiver" : "Archiver"}</button>
+                    <button
+                      onClick={() => { if (window.confirm(`Supprimer la campagne « ${c.nom} » et ses ${mine.length} entreprises ? Les prospects déjà créés sont conservés.`)) camp.deleteCampagne(c.id).then(() => setSelected(new Set())).catch((er) => showToast(er.message, { type: "error" })); }}
+                      className="text-rose-600 underline"
+                    >Supprimer</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {groupsAll.length > 0 && (
+        <>
+          {withoutAddress.length > 0 && canWriteCibles && (
+            <div data-testid="campagne-adresses" className={`flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm ${dark ? "border-blue-700/40 bg-blue-500/10 text-blue-200" : "border-blue-200 bg-blue-50 text-blue-900"}`}>
+              {enrichState ? (
+                <>
+                  <span>Recherche des adresses… {enrichState.i}/{enrichState.n}</span>
+                  <div className={`h-2 w-40 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-white"}`}><div className="h-full bg-blue-700" style={{ width: `${Math.round((enrichState.i / enrichState.n) * 100)}%` }} /></div>
+                  <button onClick={() => { stopRef.current = true; }} className="ml-auto rounded-lg border px-3 py-1 text-xs font-semibold">Arrêter</button>
+                </>
+              ) : (
+                <>
+                  <span>{withoutAddress.length} entreprise(s) sans adresse. Elle est retrouvée par SIRET dans l'annuaire des entreprises, puis placée sur la carte.</span>
+                  <button data-testid="campagne-enrich" onClick={() => runEnrich(untried.length ? untried : withoutAddress)} className="ml-auto rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-bold text-white">
+                    {untried.length ? `Retrouver les adresses (${untried.length})` : `Réessayer (${withoutAddress.length})`}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="search" placeholder="Rechercher une entreprise, un contact, une commune…" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} className={`min-w-[220px] flex-1 ${inputCls}`} />
+            <select value={filters.naf} onChange={(e) => setFilters({ ...filters, naf: e.target.value })} className={`max-w-[240px] ${inputCls}`}>
+              <option value="">Toutes activités</option>
+              {nafOptions.map(([n, c]) => <option key={n} value={n}>{n} ({c})</option>)}
+            </select>
+            <select value={filters.cp} onChange={(e) => setFilters({ ...filters, cp: e.target.value })} className={inputCls}>
+              <option value="">Tous codes postaux</option>
+              {cpOptions.map(([n, c]) => <option key={n} value={n}>{n} ({c})</option>)}
+            </select>
+            <select value={filters.vu} onChange={(e) => setFilters({ ...filters, vu: e.target.value })} className={inputCls}>
+              <option value="">Parc utilitaires : tous</option>
+              <option value="1-2">1 à 2 utilitaires</option>
+              <option value="3-5">3 à 5 utilitaires</option>
+              <option value="6-10">6 à 10 utilitaires</option>
+              <option value="11+">11 et plus</option>
+            </select>
+            <select value={sort} onChange={(e) => setSort(e.target.value)} className={inputCls}>
+              <option value="defaut">Tri : étoiles puis parc</option>
+              <option value="az">Tri : A à Z</option>
+              <option value="commune">Tri : commune</option>
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div data-testid="campagne-ford" className={`inline-flex overflow-hidden rounded-full border ${dark ? "border-zinc-700" : "border-stone-300"}`}>
+              {[["", "Tous"], ["hors", "Hors clients Ford"], ["clients", "Clients Ford"]].map(([k, l]) => (
+                <button key={k} onClick={() => setFilters({ ...filters, ford: k })} className={`px-3 py-1 text-xs font-semibold ${filters.ford === k ? "bg-blue-700 text-white" : dark ? "text-zinc-300" : "text-stone-600"}`}>{l}</button>
+              ))}
+            </div>
+            <button onClick={() => setFilters({ ...filters, elec: !filters.elec })} className={chip(filters.elec)}>Déjà électrique</button>
+            <button onClick={() => setFilters({ ...filters, mois: !filters.mois })} className={chip(filters.mois)}>★ Cibles du mois</button>
+            <button onClick={() => setFilters({ ...filters, adresse: !filters.adresse })} className={chip(filters.adresse)}>Avec adresse</button>
+            <button onClick={() => setFilters({ ...filters, masquerAjoutees: !filters.masquerAjoutees })} className={chip(filters.masquerAjoutees)}>Masquer déjà ajoutées</button>
+            <span className={`ml-auto text-xs ${muted}`}>{rows.length} sur {groupsAll.length} entreprise(s)</span>
+          </div>
+
+          <div className={`overflow-x-auto rounded-2xl border ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+            <table className="w-full text-sm" data-testid="campagne-table">
+              <thead>
+                <tr className={`border-b text-left text-xs ${dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-500"}`}>
+                  <th className="w-8 px-3 py-2" />
+                  <th className="w-8 px-1 py-2" title="Cible du mois">★</th>
+                  {["Entreprise", "Activité", "Contact", "Parc", "Adresse", ""].map((h) => <th key={h} className="whitespace-nowrap px-3 py-2 font-semibold">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((g) => {
+                  const added = g.prospectId || nomsProspects.has(prospectionNorm(g.societe));
+                  return (
+                    <tr key={g.key} data-testid="campagne-row" className={`border-b ${dark ? "border-zinc-800" : "border-stone-100"} ${selected.has(g.key) ? (dark ? "bg-blue-500/10" : "bg-blue-50") : ""}`}>
+                      <td className="px-3 py-2"><input type="checkbox" disabled={!!added} checked={selected.has(g.key)} onChange={() => toggle(g.key)} aria-label={`Sélectionner ${g.societe}`} className="accent-blue-700" /></td>
+                      <td className="px-1 py-2">
+                        <button
+                          disabled={!canWriteCibles}
+                          onClick={() => camp.setCibleMois(g, !g.cibleMois).catch((er) => showToast(er.message, { type: "error" }))}
+                          title={g.cibleMois ? "Retirer des cibles du mois" : "Marquer comme cible du mois"}
+                          className={`text-base leading-none ${g.cibleMois ? "text-amber-500" : dark ? "text-zinc-700" : "text-stone-300"}`}
+                        >★</button>
+                      </td>
+                      <td className="min-w-[200px] px-3 py-2">
+                        <div className={`font-semibold ${ink}`}>{g.societe}</div>
+                        <div className="mt-0.5 flex flex-wrap gap-1">
+                          {g.clientFord && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase ${dark ? "bg-blue-500/20 text-blue-300" : "bg-blue-100 text-blue-800"}`}>Client Ford</span>}
+                          {added && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase ${dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>Déjà en prospection</span>}
+                          {g.campagneIds.map((id) => <span key={id} className={`rounded-full px-1.5 py-0.5 text-[10px] ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>{campById.get(id)?.nom.split(" ")[0] || ""}</span>)}
+                        </div>
+                      </td>
+                      <td className={`max-w-[220px] px-3 py-2 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>{g.libelle_naf}</td>
+                      <td className={`px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                        <div>{fiche(g) || <span className={muted}>—</span>}</div>
+                        <div className={`text-xs ${muted}`}>{g.fonction}</div>
+                      </td>
+                      <td className={`whitespace-nowrap px-3 py-2 text-xs ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                        {g.parc_vu > 0 && <div>{g.parc_vu} utilitaire(s)</div>}
+                        {g.parc_vp > 0 && <div>{g.parc_vp} voiture(s)</div>}
+                        {g.vp_elec > 0 && <div className="text-emerald-600">dont électrique</div>}
+                      </td>
+                      <td className={`px-3 py-2 text-xs ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                        {g.adresse || g.commune ? [g.adresse, [g.code_postal, g.commune].filter(Boolean).join(" ")].filter(Boolean).join(", ") : <span className={muted}>{g.code_postal || "—"} · à retrouver</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {g.lat != null && <a href={prospectionMapsDirectionsUrl(g)} target="_blank" rel="noreferrer" className={`text-xs underline ${muted}`}>Itinéraire</a>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > limit && (
+            <button onClick={() => setLimit(limit + CAMPAGNE_PAGE)} className={`mx-auto block rounded-lg border px-4 py-2 text-sm font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}>
+              Afficher {Math.min(CAMPAGNE_PAGE, rows.length - limit)} de plus ({rows.length - limit} restantes)
+            </button>
+          )}
+          {rows.length === 0 && <EmptyState dark={dark} icon={Target} title="Aucune entreprise ne correspond à ces filtres" />}
+
+          <div data-testid="campagne-barre" className={`sticky bottom-2 z-10 flex flex-wrap items-center gap-2 rounded-2xl border p-3 shadow-lg ${dark ? "border-zinc-700 bg-zinc-900" : "border-stone-300 bg-white"}`}>
+            <span className={`text-sm font-semibold ${ink}`}>{selected.size} sélectionnée(s)</span>
+            <button data-testid="campagne-tout" onClick={selectAllFiltered} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-200" : "border-stone-300 text-stone-700"}`}>Tout sélectionner ({toAddOf(rows).length})</button>
+            {selected.size > 0 && <button onClick={() => setSelected(new Set())} className={`text-xs underline ${muted}`}>Effacer</button>}
+            {readOnly ? (
+              <span className={`ml-auto text-xs ${muted}`}>Lecture seule : vous pouvez consulter et importer, pas ajouter à la prospection.</span>
+            ) : (
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <select data-testid="campagne-commercial" value={commercial} onChange={(e) => setCommercial(e.target.value)} className={inputCls}>
+                  <option value="">Commercial…</option>
+                  {commerciaux.map((n) => <option key={n}>{n}</option>)}
+                </select>
+                <label className={`flex items-center gap-1.5 text-xs ${muted}`}>Relance
+                  <input type="date" value={relance} min={prospectionTodayISO()} onChange={(e) => setRelance(e.target.value)} className={inputCls} />
+                </label>
+                <button data-testid="campagne-ajouter" onClick={addToProspection} disabled={!!busy || !selected.size} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-50">
+                  {busy ? `Ajout… ${busy}` : "Ajouter à la prospection"}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {importOpen && (
+        <CampagneImportModal
+          dark={dark}
+          existingSirets={new Set(cibles.map((c) => c.siret).filter(Boolean))}
+          onClose={() => setImportOpen(false)}
+          onImport={async (args) => {
+            const r = await camp.importCampagne(args);
+            showToast(`Campagne « ${r.campagne.nom} » importée : ${r.count} entreprises`);
+            setSelIds(null);
+            setSelected(new Set());
+            return r;
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProspectionTab({ dark, currentUserName, readOnly, canImport, showToast }) {
   const data = useProspection();
   const { prospects, actions, loading, error } = data;
   // Les clients existants (importés du CRM) ne font jamais partie du pipeline commercial —
@@ -5536,6 +6448,26 @@ function ProspectionTab({ dark, currentUserName, readOnly, showToast }) {
   useEffect(() => { saveLocal("dsr:prospection-scope", scope); }, [scope]);
   const [openId, setOpenId] = useState(null);
   const [newPrefill, setNewPrefill] = useState(null);
+  // Campagnes Datanéo : chargées seulement quand on ouvre « Campagnes » ou « Carte ».
+  const camp = useCampagnes(vue === "campagnes" || vue === "carte");
+  const [campSel, setCampSel] = useState(() => loadLocal("dsr:prospection-campagnes-sel", null)); // null = toutes les campagnes non archivées
+  useEffect(() => { saveLocal("dsr:prospection-campagnes-sel", campSel); }, [campSel]);
+  const nomsProspects = useMemo(() => new Set(prospects.map((p) => prospectionNorm(p.societe)).filter(Boolean)), [prospects]);
+  const campActiveIds = useMemo(() => (campSel ? new Set(campSel) : new Set(camp.campagnes.filter((c) => !c.archivee).map((c) => c.id))), [campSel, camp.campagnes]);
+  const campCiblesCarte = useMemo(
+    () => campagneGroupCibles(camp.cibles.filter((c) => campActiveIds.has(c.campagne_id))).filter((g) => g.lat != null && !g.prospectId && !nomsProspects.has(prospectionNorm(g.societe))),
+    [camp.cibles, campActiveIds, nomsProspects]
+  );
+  const openNewFromCible = (g) => {
+    const nomOf = (id) => camp.campagnes.find((c) => c.id === id)?.nom || "";
+    setNewPrefill({ ...campagneProspectFields(g, g.campagneIds.map(nomOf).filter(Boolean)), _cible: g });
+    setOpenId("new");
+  };
+  const saveFiche = async (p, previous) => {
+    const saved = await data.save(p, previous);
+    if (p._cible && saved?.id) await camp.linkProspect(p._cible, saved.id, currentUserName).catch(() => {});
+    return saved;
+  };
   const openNewFromOsm = (place) => {
     setNewPrefill({ societe: place.societe, secteur: place.secteur, adresse: place.adresse, code_postal: place.code_postal, commune: place.commune, tel: place.tel, email: place.email, lat: place.lat, lng: place.lng, _coordsFromSuggestion: true });
     setOpenId("new");
@@ -5928,6 +6860,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, showToast }) {
     ["pipeline", "Pipeline"],
     ["liste", "Prospects"],
     ["carte", "Carte"],
+    ["campagnes", "Campagnes"],
     ["equipe", "Équipe"],
   ];
 
@@ -5977,7 +6910,8 @@ function ProspectionTab({ dark, currentUserName, readOnly, showToast }) {
         {vue === "jour" && vueJour()}
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
-        {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
+        {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} cibles={campCiblesCarte} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
@@ -5992,7 +6926,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, showToast }) {
           readOnly={readOnly}
           newPrefill={newPrefill}
           onClose={closeFiche}
-          onSave={data.save}
+          onSave={saveFiche}
           onDelete={data.remove}
           onAddAction={addAction}
           showToast={showToast}
@@ -11131,7 +12065,7 @@ export default function App() {
             />
           ) : tab === "prospection" ? (
             canProspect ? (
-              <ProspectionTab dark={dark} currentUserName={vendorName} readOnly={prospectionAccess.readOnly} showToast={showToast} />
+              <ProspectionTab dark={dark} currentUserName={vendorName} readOnly={prospectionAccess.readOnly} canImport={prospectionAccess.canImport} showToast={showToast} />
             ) : null
           ) : tab === "rdv" ? (
             rdvMe ? (
