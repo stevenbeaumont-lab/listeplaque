@@ -5525,7 +5525,15 @@ function ProspectionTab({ dark, currentUserName, readOnly, showToast }) {
   const existingClients = useMemo(() => prospects.filter((p) => p.client_existant), [prospects]);
   const [vue, setVue] = useState(() => loadLocal("dsr:prospection-vue", "jour"));
   useEffect(() => { saveLocal("dsr:prospection-vue", vue); }, [vue]);
-  const [scope, setScope] = useState("");
+  // Filtre par défaut : l'équipe du commercial connecté (A ou B) ; « Toute l'équipe » pour les autres comptes.
+  // Le dernier choix de la personne est mémorisé et reprend le dessus.
+  const [scope, setScope] = useState(() => {
+    const saved = loadLocal("dsr:prospection-scope", null);
+    if (saved !== null) return saved;
+    const t = PROSPECTION_TEAMS[prospectionCommercialFor(currentUserName)];
+    return t ? `team:${t}` : "";
+  });
+  useEffect(() => { saveLocal("dsr:prospection-scope", scope); }, [scope]);
   const [openId, setOpenId] = useState(null);
   const [newPrefill, setNewPrefill] = useState(null);
   const openNewFromOsm = (place) => {
