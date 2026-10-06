@@ -4071,7 +4071,8 @@ const PROSPECTION_MARQUES = ["Ford", "Renault", "Peugeot", "Citroën", "Volkswag
 const PROSPECTION_ENERGIES = ["Gazole", "Essence", "Électrique", "Hybride"];
 const PROSPECTION_PERIODICITES = [[6, "Tous les 6 mois"], [12, "Tous les ans"], [24, "Tous les 2 ans"], [36, "Tous les 3 ans"], [48, "Tous les 4 ans"], [60, "Tous les 5 ans"]];
 const PROSPECTION_RAPPEL_AVANCE_MOIS = 2; // on rappelle 2 mois avant l'échéance estimée si le dernier renouvellement est connu
-const PROSPECTION_PROPOSITION_RELANCE_JOURS = 3; // relance 72 h après l'envoi d'une proposition
+const PROSPECTION_PROPOSITION_RELANCE_JOURS = 5; // relance 5 jours après l'envoi d'une proposition
+const PROSPECTION_PERDU_RELANCE_MOIS = 6; // un prospect perdu est à recontacter dans 6 mois
 const PROSPECTION_RELANCE_DEFAUT_JOURS = 10; // date de relance proposée quand aucune périodicité n'est renseignée
 // Colonnes ajoutées par sql/prospection-criteres.sql
 const PROSPECTION_CRITERE_COLS = ["marques", "energies", "decideur", "renouvellement_mois", "dernier_renouvellement", "motif_perte", "derniere_proposition"];
@@ -4081,10 +4082,10 @@ const PROSPECTION_OBJECTIF_SEMAINE = 25;
 // Aucun rôle ParcLive existant ne distingue les commerciaux B2B des autres vendeurs —
 // liste à éditer ici en attendant un éventuel champ dédié. Signalé dans le récapitulatif de livraison.
 const PROSPECTION_COMMERCIAUX = ["Anthony", "Thao", "Tom", "Julia"];
-// Binômes : Anthony + Thao (équipe A, zone sud), Tom + Julia (équipe B, zone nord).
+// Binômes : Anthony + Thao (équipe A, zone est de Caen), Tom + Julia (équipe B, zone ouest de Caen).
 // Thao et Julia sont les alternants respectifs d'Anthony et Tom.
 const PROSPECTION_TEAMS = { Anthony: "A", Thao: "A", Tom: "B", Julia: "B" };
-const PROSPECTION_TEAM_ZONE_LAT = 49.178; // ligne de partage nord/sud, au niveau de la Prairie de Caen
+const PROSPECTION_TEAM_ZONE_LNG = -0.3707; // ligne de partage est/ouest : la longitude du centre de Caen (l'Orne)
 const PROSPECTION_TEAM_COLORS = {
   A: { main: "#1D4ED8", light: "#93C5FD" }, // Anthony (fonce) / Thao, alternante (clair)
   B: { main: "#047857", light: "#6EE7B7" }, // Tom (fonce) / Julia, alternante (clair)
@@ -4100,6 +4101,13 @@ function prospectionAddDaysISO(n) {
   d.setDate(d.getDate() + n);
   return prospectionTodayISO(d);
 }
+// Date de relance proposée selon le statut : Prospect +10 j, Proposition envoyée +5 j, Perdu +6 mois, Gagné aucune.
+function prospectionDefaultRelance(statut) {
+  if (statut === "Prospect") return prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS);
+  if (statut === "Proposition envoyée") return prospectionAddDaysISO(PROSPECTION_PROPOSITION_RELANCE_JOURS);
+  if (statut === "Perdu") return prospectionAddMonthsISO(null, PROSPECTION_PERDU_RELANCE_MOIS);
+  return null;
+}
 function prospectionFrDate(s) {
   return s ? new Date(s + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "";
 }
@@ -4107,12 +4115,73 @@ function prospectionInitials(n) {
   return (n || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 }
 function prospectionRelanceState(p) {
-  if (!p.relance || p.statut === "Gagné" || p.statut === "Perdu") return "";
+  if (!p.relance || p.statut === "Gagné") return "";
   const t = prospectionTodayISO();
   if (p.relance < t) return "late";
   if (p.relance === t) return "due";
   return "future";
 }
+// <<tournee-logic
+function prospectionDistanceKm(a, b) {
+  const R = 6371;
+  const rad = (x) => (x * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+// Tournée : les `max` prospects les plus proches du départ, puis rangés dans l'ordre de visite
+// (plus proche voisin, amélioré par échanges 2-opt) pour limiter les kilomètres.
+function prospectionPlanTournee(candidates, start, { max = 8 } = {}) {
+  const pts = candidates.filter((p) => p.lat != null && p.lng != null);
+  const near = [...pts].sort((a, b) => prospectionDistanceKm(start, a) - prospectionDistanceKm(start, b) || String(a.societe).localeCompare(String(b.societe), "fr")).slice(0, max);
+  const left = [...near];
+  const order = [];
+  let cur = start;
+  while (left.length) {
+    let bi = 0;
+    let bd = Infinity;
+    left.forEach((p, i) => { const d = prospectionDistanceKm(cur, p); if (d < bd) { bd = d; bi = i; } });
+    const [n] = left.splice(bi, 1);
+    order.push(n);
+    cur = n;
+  }
+  let improved = true;
+  let guard = 0;
+  while (improved && guard++ < 50) {
+    improved = false;
+    for (let i = 0; i < order.length - 1; i++) {
+      for (let j = i + 1; j < order.length; j++) {
+        const a = i === 0 ? start : order[i - 1];
+        const b = order[i];
+        const c = order[j];
+        const d = order[j + 1];
+        const before = prospectionDistanceKm(a, b) + (d ? prospectionDistanceKm(c, d) : 0);
+        const after = prospectionDistanceKm(a, c) + (d ? prospectionDistanceKm(b, d) : 0);
+        if (after + 1e-9 < before) {
+          order.splice(i, j - i + 1, ...order.slice(i, j + 1).reverse());
+          improved = true;
+        }
+      }
+    }
+  }
+  return order;
+}
+// Longueur estimée sur route : à vol d'oiseau × 1,3.
+function prospectionTourneeKm(start, stops) {
+  let km = 0;
+  let cur = start;
+  for (const s of stops) { km += prospectionDistanceKm(cur, s); cur = s; }
+  return km * 1.3;
+}
+function prospectionTourneeUrl(start, stops) {
+  if (!stops.length) return "";
+  const pt = (p) => `${p.lat},${p.lng}`;
+  const last = stops[stops.length - 1];
+  const via = stops.slice(0, -1).map(pt).join("%7C");
+  return `https://www.google.com/maps/dir/?api=1&origin=${pt(start)}&destination=${pt(last)}${via ? `&waypoints=${via}` : ""}&travelmode=driving`;
+}
+// tournee-logic>>
 function prospectionMapsDirectionsUrl(p) {
   return p.lat != null
     ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`
@@ -4679,11 +4748,15 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
       if (s === "Prospect") {
         const z = withRenewalRelance(y);
         if (z !== y) return z;
-        if (!y.relance || y.relance <= prospectionTodayISO()) y.relance = prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS);
+        if (!y.relance || y.relance <= prospectionTodayISO() || x.statut === "Perdu") y.relance = prospectionDefaultRelance("Prospect");
       } else if (s === "Proposition envoyée") {
-        // Proposition envoyée : on relance sous 72 h, et on date l'envoi.
-        y.relance = prospectionAddDaysISO(PROSPECTION_PROPOSITION_RELANCE_JOURS);
+        // Proposition envoyée : on relance sous 5 jours, et on date l'envoi.
+        y.relance = prospectionDefaultRelance("Proposition envoyée");
         if (x.statut !== "Proposition envoyée") y.derniere_proposition = prospectionTodayISO();
+      } else if (s === "Perdu") {
+        y.relance = prospectionDefaultRelance("Perdu"); // à recontacter dans 6 mois
+      } else if (s === "Gagné") {
+        y.relance = null; // plus de relance
       }
       return y;
     });
@@ -4695,7 +4768,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
     if (p.statut === "Perdu" && !p.motif_perte) { showToast("Indiquez pourquoi ce prospect est perdu", { type: "error" }); return; }
     setSaving(true);
     try {
-      const toSave = { ...p, ...(p.statut !== "Perdu" ? { motif_perte: null } : { relance: null }), ...(p.statut === "Proposition envoyée" && !p.derniere_proposition ? { derniere_proposition: prospectionTodayISO() } : {}) };
+      const toSave = { ...p, ...(p.statut !== "Perdu" ? { motif_perte: null } : { relance: p.relance || prospectionDefaultRelance("Perdu") }), ...(p.statut === "Gagné" ? { relance: null } : {}), ...(p.statut === "Proposition envoyée" && !p.derniere_proposition ? { derniere_proposition: prospectionTodayISO() } : {}) };
       const saved = await onSave(toSave, isNew ? null : prospect);
       if (saved?._criteresIgnores) showToast("Fiche enregistrée, mais les critères du parc ne le sont pas encore : le script SQL « prospection-criteres.sql » doit être exécuté", { type: "error" });
       else showToast(isNew ? "Prospect ajouté" : "Prospect enregistré");
@@ -4739,6 +4812,11 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className={`text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{isNew ? "Nouveau prospect" : prospect.societe}</h2>
+            {!isNew && prospect.created_at && (
+              <div data-testid="date-creation" className={`mt-0.5 text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>
+                Créé le {new Date(prospect.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+              </div>
+            )}
             {!isNew && p.client_existant && (
               <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-200 text-stone-600"}`}>
                 Client existant
@@ -4862,7 +4940,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
           </section>
           <label className={labelCls}>
             Statut
-            <select className={inputCls} value={p.statut} onChange={onStatutChange}>{PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
+            <select data-testid="statut-select" className={inputCls} value={p.statut} onChange={onStatutChange}>{PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
           </label>
           <label className={labelCls}>
             Commercial
@@ -4872,13 +4950,19 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             </select>
           </label>
           {p.statut === "Perdu" ? (
-            <label className={`${labelCls} sm:col-span-2`}>
-              Motif de la perte *
-              <select data-testid="motif-perte" className={inputCls} value={p.motif_perte || ""} onChange={set("motif_perte")}>
-                <option value="">Choisir un motif…</option>
-                {PROSPECTION_MOTIFS_PERTE.map((m) => <option key={m}>{m}</option>)}
-              </select>
-            </label>
+            <>
+              <label className={labelCls}>
+                Motif de la perte *
+                <select data-testid="motif-perte" className={inputCls} value={p.motif_perte || ""} onChange={set("motif_perte")}>
+                  <option value="">Choisir un motif…</option>
+                  {PROSPECTION_MOTIFS_PERTE.map((m) => <option key={m}>{m}</option>)}
+                </select>
+              </label>
+              <label className={labelCls}>
+                À recontacter le
+                <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} onChange={set("relance")} />
+              </label>
+            </>
           ) : prospectionNeedsRelance(p.statut) ? (
             <label className={labelCls}>
               Date de relance *
@@ -5059,7 +5143,8 @@ function prospectionPopupHtml(p) {
     `<div>${prospectionEscapeHtml([p.contact, p.tel].filter(Boolean).join(" · "))}</div>`,
     `<div style="color:#78716c;">${prospectionEscapeHtml([p.adresse, p.commune].filter(Boolean).join(", "))}</div>`,
     p.client_existant ? "" : `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
-    !p.client_existant && p.relance ? `<div style="${late ? "color:#be123c;" : ""}">Relance : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
+    !p.client_existant && p.relance ? `<div style="${late ? "color:#be123c;" : ""}">${p.statut === "Perdu" ? "À recontacter" : "Relance"} : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
+    !p.client_existant && p.created_at ? `<div style="color:#78716c;font-size:12px;">Créé le ${prospectionEscapeHtml(new Date(p.created_at).toLocaleDateString("fr-FR"))}</div>` : "",
     `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">`,
     `<button data-action="open" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
     p.client_existant ? "" : `<button data-action="visit" style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">J'ai visité</button>`,
@@ -5244,6 +5329,71 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const onCreateAtLocationRef = useRef(onCreateAtLocation);
   onCreateAtLocationRef.current = onCreateAtLocation;
 
+  // ---- Rechercher un client : prospects, clients existants et entreprises de campagne, puis zoom dessus.
+  const [searchQ, setSearchQ] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const highlightRef = useRef({ layer: null, timer: null });
+  const searchResults = useMemo(() => {
+    const n = prospectionNorm(searchQ.trim());
+    if (n.length < 2) return [];
+    const out = [];
+    const add = (kind, item, key) => {
+      const hay = prospectionNorm([item.societe, item.contact, item.nom, item.prenom, item.decideur, item.commune].filter(Boolean).join(" "));
+      if (hay.includes(n)) out.push({ kind, item, key, rank: prospectionNorm(item.societe || "").startsWith(n) ? 0 : 1 });
+    };
+    prospects.forEach((p) => add("Prospect", p, `p${p.id}`));
+    clients.forEach((p) => add("Client", p, `c${p.id}`));
+    cibles.forEach((g) => add("Campagne", g, `g${g.key}`));
+    return out.sort((a, b) => a.rank - b.rank || String(a.item.societe).localeCompare(String(b.item.societe), "fr")).slice(0, 8);
+  }, [searchQ, prospects, clients, cibles]);
+  const goToResult = (r) => {
+    const it = r.item;
+    setSearchOpen(false);
+    if (it.lat == null || it.lng == null) {
+      if (r.kind === "Campagne") showToast("Cette entreprise n'est pas encore localisée", { type: "error" });
+      else onOpen(it.id);
+      return;
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    if (r.kind === "Prospect") setSelectedId(it.id);
+    map.setView([it.lat, it.lng], Math.max(map.getZoom(), 17));
+    clearTimeout(highlightRef.current.timer);
+    if (highlightRef.current.layer) map.removeLayer(highlightRef.current.layer);
+    const layer = L.circleMarker([it.lat, it.lng], { radius: 26, color: "#F59E0B", weight: 4, fillColor: "#F59E0B", fillOpacity: 0.12, interactive: false, className: "prospection-find" }).addTo(map);
+    highlightRef.current.layer = layer;
+    highlightRef.current.timer = setTimeout(() => { map.removeLayer(layer); highlightRef.current.layer = null; }, 9000);
+  };
+
+  // ---- Ma tournée : les prospects à relancer les plus proches du départ, dans l'ordre de visite.
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStartMode, setTourStartMode] = useState("position");
+  const [tourPos, setTourPos] = useState(null);
+  const [tourWeek, setTourWeek] = useState(false);
+  const [tourMax, setTourMax] = useState(8);
+  const [tourExcluded, setTourExcluded] = useState(() => new Set());
+  const tourLayerRef = useRef(null);
+  const tourStart = tourStartMode === "position" && tourPos ? { lat: tourPos.lat, lng: tourPos.lng, label: "Ma position" } : { ...PROSPECTION_CAEN_CENTER, label: "Centre de Caen" };
+  const tourCandidates = useMemo(() => {
+    const week = prospectionAddDaysISO(7);
+    return prospects.filter((p) => {
+      if (p.client_existant || p.lat == null || p.lng == null || tourExcluded.has(p.id)) return false;
+      const st = prospectionRelanceState(p);
+      return st === "late" || st === "due" || (tourWeek && st === "future" && p.relance <= week);
+    });
+  }, [prospects, tourExcluded, tourWeek]);
+  const tourStops = useMemo(
+    () => (tourOpen ? prospectionPlanTournee(tourCandidates, tourStart, { max: tourMax }) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tourOpen, tourCandidates, tourStart.lat, tourStart.lng, tourMax]
+  );
+  const locateForTour = async (manual) => {
+    const pos = await prospectionGetPosition();
+    if (pos) { setTourPos(pos); setTourStartMode("position"); }
+    else { setTourStartMode("centre"); if (manual) showToast("Position indisponible : départ du centre de Caen", { type: "error" }); }
+  };
+  const openTour = () => { setTourOpen(true); setTourExcluded(new Set()); locateForTour(true); };
+
   const colorOfCommercial = useMemo(() => {
     const m = {};
     const usedPerTeam = {};
@@ -5367,28 +5517,46 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ciblesPlaced, zoomTick, showCampagneNom]);
 
-  // Trace la ligne de partage nord/sud entre les deux binômes, avec une zone teintée de chaque côté.
+  // Trace la ligne de partage est/ouest entre les deux binômes, avec une zone teintée de chaque côté.
   const teamZoneLayerRef = useRef(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (teamZoneLayerRef.current) { map.removeLayer(teamZoneLayerRef.current); teamZoneLayerRef.current = null; }
     if (!showTeamZones) return;
-    const lat = PROSPECTION_TEAM_ZONE_LAT;
+    const lng = PROSPECTION_TEAM_ZONE_LNG;
     const span = 0.35;
-    const west = PROSPECTION_CAEN_CENTER.lng - span;
-    const east = PROSPECTION_CAEN_CENTER.lng + span;
+    const south = PROSPECTION_CAEN_CENTER.lat - span;
+    const north = PROSPECTION_CAEN_CENTER.lat + span;
     const group = L.layerGroup();
-    L.rectangle([[lat, west], [lat + span, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.B.main, fillOpacity: 0.05, interactive: false }).addTo(group);
-    L.rectangle([[lat - span, west], [lat, east]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.A.main, fillOpacity: 0.05, interactive: false }).addTo(group);
-    L.polyline([[lat, west], [lat, east]], { color: dark ? "#71717a" : "#a8a29e", weight: 2, dashArray: "6 6", interactive: false }).addTo(group);
+    L.rectangle([[south, lng - span], [north, lng]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.B.main, fillOpacity: 0.05, interactive: false }).addTo(group);
+    L.rectangle([[south, lng], [north, lng + span]], { color: "transparent", fillColor: PROSPECTION_TEAM_COLORS.A.main, fillOpacity: 0.05, interactive: false }).addTo(group);
+    L.polyline([[south, lng], [north, lng]], { color: dark ? "#71717a" : "#a8a29e", weight: 2, dashArray: "6 6", interactive: false }).addTo(group);
     const labelIcon = (text, color) =>
       L.divIcon({ html: `<div style="background:${color};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${text}</div>`, className: "", iconSize: [0, 0] });
-    L.marker([lat + span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe B — Tom & Julia", PROSPECTION_TEAM_COLORS.B.main), interactive: false }).addTo(group);
-    L.marker([lat - span * 0.5, PROSPECTION_CAEN_CENTER.lng], { icon: labelIcon("Équipe A — Anthony & Thao", PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
+    L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng - span * 0.5], { icon: labelIcon("Équipe B (ouest) — Tom & Julia", PROSPECTION_TEAM_COLORS.B.main), interactive: false }).addTo(group);
+    L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng + span * 0.1], { icon: labelIcon("Équipe A (est) — Anthony & Thao", PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
     group.addTo(map);
     teamZoneLayerRef.current = group;
   }, [showTeamZones, dark]);
+
+  // Tournée : trajet en pointillés et étapes numérotées.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (tourLayerRef.current) { map.removeLayer(tourLayerRef.current); tourLayerRef.current = null; }
+    if (!tourOpen || !tourStops.length) return;
+    const g = L.layerGroup();
+    const pts = [tourStart, ...tourStops].map((q) => [q.lat, q.lng]);
+    L.polyline(pts, { color: "#1D4ED8", weight: 4, opacity: 0.85, dashArray: "8 6", interactive: false }).addTo(g);
+    const pin = (txt, bg) => L.divIcon({ html: `<div class="tour-pin" style="width:26px;height:26px;border-radius:50%;background:${bg};color:#fff;border:2px solid #fff;font:700 13px/22px sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.45);">${txt}</div>`, className: "", iconSize: [26, 26], iconAnchor: [13, 13] });
+    L.marker([tourStart.lat, tourStart.lng], { icon: pin("D", "#0F172A"), interactive: false, zIndexOffset: 900 }).addTo(g);
+    tourStops.forEach((q, i) => L.marker([q.lat, q.lng], { icon: pin(i + 1, "#1D4ED8"), interactive: false, zIndexOffset: 1000 }).addTo(g));
+    g.addTo(map);
+    tourLayerRef.current = g;
+    map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 15 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourOpen, tourStops]);
 
   // Synchronise le calque de découverte OpenStreetMap (entreprises pas encore dans Prospection).
   useEffect(() => {
@@ -5481,6 +5649,54 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
         >
           Légende
         </button>
+        <button
+          data-testid="tournee-btn"
+          aria-pressed={tourOpen}
+          onClick={() => (tourOpen ? setTourOpen(false) : openTour())}
+          className={`pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors ${tourOpen ? "border-blue-700 bg-blue-700 text-white" : dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+        >
+          Ma tournée
+        </button>
+        <div className="relative">
+          <div className={`flex h-9 w-64 items-center gap-2 rounded-lg border px-3 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-300"}`}>
+            <Search size={14} className={dark ? "text-zinc-500" : "text-stone-400"} />
+            <input
+              data-testid="carte-recherche"
+              value={searchQ}
+              onChange={(e) => { setSearchQ(e.target.value); setSearchOpen(true); }}
+              onFocus={() => setSearchOpen(true)}
+              onBlur={() => setTimeout(() => setSearchOpen(false), 180)}
+              placeholder="Rechercher un client…"
+              className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
+            />
+            {searchQ && (
+              <button aria-label="Effacer la recherche" onMouseDown={(e) => { e.preventDefault(); setSearchQ(""); }} className={dark ? "text-zinc-500" : "text-stone-400"}><X size={14} /></button>
+            )}
+          </div>
+          {searchOpen && searchQ.trim().length >= 2 && (
+            <ul data-testid="carte-recherche-resultats" className={`absolute left-0 z-30 mt-1 w-80 overflow-hidden rounded-xl border shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+              {searchResults.length === 0 ? (
+                <li className={`px-3 py-2 text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>Aucun résultat</li>
+              ) : (
+                searchResults.map((r) => (
+                  <li key={r.key}>
+                    <button
+                      data-testid="carte-recherche-item"
+                      onMouseDown={(e) => { e.preventDefault(); goToResult(r); }}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${dark ? "hover:bg-zinc-800 text-zinc-200" : "hover:bg-stone-100 text-stone-800"}`}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold">{r.item.societe}</span>
+                        <span className={`block truncate text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[r.item.commune, r.item.lat == null ? "non localisé" : ""].filter(Boolean).join(" · ")}</span>
+                      </span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${r.kind === "Prospect" ? (dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-800") : r.kind === "Client" ? (dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-200 text-stone-600") : dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800"}`}>{r.kind}</span>
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+        </div>
         <div className="relative">
           <button
             onClick={() => setMapFiltersOpen((o) => !o)}
@@ -5583,6 +5799,53 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
           <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Recherche en cours…</span>
         )}
       </div>
+
+      {tourOpen && (
+        <div data-testid="tournee" className={`rounded-2xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className={`text-sm font-bold ${dark ? "text-zinc-100" : "text-stone-900"}`}>Ma tournée de prospection</h3>
+            <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Départ
+              <select data-testid="tournee-depart" value={tourStartMode} onChange={(e) => { const v = e.target.value; setTourStartMode(v); if (v === "position" && !tourPos) locateForTour(true); }} className={`rounded-lg border px-2 py-1 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-700"}`}>
+                <option value="position">Ma position</option>
+                <option value="centre">Centre de Caen</option>
+              </select>
+            </label>
+            <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Étapes
+              <select data-testid="tournee-max" value={tourMax} onChange={(e) => setTourMax(parseInt(e.target.value, 10))} className={`rounded-lg border px-2 py-1 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-700"}`}>
+                {[4, 6, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+            <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+              <input data-testid="tournee-semaine" type="checkbox" checked={tourWeek} onChange={(e) => setTourWeek(e.target.checked)} className="accent-blue-700" /> Inclure les relances de la semaine
+            </label>
+            <button onClick={() => setTourOpen(false)} className={`ml-auto text-xs underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>Fermer</button>
+          </div>
+          {tourStops.length === 0 ? (
+            <p data-testid="tournee-vide" className={`mt-3 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Aucun prospect à relancer avec une adresse localisée{tourWeek ? "" : " (cochez « relances de la semaine » pour élargir)"}.</p>
+          ) : (
+            <>
+              <ol data-testid="tournee-liste" className="mt-3 space-y-1.5">
+                {tourStops.map((q, i) => {
+                  const prev = i === 0 ? tourStart : tourStops[i - 1];
+                  return (
+                    <li key={q.id} data-testid="tournee-etape" className={`flex items-center gap-3 rounded-lg border px-3 py-1.5 text-sm ${dark ? "border-zinc-800 text-zinc-200" : "border-stone-200 text-stone-800"}`}>
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-700 text-xs font-bold text-white">{i + 1}</span>
+                      <span className="min-w-0 flex-1 truncate"><b>{q.societe}</b>{q.commune ? <span className={dark ? "text-zinc-500" : "text-stone-500"}> · {q.commune}</span> : null}</span>
+                      <ProspectionRelancePill dark={dark} p={q} />
+                      <span className={`w-16 shrink-0 text-right text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{(prospectionDistanceKm(prev, q) * 1.3).toFixed(1)} km</span>
+                      <button aria-label={`Retirer ${q.societe} de la tournée`} onClick={() => setTourExcluded((s) => new Set(s).add(q.id))} className={dark ? "text-zinc-500 hover:text-zinc-300" : "text-stone-400 hover:text-stone-700"}><X size={14} /></button>
+                    </li>
+                  );
+                })}
+              </ol>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <span data-testid="tournee-total" className={`text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{tourStops.length} étape(s) · environ {prospectionTourneeKm(tourStart, tourStops).toFixed(1)} km depuis {tourStart.label.toLowerCase()}</span>
+                <a data-testid="tournee-gmaps" href={prospectionTourneeUrl(tourStart, tourStops)} target="_blank" rel="noreferrer" className="pl-interactive ml-auto rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500">Ouvrir dans Google Maps</a>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div ref={containerRef} className={`isolate relative z-0 h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
 
@@ -5915,12 +6178,12 @@ function campagneProspectFields(g, campagneNoms) {
 // --- Zones, ouvertures aux commerciaux, quota.
 const CAMPAGNE_PALETTE = ["#2563EB", "#DB2777", "#0D9488", "#D97706", "#7C3AED", "#65A30D", "#0891B2", "#E11D48"];
 const CAMPAGNE_MULTI_COLOR = "#334155";
-// Équipe B = nord de la ligne de partage de la carte, équipe A = sud.
-function campagneZoneOf(lat) {
-  return lat != null && lat >= PROSPECTION_TEAM_ZONE_LAT ? "B" : "A";
+// Équipe A = est de la ligne de partage de la carte, équipe B = ouest.
+function campagneZoneOf(lng) {
+  return lng != null && lng >= PROSPECTION_TEAM_ZONE_LNG ? "A" : "B";
 }
 function campagneZoneLabel(e) {
-  return e === "A" ? "Équipe A (sud)" : e === "B" ? "Équipe B (nord)" : "";
+  return e === "A" ? "Équipe A (est)" : e === "B" ? "Équipe B (ouest)" : "";
 }
 // « Ranger Septembre 2026 » -> « Ranger » (nom court pour les étiquettes de la carte)
 function campagneShortName(nom) {
@@ -5944,9 +6207,9 @@ function campagneTeamCommerciaux(equipe) {
   return PROSPECTION_COMMERCIAUX.filter((n) => PROSPECTION_TEAMS[n] === equipe);
 }
 // Prépare l'ouverture d'une sélection.
-//   mode « zone » : chaque entreprise va à l'équipe de sa zone (nord = B, sud = A), sans commercial précis ;
+//   mode « zone » : chaque entreprise va à l'équipe de sa zone (ouest = B, est = A), sans commercial précis ;
 //   mode « commercial » : tout va à un commercial (et donc à son équipe) ;
-//   mode « repartir » : zone puis répartition entre les commerciaux de l'équipe, de l'ouest vers l'est.
+//   mode « repartir » : zone puis répartition entre les commerciaux de l'équipe, du nord vers le sud.
 // sansAdresse : équipe à utiliser pour les entreprises sans position (« » = on ne les ouvre pas).
 function campagnePlanOuverture(groups, { mode, commercial, sansAdresse }) {
   const plan = [];
@@ -5954,7 +6217,7 @@ function campagnePlanOuverture(groups, { mode, commercial, sansAdresse }) {
   const byTeam = { A: [], B: [] };
   for (const g of groups) {
     if (mode === "commercial") { plan.push({ g, equipe: PROSPECTION_TEAMS[commercial] || "", commercial }); continue; }
-    const eq = g.lat != null ? campagneZoneOf(g.lat) : sansAdresse;
+    const eq = g.lat != null ? campagneZoneOf(g.lng) : sansAdresse;
     if (!eq) { skipped++; continue; }
     byTeam[eq].push(g);
   }
@@ -5963,7 +6226,7 @@ function campagnePlanOuverture(groups, { mode, commercial, sansAdresse }) {
       const list = byTeam[eq];
       const team = campagneTeamCommerciaux(eq);
       if (mode === "repartir" && team.length > 1) {
-        const sorted = [...list].sort((a, b) => (a.lng ?? 0) - (b.lng ?? 0) || a.societe.localeCompare(b.societe, "fr"));
+        const sorted = [...list].sort((a, b) => (b.lat ?? 0) - (a.lat ?? 0) || a.societe.localeCompare(b.societe, "fr"));
         const per = Math.max(1, Math.ceil(sorted.length / team.length));
         sorted.forEach((g, i) => plan.push({ g, equipe: eq, commercial: team[Math.min(Math.floor(i / per), team.length - 1)] }));
       } else list.forEach((g) => plan.push({ g, equipe: eq, commercial: null }));
@@ -6315,8 +6578,8 @@ function CampagneOuvrirModal({ dark, groups, defaultNom, onClose, onConfirm }) {
   const dejaOuvertes = groups.filter((g) => g.state === "ouverte").length;
   const noAddr = groups.filter((g) => g.lat == null).length;
   const modes = [
-    ["zone", "Par zone", "Chaque entreprise va à l'équipe de sa zone (nord = B, sud = A). Les commerciaux de l'équipe se servent."],
-    ["repartir", "Par zone, puis répartie", "Comme ci-dessus, puis partagée entre les commerciaux de l'équipe (de l'ouest vers l'est)."],
+    ["zone", "Par zone", "Chaque entreprise va à l'équipe de sa zone (ouest = B, est = A). Les commerciaux de l'équipe se servent."],
+    ["repartir", "Par zone, puis répartie", "Comme ci-dessus, puis partagée entre les commerciaux de l'équipe (du nord vers le sud)."],
     ["commercial", "Un seul commercial", "Tout est attribué à une personne, quelle que soit la zone."],
   ];
   const run = async () => {
@@ -6371,8 +6634,8 @@ function CampagneOuvrirModal({ dark, groups, defaultNom, onClose, onConfirm }) {
             <label className={labelCls}>{noAddr} entreprise(s) sans adresse : zone inconnue
               <select data-testid="ouvrir-sans-adresse" className={inputCls} value={sansAdresse} onChange={(e) => setSansAdresse(e.target.value)}>
                 <option value="">Ne pas les ouvrir</option>
-                <option value="A">Les donner à l'équipe A (sud)</option>
-                <option value="B">Les donner à l'équipe B (nord)</option>
+                <option value="A">Les donner à l'équipe A (est)</option>
+                <option value="B">Les donner à l'équipe B (ouest)</option>
               </select>
             </label>
           )}
@@ -6777,8 +7040,8 @@ function ProspectionCampagnes({ dark, camp, canImport, readOnly, isManager, myCo
                 </select>
                 <select data-testid="campagne-filtre-equipe" value={filters.equipe} onChange={(e) => setFilters({ ...filters, equipe: e.target.value })} className={`${inputCls} py-1 text-xs`}>
                   <option value="">Toutes équipes</option>
-                  <option value="A">Équipe A (sud)</option>
-                  <option value="B">Équipe B (nord)</option>
+                  <option value="A">Équipe A (est)</option>
+                  <option value="B">Équipe B (ouest)</option>
                 </select>
               </>
             )}
@@ -6836,7 +7099,7 @@ function ProspectionCampagnes({ dark, camp, canImport, readOnly, isManager, myCo
                       </td>
                       <td className={`px-3 py-2 text-xs ${dark ? "text-zinc-300" : "text-stone-700"}`}>
                         {g.adresse || g.commune ? [g.adresse, [g.code_postal, g.commune].filter(Boolean).join(" ")].filter(Boolean).join(", ") : <span className={muted}>{g.code_postal || "—"} · à retrouver</span>}
-                        {isManager && g.lat != null && <div className={`text-[10px] ${muted}`}>Zone : {campagneZoneLabel(campagneZoneOf(g.lat))}</div>}
+                        {isManager && g.lat != null && <div className={`text-[10px] ${muted}`}>Zone : {campagneZoneLabel(campagneZoneOf(g.lng))}</div>}
                       </td>
                       <td className="px-3 py-2">
                         {g.lat != null && <a href={prospectionMapsDirectionsUrl(g)} target="_blank" rel="noreferrer" className={`text-xs underline ${muted}`}>Itinéraire</a>}
@@ -7256,7 +7519,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
           <table className="w-full text-sm">
             <thead>
               <tr className={`border-b text-left text-xs ${dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-500"}`}>
-                {["Société", "Contact", "Décideur", "Commune", "Secteur", "Flotte", "Marques", "Énergie", "Renouv.", "Statut", "Commercial", "Relance"].map((h) => (
+                {["Société", "Contact", "Décideur", "Commune", "Secteur", "Flotte", "Marques", "Énergie", "Renouv.", "Statut", "Commercial", "Relance", "Créé le"].map((h) => (
                   <th key={h} className="whitespace-nowrap px-3 py-2 font-semibold">{h}</th>
                 ))}
               </tr>
@@ -7279,6 +7542,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.statut}</td>
                   <td className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>{p.commercial}</td>
                   <td className="whitespace-nowrap px-3 py-2"><ProspectionRelancePill dark={dark} p={p} /></td>
+                  <td data-testid="col-creation" className={`whitespace-nowrap px-3 py-2 ${dark ? "text-zinc-400" : "text-stone-500"}`}>{p.created_at ? new Date(p.created_at).toLocaleDateString("fr-FR") : ""}</td>
                 </tr>
               ))}
             </tbody>

@@ -4,7 +4,7 @@
 --
 -- Principe :
 --   Ophélie ou Steven « ouvrent » une sélection d'entreprises aux commerciaux (nom, date de fin, quota).
---   Chaque entreprise ouverte est rattachée à une équipe (A = sud, B = nord, selon son adresse)
+--   Chaque entreprise ouverte est rattachée à une équipe (A = est, B = ouest, selon son adresse)
 --   et, au choix, à un commercial précis.
 --   Un commercial ne voit QUE les entreprises ouvertes de son équipe (et celles qui lui sont attribuées).
 --   Ophélie, Steven et les comptes en lecture seule voient tout.
