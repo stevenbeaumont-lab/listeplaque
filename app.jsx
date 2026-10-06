@@ -4037,7 +4037,7 @@ function computeStats(vehicles) {
 // Onglet visible uniquement pour les comptes présents dans prospection_members
 // (accès géré côté base via RLS — voir useProspectionAccess ci-dessous).
 // ---------------------------------------------------------------------------
-// Quatre statuts : « Prospect » (en cours de prospection), « Proposition envoyée » (relance en général à 72 h),
+// Quatre statuts : « Prospect » (en cours de prospection), « Proposition envoyée » (relance en général à 5 jours),
 // « Gagné » et « Perdu » (avec un motif : ex. ne veut plus entendre parler de la marque).
 // Un Prospect et une Proposition envoyée ont toujours une date de relance.
 const PROSPECTION_STATUTS = ["Prospect", "Proposition envoyée", "Gagné", "Perdu"];
@@ -4052,10 +4052,20 @@ const PROSPECTION_MOTIFS_PERTE = ["Ne veut plus entendre parler de la marque", "
 // Anciens statuts : « Offre envoyée » devient « Proposition envoyée » ; À contacter / Contacté / RDV fixé -> Prospect.
 function prospectionStatutOf(statut) {
   if (statut === "Gagné" || statut === "Perdu" || statut === "Proposition envoyée") return statut;
-  return statut === "Offre envoyée" ? "Proposition envoyée" : "Prospect";
+  // Import CSV : « gagne », « PERDU », « proposition envoyee »… sont reconnus sans tenir compte de la casse ni des accents.
+  const n = prospectionNorm(typeof statut === "string" ? statut : "");
+  if (n === "gagne") return "Gagné";
+  if (n === "perdu") return "Perdu";
+  if (n === "offre envoyee" || n === "proposition envoyee") return "Proposition envoyée";
+  return "Prospect";
 }
 function prospectionNeedsRelance(statut) {
   return statut === "Prospect" || statut === "Proposition envoyée";
+}
+// Un prospect perdu pour l'un de ces motifs n'est plus jamais relancé (opposition de la personne, société disparue).
+const PROSPECTION_MOTIFS_SANS_RELANCE = ["Ne veut plus entendre parler de la marque", "Société fermée / disparue"];
+function prospectionNeverRelance(p) {
+  return p?.statut === "Perdu" && PROSPECTION_MOTIFS_SANS_RELANCE.includes(p.motif_perte);
 }
 const PROSPECTION_COMMERCIAL_COLORS = ["#1D4ED8", "#0D9488", "#7C3AED", "#DB2777", "#0891B2", "#65A30D"];
 // Couleur des clients existants (CRM) sur la carte — volontairement distincte de toutes les couleurs
@@ -4102,7 +4112,8 @@ function prospectionAddDaysISO(n) {
   return prospectionTodayISO(d);
 }
 // Date de relance proposée selon le statut : Prospect +10 j, Proposition envoyée +5 j, Perdu +6 mois, Gagné aucune.
-function prospectionDefaultRelance(statut) {
+function prospectionDefaultRelance(statut, motif) {
+  if (statut === "Perdu" && PROSPECTION_MOTIFS_SANS_RELANCE.includes(motif)) return null;
   if (statut === "Prospect") return prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS);
   if (statut === "Proposition envoyée") return prospectionAddDaysISO(PROSPECTION_PROPOSITION_RELANCE_JOURS);
   if (statut === "Perdu") return prospectionAddMonthsISO(null, PROSPECTION_PERDU_RELANCE_MOIS);
@@ -4115,7 +4126,7 @@ function prospectionInitials(n) {
   return (n || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 }
 function prospectionRelanceState(p) {
-  if (!p.relance || p.statut === "Gagné") return "";
+  if (!p.relance || p.statut === "Gagné" || prospectionNeverRelance(p)) return "";
   const t = prospectionTodayISO();
   if (p.relance < t) return "late";
   if (p.relance === t) return "due";
@@ -4132,9 +4143,11 @@ function prospectionDistanceKm(a, b) {
 }
 // Tournée : les `max` prospects les plus proches du départ, puis rangés dans l'ordre de visite
 // (plus proche voisin, amélioré par échanges 2-opt) pour limiter les kilomètres.
-function prospectionPlanTournee(candidates, start, { max = 8 } = {}) {
+// `rank` (facultatif) : priorité avant la distance (ex. 0 pour les retards) — les retards passent alors avant les plus proches.
+function prospectionPlanTournee(candidates, start, { max = 8, rank = null } = {}) {
   const pts = candidates.filter((p) => p.lat != null && p.lng != null);
-  const near = [...pts].sort((a, b) => prospectionDistanceKm(start, a) - prospectionDistanceKm(start, b) || String(a.societe).localeCompare(String(b.societe), "fr")).slice(0, max);
+  const rk = (p) => (rank ? rank(p) : 0);
+  const near = [...pts].sort((a, b) => rk(a) - rk(b) || prospectionDistanceKm(start, a) - prospectionDistanceKm(start, b) || String(a.societe).localeCompare(String(b.societe), "fr")).slice(0, max);
   const left = [...near];
   const order = [];
   let cur = start;
@@ -4251,12 +4264,18 @@ async function prospectionGeocode({ adresse, code_postal, commune }) {
   const q = [adresse, code_postal, commune].filter(Boolean).join(" ").trim();
   if (q.length < 3) return null;
   try {
-    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=1`);
+    // Biais sur Caen : « 12 rue de la Paix » sans commune ne doit pas tomber à Paris.
+    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=1&lat=${PROSPECTION_CAEN_CENTER.lat}&lon=${PROSPECTION_CAEN_CENTER.lng}`);
     if (!r.ok) return null;
     const f = (await r.json()).features?.[0];
     if (!f) return null;
+    const score = f.properties.score ?? 0;
+    const type = f.properties.type;
+    if (score < 0.5) return null;
+    // Une adresse précise saisie mais seulement retrouvée au niveau de la commune = position fausse : on ne place pas le point au centre-ville.
+    if (type === "municipality" && adresse) return null;
     const [lng, lat] = f.geometry.coordinates;
-    return { lat, lng, score: f.properties.score };
+    return { lat, lng, score, type };
   } catch (e) {
     return null;
   }
@@ -4340,11 +4359,12 @@ async function prospectionSearchNearbyBusinesses(bounds, signal) {
   const tagFilters = ["shop", "office", "craft", ...amenities.map((a) => `amenity"="${a}`)];
   // Beaucoup d'entreprises sont représentées par le contour de leur bâtiment ("way"), pas par un
   // simple point ("node") — chercher uniquement les nodes en faisait manquer une bonne partie.
-  const clauses = tagFilters.flatMap((t) => [`node["${t}"](${bbox});`, `way["${t}"](${bbox});`]).join("");
-  const query = `[out:json][timeout:10];(${clauses});out center 90;`;
+  // ["name"] : seuls les éléments nommés comptent dans le plafond de 90 résultats (en centre-ville, beaucoup n'en ont pas).
+  const clauses = tagFilters.flatMap((t) => [`node["${t}"]["name"](${bbox});`, `way["${t}"]["name"](${bbox});`]).join("");
+  const query = `[out:json][timeout:10];(${clauses});out center 150;`;
   try {
     const r = await fetch(PROSPECTION_OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(query), signal });
-    if (!r.ok) return [];
+    if (!r.ok) return null; // échec (429, 504…) : l'appelant garde les points déjà affichés au lieu de les effacer
     const data = await r.json();
     return (data.elements || [])
       .filter((el) => el.tags?.name)
@@ -4367,7 +4387,7 @@ async function prospectionSearchNearbyBusinesses(bounds, signal) {
       })
       .filter(Boolean);
   } catch (e) {
-    return [];
+    return null;
   }
 }
 
@@ -4421,9 +4441,22 @@ function prospectionParseCsvLine(line, sep) {
   out.push(cur);
   return out;
 }
+// Découpe en enregistrements en respectant les guillemets : une note sur plusieurs lignes reste dans sa cellule.
+function prospectionSplitCsvRecords(text) {
+  const out = [];
+  let cur = "";
+  let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') q = !q;
+    if (c === "\n" && !q) { out.push(cur); cur = ""; } else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
 function parseProspectsCsv(text) {
   const clean = text.replace(/^\ufeff/, "").replace(/\r/g, "");
-  const lines = clean.split("\n").filter((l) => l.trim());
+  const lines = prospectionSplitCsvRecords(clean).filter((l) => l.trim());
   if (!lines.length) return [];
   const sep = (lines[0].match(/;/g) || []).length >= (lines[0].match(/,/g) || []).length ? ";" : ",";
   const head = prospectionParseCsvLine(lines[0], sep).map((h) => h.trim().toLowerCase());
@@ -4438,7 +4471,12 @@ function parseProspectsCsv(text) {
     .filter((r) => r.societe);
 }
 function prospectsToCsv(prospects) {
-  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // Une cellule qui commence par = + - @ serait exécutée comme formule par Excel : on la neutralise (sauf un numéro de téléphone).
+  const esc = (v) => {
+    let t = String(v ?? "");
+    if (/^[=+\-@\t]/.test(t) && !/^\+?[\d .()\-]+$/.test(t)) t = `'${t}`;
+    return `"${t.replace(/"/g, '""')}"`;
+  };
   return "\ufeff" + [PROSPECTION_CSV_COLS.join(";"), ...prospects.map((p) => PROSPECTION_CSV_COLS.map((c) => esc(p[c])).join(";"))].join("\n");
 }
 
@@ -4478,6 +4516,8 @@ function prospectionCleanRow(p) {
     }
     row[k] = v;
   }
+  // Un Prospect / une Proposition envoyée a toujours une date de relance (import CSV, ajout depuis une campagne ou la carte…).
+  if (prospectionNeedsRelance(row.statut) && !row.relance && !row.client_existant) row.relance = prospectionDefaultRelance(row.statut);
   return row;
 }
 // Tant que sql/prospection-criteres.sql n'a pas été exécuté, la base ignore les 5 critères :
@@ -4494,17 +4534,32 @@ function prospectionStripCriteres(row) {
 
 // Sur le terrain, le réseau peut couper un instant — on retente automatiquement avant d'abandonner,
 // plutôt que de faire perdre sa saisie au commercial pour un simple aléa de connexion.
+// supabase-js ne lève pas d'exception sur une coupure réseau : il renvoie { error } (sans code Postgres) — on
+// retente donc aussi dans ce cas. Les créations portent un identifiant généré côté client, donc un nouvel essai
+// ne peut pas créer de doublon.
+function prospectionIsNetworkError(err) {
+  return !!err && !err.code && /fetch|network|timeout|timed out|load failed|connection/i.test(`${err.name || ""} ${err.message || ""}`);
+}
 async function prospectionWithRetry(fn, attempts = 3) {
-  let lastErr;
+  let last = null;
+  let lastThrown = null;
   for (let i = 0; i < attempts; i++) {
     try {
-      return await fn();
+      const res = await fn();
+      if (res && res.error && prospectionIsNetworkError(res.error) && i < attempts - 1) {
+        last = res;
+        await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+        continue;
+      }
+      return res;
     } catch (e) {
-      lastErr = e;
+      lastThrown = e;
+      last = null;
       if (i < attempts - 1) await new Promise((r) => setTimeout(r, 700 * (i + 1)));
     }
   }
-  throw lastErr;
+  if (last) return last;
+  throw lastThrown;
 }
 
 function useProspection() {
@@ -4512,15 +4567,20 @@ function useProspection() {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [syncError, setSyncError] = useState(null); // un rechargement a échoué alors que des données sont déjà affichées
   const timer = useRef(null);
+  const retryTimer = useRef(null);
   const lastSig = useRef("");
+  const hasData = useRef(false);
+  const norm = (x) => ({ ...x, statut: prospectionStatutOf(x.statut) });
 
   const load = useCallback(async () => {
     // PostgREST plafonne chaque réponse à 1000 lignes : on pagine pour charger tous les prospects et clients importés.
+    // Tri sur l'identifiant (stable) : un tri sur updated_at ferait sauter ou doubler des lignes modifiées pendant le chargement.
     const loadAllProspects = async () => {
       const rows = [];
       for (let from = 0; ; from += 1000) {
-        const r = await supabase.from("prospects").select("*").order("updated_at", { ascending: false }).order("id", { ascending: true }).range(from, from + 999);
+        const r = await supabase.from("prospects").select("*").order("id", { ascending: true }).range(from, from + 999);
         if (r.error) return { data: null, error: r.error };
         rows.push(...r.data);
         if (r.data.length < 1000) break;
@@ -4537,18 +4597,63 @@ function useProspection() {
       }
       return { data: rows, error: null };
     };
-    const [p, a] = await Promise.all([loadAllProspects(), loadActions()]);
+    let p;
+    let a;
+    try {
+      [p, a] = await Promise.all([loadAllProspects(), loadActions()]);
+    } catch (e) {
+      p = { error: e };
+      a = {};
+    }
     const err = p.error || a.error;
-    if (err) { setError(err.message); setLoading(false); return; }
+    if (err) {
+      // Coupure réseau ou erreur passagère : on garde ce qui est déjà affiché (la fiche ouverte et sa saisie restent) et on réessaie.
+      if (hasData.current) setSyncError(err.message || "Synchronisation impossible");
+      else setError(err.message || "Chargement impossible");
+      setLoading(false);
+      clearTimeout(retryTimer.current);
+      retryTimer.current = setTimeout(load, 8000);
+      return;
+    }
+    clearTimeout(retryTimer.current);
+    const sorted = [...p.data].sort((x, y) => String(y.updated_at).localeCompare(String(x.updated_at)));
     // Détection de changement : on ne re-rend que si les données ont réellement bougé.
-    const sig = `${p.data.length}:${p.data[0]?.updated_at}|${a.data.length}:${a.data[0]?.created_at}`;
+    const sig = `${sorted.length}:${sorted[0]?.updated_at}|${a.data.length}:${a.data[0]?.created_at}`;
     if (sig !== lastSig.current) {
       lastSig.current = sig;
-      setProspects(p.data.map((x) => ({ ...x, statut: prospectionStatutOf(x.statut) })));
+      setProspects(sorted.map(norm));
       setActions(a.data);
     }
+    hasData.current = true;
     setError(null);
+    setSyncError(null);
     setLoading(false);
+  }, []);
+
+  // Fusion locale d'une ligne reçue (réponse d'une écriture ou événement temps réel) : évite de recharger les ~1 900 fiches.
+  const mergeProspect = useCallback((row) => {
+    if (!row?.id) return false;
+    setProspects((prev) => {
+      const n = norm(row);
+      const i = prev.findIndex((x) => x.id === row.id);
+      if (i < 0) return [n, ...prev];
+      const next = [...prev];
+      next[i] = n;
+      return next;
+    });
+    lastSig.current = "";
+    return true;
+  }, []);
+  const dropProspect = useCallback((id) => {
+    setProspects((prev) => prev.filter((x) => x.id !== id));
+    setActions((prev) => prev.filter((x) => x.prospect_id !== id));
+    lastSig.current = "";
+  }, []);
+  const mergeAction = useCallback((row) => {
+    if (!row?.id) return false;
+    setActions((prev) => (prev.some((x) => x.id === row.id) ? prev : [row, ...prev]));
+    lastSig.current = "";
+    return true;
   }, []);
 
   const scheduleLoad = useCallback(() => {
@@ -4560,23 +4665,57 @@ function useProspection() {
     load();
     const ch = supabase
       .channel("prospection-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "prospects" }, scheduleLoad)
-      .on("postgres_changes", { event: "*", schema: "public", table: "prospect_actions" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "prospects" }, (payload) => {
+        if (payload.eventType === "DELETE") { if (payload.old?.id) dropProspect(payload.old.id); else scheduleLoad(); return; }
+        if (!mergeProspect(payload.new)) scheduleLoad();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "prospect_actions" }, (payload) => {
+        if (payload.eventType === "INSERT" && mergeAction(payload.new)) return;
+        scheduleLoad();
+      })
       .subscribe();
-    return () => { clearTimeout(timer.current); supabase.removeChannel(ch); };
-  }, [load, scheduleLoad]);
+    // Filet de sécurité : resynchronisation au retour sur l'onglet / du réseau, et toutes les 5 minutes.
+    const resync = () => { if (document.visibilityState !== "hidden") scheduleLoad(); };
+    document.addEventListener("visibilitychange", resync);
+    window.addEventListener("online", resync);
+    const iv = setInterval(resync, 5 * 60 * 1000);
+    return () => {
+      clearTimeout(timer.current);
+      clearTimeout(retryTimer.current);
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", resync);
+      window.removeEventListener("online", resync);
+      supabase.removeChannel(ch);
+    };
+  }, [load, scheduleLoad, mergeProspect, dropProspect, mergeAction]);
 
+  // Enregistre une fiche. En modification, seuls les champs réellement changés par la personne sont envoyés :
+  // ce qu'un collègue (ou un report de relance) a modifié entre-temps n'est pas écrasé.
   const save = useCallback(async (p, previous) => {
-    const row = prospectionCleanRow(p);
-    const adresseChanged = !previous || ["adresse", "code_postal", "commune"].some((k) => (previous[k] || "") !== (row[k] || ""));
-    if ((adresseChanged && !p._coordsFromSuggestion) || row.lat == null) {
-      const g = await prospectionGeocode(row);
-      row.lat = g?.lat ?? null;
-      row.lng = g?.lng ?? null;
+    const full = prospectionCleanRow(p);
+    const adresseChanged = !previous || ["adresse", "code_postal", "commune"].some((k) => (previous[k] || "") !== (full[k] || ""));
+    if ((adresseChanged && !p._coordsFromSuggestion) || full.lat == null) {
+      const g = await prospectionGeocode(full);
+      full.lat = g?.lat ?? null;
+      full.lng = g?.lng ?? null;
     }
-    const send = (r) => prospectionWithRetry(() =>
-      p.id ? supabase.from("prospects").update(r).eq("id", p.id).select().single() : supabase.from("prospects").insert(r).select().single()
-    );
+    let row = full;
+    if (p.id && previous) {
+      const prevRow = prospectionCleanRow(previous);
+      row = {};
+      for (const k of Object.keys(full)) if (full[k] !== prevRow[k]) row[k] = full[k];
+      if (!Object.keys(row).length) return previous;
+    }
+    const newId = p.id ? null : (globalThis.crypto?.randomUUID?.() || null);
+    if (newId) row = { ...row, id: newId };
+    const send = async (r) => {
+      const res = await prospectionWithRetry(() =>
+        p.id ? supabase.from("prospects").update(r).eq("id", p.id).select().single() : supabase.from("prospects").insert(r).select().single()
+      );
+      // Réponse perdue après une création réussie : le nouvel essai tombe sur « existe déjà » — on relit la fiche.
+      if (res.error?.code === "23505" && newId) return supabase.from("prospects").select("*").eq("id", newId).single();
+      return res;
+    };
     let { data, error: err } = await send(row);
     let criteresIgnores = false;
     if (err && prospectionIsMissingCritereCol(err)) {
@@ -4584,65 +4723,76 @@ function useProspection() {
       criteresIgnores = !err;
     }
     if (err) throw err;
-    lastSig.current = "";
-    await load();
+    if (!mergeProspect(data)) await load();
     return criteresIgnores ? { ...data, _criteresIgnores: true } : data;
-  }, [load]);
+  }, [load, mergeProspect]);
 
   const remove = useCallback(async (id) => {
     const { error: err } = await prospectionWithRetry(() => supabase.from("prospects").delete().eq("id", id));
     if (err) throw err;
-    lastSig.current = "";
-    await load();
-  }, [load]);
+    dropProspect(id);
+  }, [dropProspect]);
 
   const addAction = useCallback(async (prospect_id, type, texte, par) => {
-    const { error: err } = await prospectionWithRetry(() => supabase.from("prospect_actions").insert({ prospect_id, type, texte, par }));
+    const { data, error: err } = await prospectionWithRetry(() => supabase.from("prospect_actions").insert({ prospect_id, type, texte, par }).select().single());
     if (err) throw err;
-    lastSig.current = "";
-    await load();
-  }, [load]);
+    if (!mergeAction(data)) await load();
+  }, [load, mergeAction]);
 
   const patch = useCallback(async (id, fields) => {
-    const { error: err } = await prospectionWithRetry(() => supabase.from("prospects").update(fields).eq("id", id));
+    const { data, error: err } = await prospectionWithRetry(() => supabase.from("prospects").update(fields).eq("id", id).select().single());
     if (err) throw err;
-    lastSig.current = "";
-    await load();
-  }, [load]);
+    if (!mergeProspect(data)) await load();
+  }, [load, mergeProspect]);
 
-  const geocodeMissing = useCallback(async (onProgress) => {
-    const missing = prospects.filter((p) => p.lat == null && (p.adresse || p.commune));
+  // `ids` : limiter aux fiches visibles (le bouton de la carte annonce ce nombre-là).
+  const geocodeMissing = useCallback(async (onProgress, ids) => {
+    const only = ids ? new Set(ids) : null;
+    const missing = prospects.filter((p) => p.lat == null && (p.adresse || p.commune) && (!only || only.has(p.id)));
     let ok = 0;
+    let failed = 0;
     for (let i = 0; i < missing.length; i++) {
       const g = await prospectionGeocode(missing[i]);
-      if (g) { await supabase.from("prospects").update({ lat: g.lat, lng: g.lng }).eq("id", missing[i].id); ok++; }
+      if (g) {
+        const { error: err } = await supabase.from("prospects").update({ lat: g.lat, lng: g.lng }).eq("id", missing[i].id);
+        if (err) failed++; else ok++;
+      }
       onProgress?.(i + 1, missing.length);
       await new Promise((r) => setTimeout(r, 60)); // reste sous la limite de 50 req/s de l'IGN
     }
     lastSig.current = "";
     await load();
-    return { ok, total: missing.length };
+    return { ok, total: missing.length, failed };
   }, [prospects, load]);
 
+  // Importe ligne par ligne : une ligne en échec n'arrête pas les suivantes ; l'erreur finale dit combien ont été importées.
   const bulkInsert = useCallback(async (rows, onProgress, extra) => {
     let done = 0;
+    const failed = [];
     for (const r of rows) {
       const row = prospectionCleanRow({ ...r, ...extra });
       if (!row.societe) continue;
       const g = await prospectionGeocode(row);
       if (g) { row.lat = g.lat; row.lng = g.lng; }
-      let { error: err } = await supabase.from("prospects").insert(row);
-      if (err && prospectionIsMissingCritereCol(err)) ({ error: err } = await supabase.from("prospects").insert(prospectionStripCriteres(row)));
-      if (err) throw err;
-      onProgress?.(++done, rows.length);
+      row.id = globalThis.crypto?.randomUUID?.() || undefined;
+      const ins = async (x) => {
+        const res = await prospectionWithRetry(() => supabase.from("prospects").insert(x));
+        return res.error?.code === "23505" ? { error: null } : res;
+      };
+      let { error: err } = await ins(row);
+      if (err && prospectionIsMissingCritereCol(err)) ({ error: err } = await ins(prospectionStripCriteres(row)));
+      if (err) failed.push(`${row.societe} (${err.message})`);
+      else done++;
+      onProgress?.(done + failed.length, rows.length);
       await new Promise((res) => setTimeout(res, 60));
     }
     lastSig.current = "";
     await load();
+    if (failed.length) throw new Error(`${done} fiche(s) importée(s), ${failed.length} en échec : ${failed.slice(0, 3).join(" ; ")}${failed.length > 3 ? "…" : ""}`);
     return done;
   }, [load]);
 
-  return { prospects, actions, loading, error, save, remove, addAction, patch, geocodeMissing, bulkInsert, reload: load };
+  return { prospects, actions, loading, error, syncError, save, remove, addAction, patch, geocodeMissing, bulkInsert, reload: load };
 }
 
 function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
@@ -4683,28 +4833,46 @@ function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
   );
 }
 
-function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, readOnly, newPrefill, onClose, onSave, onDelete, onAddAction, showToast }) {
-  // Toujours relu en direct par identifiant (jamais une copie figée) — se remonte automatiquement
-  // avec les mises à jour temps réel de useProspection tant que le popup reste ouvert.
-  // Nouveau prospect : le commercial est celui du compte connecté (si c'est un des commerciaux B2B).
-  const autoCommercial = prospectionCommercialFor(me);
+function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, myCommercial, readOnly, newPrefill, onClose, onSave, onDelete, onAddAction, showToast }) {
+  // `prospect` = la fiche telle qu'elle est en base (relue en direct) ; `p` = la copie en cours de saisie, figée à
+  // l'ouverture. À l'enregistrement, seuls les champs modifiés par la personne sont envoyés (voir useProspection.save),
+  // donc ce qu'un collègue a changé entre-temps n'est pas écrasé.
+  // Nouveau prospect : le commercial est celui du compte connecté (membre de la prospection, sinon d'après son nom).
+  const autoCommercial = myCommercial || prospectionCommercialFor(me);
   const prospect = prospectId === "new" ? { statut: "Prospect", commercial: autoCommercial, relance: prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS), ...newPrefill } : prospects.find((x) => x.id === prospectId);
   const isNew = prospectId === "new";
   const [p, setP] = useState(prospect);
+  const [orig] = useState(prospect); // état à l'ouverture : sert à détecter une saisie non enregistrée
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [logType, setLogType] = useState("Appel");
   const [logTxt, setLogTxt] = useState("");
-  const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
+  // Corriger l'adresse, le code postal ou la commune à la main invalide la position GPS choisie plus tôt.
+  const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value, ...(["adresse", "code_postal", "commune"].includes(k) ? { _coordsFromSuggestion: false } : {}) }));
 
+  // Saisie non enregistrée ? Échap, clic à côté ou la croix demandent confirmation (sur mobile un tap hors du panneau effaçait tout).
+  const dirty = !readOnly && !!prospect && (isNew
+    ? ["societe", "contact", "tel", "email", "notes", "adresse"].some((k) => (p?.[k] || "").trim() && (p?.[k] || "") !== (prospect[k] || ""))
+    : JSON.stringify(prospectionCleanRow(p || {})) !== JSON.stringify(prospectionCleanRow(orig || {})));
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  const requestClose = useCallback(() => {
+    if (dirtyRef.current && !window.confirm("Fermer sans enregistrer vos modifications ?")) return;
+    onClose();
+  }, [onClose]);
   useEffect(() => {
     function onKeyDown(e) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") requestClose();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [requestClose]);
+  useEffect(() => {
+    if (!deleteConfirm) return undefined;
+    const id = setTimeout(() => setDeleteConfirm(false), 5000); // fiable aussi au toucher (onBlur ne l'est pas sur iOS)
+    return () => clearTimeout(id);
+  }, [deleteConfirm]);
 
   // Position GPS -> adresse. En création, lancée automatiquement (silencieuse si refusée) ; le bouton « Ma position » la relance.
   const locate = useCallback(async (manual) => {
@@ -4772,7 +4940,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
         y.relance = prospectionDefaultRelance("Proposition envoyée");
         if (x.statut !== "Proposition envoyée") y.derniere_proposition = prospectionTodayISO();
       } else if (s === "Perdu") {
-        y.relance = prospectionDefaultRelance("Perdu"); // à recontacter dans 6 mois
+        y.relance = prospectionDefaultRelance("Perdu", y.motif_perte); // à recontacter dans 6 mois (sauf opposition / société fermée)
       } else if (s === "Gagné") {
         y.relance = null; // plus de relance
       }
@@ -4786,7 +4954,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
     if (p.statut === "Perdu" && !p.motif_perte) { showToast("Indiquez pourquoi ce prospect est perdu", { type: "error" }); return; }
     setSaving(true);
     try {
-      const toSave = { ...p, ...(p.statut !== "Perdu" ? { motif_perte: null } : { relance: p.relance || prospectionDefaultRelance("Perdu") }), ...(p.statut === "Gagné" ? { relance: null } : {}), ...(p.statut === "Proposition envoyée" && !p.derniere_proposition ? { derniere_proposition: prospectionTodayISO() } : {}) };
+      const toSave = { ...p, ...(p.statut !== "Perdu" ? { motif_perte: null } : { relance: prospectionNeverRelance(p) ? null : (p.relance || prospectionDefaultRelance("Perdu", p.motif_perte)) }), ...(p.statut === "Gagné" ? { relance: null } : {}), ...(p.statut === "Proposition envoyée" && !p.derniere_proposition ? { derniere_proposition: prospectionTodayISO() } : {}) };
       const saved = await onSave(toSave, isNew ? null : prospect);
       if (saved?._criteresIgnores) showToast("Fiche enregistrée, mais les critères du parc ne le sont pas encore : le script SQL « prospection-criteres.sql » doit être exécuté", { type: "error" });
       else showToast(isNew ? "Prospect ajouté" : "Prospect enregistré");
@@ -4801,20 +4969,30 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   const addLog = async () => {
     if (isNew) { showToast("Enregistrez d'abord le prospect", { type: "error" }); return; }
     if (!logTxt.trim() && logType === "Autre") return;
-    await onAddAction(prospect.id, logType, logTxt.trim(), me);
-    setLogTxt("");
+    try {
+      await onAddAction(prospect.id, logType, logTxt.trim(), me);
+      setLogTxt("");
+    } catch (e) {
+      showToast(`Action non enregistrée — ${e.message}`, { type: "error" });
+    }
   };
 
   const doDelete = async () => {
-    await onDelete(prospect.id);
-    showToast("Prospect supprimé");
-    onClose();
+    try {
+      await onDelete(prospect.id);
+      showToast("Prospect supprimé");
+      onClose();
+    } catch (e) {
+      setDeleteConfirm(false);
+      showToast(`Suppression impossible — ${e.message}`, { type: "error" });
+    }
   };
 
+  // Ne change que le statut « client existant » : la saisie en cours (éventuellement invalide) n'est pas enregistrée par ce bouton.
   const toggleClientExistant = async () => {
     const next = !p.client_existant;
     try {
-      await onSave({ ...p, client_existant: next }, prospect);
+      await onSave({ ...prospect, client_existant: next }, prospect);
       setP((x) => ({ ...x, client_existant: next }));
       showToast(next ? "Marqué comme client existant" : "Remis en prospect");
     } catch (e) {
@@ -4825,7 +5003,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   const hist = actions.filter((a) => a.prospect_id === prospect.id);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div role="dialog" aria-modal="true" className={`pl-fade-in h-full w-full max-w-xl overflow-y-auto p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
@@ -4852,7 +5030,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 Itinéraire
               </a>
             )}
-            <button onClick={onClose} className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}>
+            <button onClick={requestClose} aria-label="Fermer" className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}>
               <X size={16} />
             </button>
           </div>
@@ -4899,17 +5077,6 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             <h3 className={`mb-3 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Qualification du parc (5 critères)</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className={labelCls}>1 · Taille du parc (véhicules)<input type="number" min="0" className={inputCls} value={p.flotte ?? ""} onChange={set("flotte")} /></label>
-              <label className={labelCls}>
-                4 · Décideur
-                <div className="flex gap-1.5">
-                  <input className={inputCls} value={p.decideur || ""} onChange={set("decideur")} placeholder="Nom et fonction du décideur" />
-                  {p.contact && !p.decideur && (
-                    <button type="button" onClick={() => setP((x) => ({ ...x, decideur: [x.contact, x.fonction].filter(Boolean).join(", ") }))} className={`pl-interactive shrink-0 rounded-lg border px-2 text-[11px] font-semibold normal-case tracking-normal ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>
-                      = Contact
-                    </button>
-                  )}
-                </div>
-              </label>
               <div className={`${labelCls} sm:col-span-2`}>
                 2 · Marques du parc
                 <div className="flex flex-wrap gap-1.5">
@@ -4938,6 +5105,17 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 </div>
               </div>
               <label className={labelCls}>
+                4 · Décideur
+                <div className="flex gap-1.5">
+                  <input className={inputCls} value={p.decideur || ""} onChange={set("decideur")} placeholder="Nom et fonction du décideur" />
+                  {p.contact && !p.decideur && (
+                    <button type="button" onClick={() => setP((x) => ({ ...x, decideur: [x.contact, x.fonction].filter(Boolean).join(", ") }))} className={`pl-interactive shrink-0 rounded-lg border px-2 text-[11px] font-semibold normal-case tracking-normal ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>
+                      = Contact
+                    </button>
+                  )}
+                </div>
+              </label>
+              <label className={labelCls}>
                 5 · Périodicité de renouvellement
                 <select className={inputCls} value={p.renouvellement_mois ?? ""} onChange={(e) => setP((x) => withRenewalRelance({ ...x, renouvellement_mois: e.target.value ? parseInt(e.target.value, 10) : "" }))}>
                   <option value="">Non renseignée</option>
@@ -4950,7 +5128,9 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 <input type="date" className={inputCls} value={p.dernier_renouvellement || ""} onChange={(e) => setP((x) => withRenewalRelance({ ...x, dernier_renouvellement: e.target.value }))} />
               </label>
               <p data-testid="relance-info" className={`text-xs sm:col-span-2 ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-                {renewal
+                {p.statut !== "Prospect"
+                  ? "La périodicité sert à calculer la date de relance d'un prospect en cours."
+                  : renewal
                   ? <>Date de relance calculée d'après la périodicité : <strong>{fmtLong(renewal.rappel)}</strong>{renewal.known ? ` (renouvellement estimé en ${new Date(renewal.next + "T00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}, rappel ${PROSPECTION_RAPPEL_AVANCE_MOIS} mois avant)` : ` (dans ${renewal.months} mois)`}.</>
                   : "Sans périodicité de renouvellement, définissez vous-même la date de relance ci-dessous."}
               </p>
@@ -4964,22 +5144,26 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             Commercial
             <select className={inputCls} value={p.commercial || ""} onChange={set("commercial")}>
               <option value="">Non attribué</option>
-              {commerciaux.map((n) => <option key={n}>{n}</option>)}
+              {[...commerciaux, ...(p.commercial && !commerciaux.includes(p.commercial) ? [p.commercial] : [])].map((n) => <option key={n}>{n}</option>)}
             </select>
           </label>
           {p.statut === "Perdu" ? (
             <>
               <label className={labelCls}>
                 Motif de la perte *
-                <select data-testid="motif-perte" className={inputCls} value={p.motif_perte || ""} onChange={set("motif_perte")}>
+                <select data-testid="motif-perte" className={inputCls} value={p.motif_perte || ""} onChange={(e) => { const m = e.target.value; setP((x) => ({ ...x, motif_perte: m, relance: PROSPECTION_MOTIFS_SANS_RELANCE.includes(m) ? null : (x.relance || prospectionDefaultRelance("Perdu", m)) })); }}>
                   <option value="">Choisir un motif…</option>
                   {PROSPECTION_MOTIFS_PERTE.map((m) => <option key={m}>{m}</option>)}
                 </select>
               </label>
-              <label className={labelCls}>
-                À recontacter le
-                <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} onChange={set("relance")} />
-              </label>
+              {prospectionNeverRelance(p) ? (
+                <p data-testid="sans-relance" className={`text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Ce motif exclut toute nouvelle relance : le prospect ne sera plus proposé à recontacter.</p>
+              ) : (
+                <label className={labelCls}>
+                  À recontacter le
+                  <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} onChange={set("relance")} />
+                </label>
+              )}
             </>
           ) : prospectionNeedsRelance(p.statut) ? (
             <label className={labelCls}>
@@ -5111,6 +5295,7 @@ function prospectionCiblePopupHtml(g) {
       : g.state && g.state !== "ouverte" ? `<div style="margin-top:4px;color:#78716c;font-size:12px;">Non ouverte aux commerciaux</div>` : "",
     `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">`,
     `<button data-action="add" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ajouter à la prospection</button>`,
+    prospectionContactLinksHtml(g.tel, g.email),
     `<a href="${prospectionMapsDirectionsUrl(g)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
     `</div></div>`,
   ].join("");
@@ -5144,6 +5329,16 @@ function prospectionOsmPopupHtml(place) {
   ].join("");
 }
 
+// Liens « Appeler » / « E-mail » : le numéro et l'adresse sont assainis avant d'entrer dans l'attribut href.
+function prospectionContactLinksHtml(tel, email) {
+  const t = String(tel || "").replace(/[^\d+]/g, "");
+  const mail = String(email || "").trim();
+  const style = "border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;";
+  return [
+    t.length >= 6 ? `<a href="tel:${t}" style="${style}">Appeler</a>` : "",
+    /^[^\s@<>"']+@[^\s@<>"']+$/.test(mail) ? `<a href="mailto:${prospectionEscapeHtml(mail)}" style="${style}">E-mail</a>` : "",
+  ].join("");
+}
 function prospectionEscapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -5162,10 +5357,11 @@ function prospectionPopupHtml(p) {
     `<div style="color:#78716c;">${prospectionEscapeHtml([p.adresse, p.commune].filter(Boolean).join(", "))}</div>`,
     p.client_existant ? "" : `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
     !p.client_existant && p.relance ? `<div style="${late ? "color:#be123c;" : ""}">${p.statut === "Perdu" ? "À recontacter" : "Relance"} : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
-    !p.client_existant && p.created_at ? `<div style="color:#78716c;font-size:12px;">Créé le ${prospectionEscapeHtml(new Date(p.created_at).toLocaleDateString("fr-FR"))}</div>` : "",
+    !p.client_existant && p.created_at ? `<div style="color:#78716c;font-size:12px;">Créé le ${prospectionEscapeHtml(new Date(p.created_at).toLocaleDateString("fr-FR"))}${p.dernier_contact ? ` · dernier contact le ${prospectionEscapeHtml(new Date(p.dernier_contact).toLocaleDateString("fr-FR"))}` : ""}</div>` : "",
     `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">`,
     `<button data-action="open" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
     p.client_existant ? "" : `<button data-action="visit" style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">J'ai visité</button>`,
+    prospectionContactLinksHtml(p.tel, p.email),
     `<a href="${prospectionMapsDirectionsUrl(p)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
     `</div></div>`,
   ];
@@ -5211,6 +5407,7 @@ function prospectionClusterIcon(count, { color, diamond } = {}) {
     className: "",
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2 - 2],
   });
 }
 
@@ -5245,51 +5442,53 @@ function prospectionWirePopupActions(marker, onPopupAction) {
   });
 }
 
-function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, onPopupAction, buildClusterIcon, buildLabel }) {
+function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, onPopupAction, onPopupClose, buildClusterIcon, buildLabel }) {
   const labelOf = (item) => (buildLabel ? buildLabel(item) : prospectionEscapeHtml(prospectionShortLabel(item.societe || item.nom)));
   const seen = new Set();
   clusters.forEach((c) => {
     seen.add(c.key);
     const isCluster = c.items.length > 1;
     const icon = isCluster ? buildClusterIcon(c.items.length) : buildIcon(c.items[0]);
+    const popupHtml = isCluster ? prospectionClusterPopupHtml(c.items, buildPopup) : buildPopup(c.items[0]);
+    const label = isCluster ? "" : labelOf(c.items[0]);
     let marker = markersRef.current.get(c.key);
     if (!marker) {
       marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
       marker._prospectionItem = c.items[0];
       marker._prospectionItems = c.items;
       if (isCluster) {
-        // Zoomer rapproche les points, mais deux fiches à la même adresse (ou géocodées au centre
-        // de la même commune) restent confondues même au zoom maximum : dans ce cas, ou une fois
-        // le zoom maximum atteint, on ouvre directement la liste des fiches du groupe.
+        marker.bindPopup(popupHtml);
+        // Le gestionnaire de clic par défaut de Leaflet ouvre/ferme le popup : au zoom maximum il refermait celui
+        // qu'on venait d'ouvrir. On le retire et on décide nous-mêmes : zoomer, ou — une fois le zoom maximum atteint,
+        // ou pour des fiches à la même adresse que le zoom ne sépare jamais — ouvrir la liste des fiches du groupe.
+        marker.off("click", marker._openPopup, marker);
         marker.on("click", () => {
           const targetZoom = Math.min(map.getZoom() + 2, map.getMaxZoom());
           if (targetZoom <= map.getZoom()) marker.openPopup();
           else map.setView([c.lat, c.lng], targetZoom);
         });
-        marker.bindPopup(prospectionClusterPopupHtml(marker._prospectionItems, buildPopup));
-        if (onPopupAction) prospectionWirePopupActions(marker, onPopupAction);
       } else {
-        marker.on("click", () => onSingleClick(c.items[0]));
-        marker.bindPopup(buildPopup(c.items[0]));
-        marker.bindTooltip(labelOf(c.items[0]), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
-        // Les boutons d'action sont reliés une seule fois par délégation (voir prospectionWirePopupActions) :
-        // ils lisent toujours l'item courant sur le marqueur, jamais une valeur figée à la création.
-        if (onPopupAction) prospectionWirePopupActions(marker, onPopupAction);
+        marker.on("click", () => onSingleClick(marker._prospectionItem));
+        marker.bindPopup(popupHtml);
+        marker.bindTooltip(label, { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
       }
+      // Les boutons d'action sont reliés une seule fois par délégation (voir prospectionWirePopupActions) :
+      // ils lisent toujours l'item courant sur le marqueur, jamais une valeur figée à la création.
+      if (onPopupAction) prospectionWirePopupActions(marker, onPopupAction);
+      if (onPopupClose) marker.on("popupclose", () => onPopupClose(marker._prospectionItem));
+      marker._pIcon = icon.options.html;
+      marker._pPop = popupHtml;
+      marker._pLabel = label;
       markersRef.current.set(c.key, marker);
     } else {
       marker._prospectionItem = c.items[0];
       marker._prospectionItems = c.items;
-      marker.setLatLng([c.lat, c.lng]);
-      marker.setIcon(icon);
-      if (!isCluster) {
-        marker.setPopupContent(buildPopup(c.items[0]));
-        if (marker.getTooltip()) marker.setTooltipContent(labelOf(c.items[0]));
-        else marker.bindTooltip(labelOf(c.items[0]), { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
-      } else {
-        marker.setPopupContent(prospectionClusterPopupHtml(marker._prospectionItems, buildPopup));
-        if (marker.getTooltip()) marker.unbindTooltip();
-      }
+      const ll = marker.getLatLng();
+      if (ll.lat !== c.lat || ll.lng !== c.lng) marker.setLatLng([c.lat, c.lng]);
+      // On ne touche au DOM que si le contenu a réellement changé (la carte se resynchronise à chaque rendu).
+      if (marker._pIcon !== icon.options.html) { marker.setIcon(icon); marker._pIcon = icon.options.html; }
+      if (marker._pPop !== popupHtml) { marker.setPopupContent(popupHtml); marker._pPop = popupHtml; }
+      if (!isCluster && marker._pLabel !== label) { marker.setTooltipContent(label); marker._pLabel = label; }
     }
   });
   markersRef.current.forEach((marker, key) => {
@@ -5333,6 +5532,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [zoomTick, setZoomTick] = useState(0);
   const [osmPlaces, setOsmPlaces] = useState([]);
   const [osmLoading, setOsmLoading] = useState(false);
+  const [osmFailed, setOsmFailed] = useState(false);
   const [zoomTooFar, setZoomTooFar] = useState(true);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -5342,10 +5542,16 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const osmMarkersRef = useRef(new Map());
   const zoneMarkersRef = useRef(new Map());
   const osmFetchTimer = useRef(null);
+  const osmLastRef = useRef(null); // zone déjà chargée : on ne relance pas OpenStreetMap tant qu'on reste dedans
+  const showOsmRef = useRef(true);
   const osmAbortRef = useRef(null);
   const myLocationMarkerRef = useRef(null);
   const onCreateAtLocationRef = useRef(onCreateAtLocation);
   onCreateAtLocationRef.current = onCreateAtLocation;
+  // Les marqueurs Leaflet gardent les fonctions reçues à leur création : on passe par une référence toujours à jour
+  // (sinon un clic « Ajouter à la prospection » utiliserait un quota / des données périmés).
+  const cbRef = useRef({});
+  cbRef.current = { onOpen, onQuickVisit, onAddCible, onAddFromOsm };
 
   // ---- Rechercher un client : prospects, clients existants et entreprises de campagne, puis zoom dessus.
   const [searchQ, setSearchQ] = useState("");
@@ -5356,7 +5562,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     if (n.length < 2) return [];
     const out = [];
     const add = (kind, item, key) => {
-      const hay = prospectionNorm([item.societe, item.contact, item.nom, item.prenom, item.decideur, item.commune].filter(Boolean).join(" "));
+      const hay = prospectionNorm([item.societe, item.contact, item.nom, item.prenom, item.decideur, item.commune, item.siret, item.tel, item.code_postal].filter(Boolean).join(" "));
       if (hay.includes(n)) out.push({ kind, item, key, rank: prospectionNorm(item.societe || "").startsWith(n) ? 0 : 1 });
     };
     prospects.forEach((p) => add("Prospect", p, `p${p.id}`));
@@ -5374,7 +5580,10 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     }
     const map = mapRef.current;
     if (!map) return;
-    if (r.kind === "Prospect") setSelectedId(it.id);
+    // Un résultat peut être masqué par un filtre de la carte : on réactive ce qu'il faut pour qu'il apparaisse.
+    if (r.kind === "Prospect") { setSelectedId(it.id); if (it.statut === "Gagné" || it.statut === "Perdu") setHideClosed(false); }
+    if (r.kind === "Client") setShowClients(true);
+    if (r.kind === "Campagne") setShowCibles(true);
     map.setView([it.lat, it.lng], Math.max(map.getZoom(), 17));
     clearTimeout(highlightRef.current.timer);
     if (highlightRef.current.layer) map.removeLayer(highlightRef.current.layer);
@@ -5389,6 +5598,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [tourPos, setTourPos] = useState(null);
   const [tourWeek, setTourWeek] = useState(false);
   const [tourMax, setTourMax] = useState(8);
+  const [tourLateFirst, setTourLateFirst] = useState(false);
   const [tourExcluded, setTourExcluded] = useState(() => new Set());
   const tourLayerRef = useRef(null);
   const tourStart = tourStartMode === "position" && tourPos ? { lat: tourPos.lat, lng: tourPos.lng, label: "Ma position" } : { ...PROSPECTION_CAEN_CENTER, label: "Centre de Caen" };
@@ -5401,9 +5611,9 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     });
   }, [prospects, tourExcluded, tourWeek]);
   const tourStops = useMemo(
-    () => (tourOpen ? prospectionPlanTournee(tourCandidates, tourStart, { max: tourMax }) : []),
+    () => (tourOpen ? prospectionPlanTournee(tourCandidates, tourStart, { max: tourMax, rank: tourLateFirst ? (p) => (prospectionRelanceState(p) === "late" ? 0 : 1) : null }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tourOpen, tourCandidates, tourStart.lat, tourStart.lng, tourMax]
+    [tourOpen, tourCandidates, tourStart.lat, tourStart.lng, tourMax, tourLateFirst]
   );
   const locateForTour = async (manual) => {
     const pos = await prospectionGetPosition();
@@ -5430,12 +5640,11 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     return m;
   }, [commerciaux]);
 
-  const visible = prospects.filter((p) => !hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu"));
-  const placed = visible.filter((p) => p.lat != null && p.lng != null);
-  const missing = prospects.filter((p) => p.lat == null);
+  const placed = useMemo(() => prospects.filter((p) => (!hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu")) && p.lat != null && p.lng != null), [prospects, hideClosed]);
+  const missing = useMemo(() => prospects.filter((p) => p.lat == null), [prospects]);
   const clientTooFar = mapZoom < PROSPECTION_CLIENT_MIN_ZOOM;
-  const clientsPlaced = showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null) : [];
-  const ciblesPlaced = showCibles && !clientTooFar ? cibles.filter((g) => g.lat != null && g.lng != null) : [];
+  const clientsPlaced = useMemo(() => (showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null) : []), [clients, showClients, clientTooFar]);
+  const ciblesPlaced = useMemo(() => (showCibles && !clientTooFar ? cibles.filter((g) => g.lat != null && g.lng != null) : []), [cibles, showCibles, clientTooFar]);
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
   const legend = colorBy === "statut" ? PROSPECTION_STATUTS.map((s) => [s, PROSPECTION_STATUT_COLORS[s]]) : commerciaux.map((n) => [n, colorOfCommercial[n]]);
@@ -5457,24 +5666,38 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     const fetchNearby = () => {
       const zoom = map.getZoom();
       if (zoom < PROSPECTION_OSM_MIN_ZOOM) {
+        // On annule la recherche en cours : sinon « Recherche… » restait affiché après un dézoom.
+        clearTimeout(osmFetchTimer.current);
+        osmAbortRef.current?.abort();
+        osmAbortRef.current = null;
+        setOsmLoading(false);
         setZoomTooFar(true);
         setOsmPlaces([]);
         return;
       }
       setZoomTooFar(false);
       clearTimeout(osmFetchTimer.current);
+      if (!showOsmRef.current) return;
+      const last = osmLastRef.current;
+      if (last && Date.now() - last.ts < 5 * 60 * 1000 && last.bounds.contains(map.getBounds())) return;
       osmFetchTimer.current = setTimeout(async () => {
         osmAbortRef.current?.abort();
         const controller = new AbortController();
         osmAbortRef.current = controller;
         setOsmLoading(true);
-        const places = await prospectionSearchNearbyBusinesses(map.getBounds(), controller.signal);
+        const fetchBounds = map.getBounds().pad(0.3);
+        const places = await prospectionSearchNearbyBusinesses(fetchBounds, controller.signal);
         if (controller.signal.aborted) return; // une recherche plus récente a déjà pris le relais
-        setOsmPlaces(places);
         setOsmLoading(false);
+        // null = service indisponible : on garde ce qui est affiché au lieu de vider la carte comme s'il n'y avait rien.
+        if (places == null) { setOsmFailed(true); return; }
+        setOsmFailed(false);
+        osmLastRef.current = { bounds: fetchBounds, ts: Date.now() };
+        setOsmPlaces(places);
       }, 400);
     };
     map.on("moveend", fetchNearby);
+    map.fetchNearbyOsm = fetchNearby;
     mapRef.current = map;
     // Le conteneur peut ne pas encore avoir sa taille finale au tout premier rendu (Tailwind CDN
     // applique ses classes juste après) : on force un recalcul juste après.
@@ -5492,7 +5715,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
-      onPopupAction: (p, action) => (action === "visit" ? onQuickVisit(p) : onOpen(p.id)),
+      onPopupAction: (p, action) => (action === "visit" ? cbRef.current.onQuickVisit(p) : cbRef.current.onOpen(p.id)),
+      onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#1D4ED8" }),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5510,7 +5734,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
-      onPopupAction: (p) => onOpen(p.id),
+      onPopupAction: (p) => cbRef.current.onOpen(p.id),
+      onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
     });
   }, [clientsPlaced, selectedId, zoomTick]);
@@ -5529,7 +5754,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
         return showCampagneNom && noms ? `${base}<br/><span style="font-size:10px;font-weight:700;color:${g.mapColor || "#475569"};">${prospectionEscapeHtml(noms)}</span>` : base;
       },
       onSingleClick: () => {},
-      onPopupAction: (g, action) => { if (action === "add") onAddCible?.(g); },
+      onPopupAction: (g, action) => { if (action === "add") cbRef.current.onAddCible?.(g); },
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#64748B" }),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5552,8 +5777,9 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     L.polyline([[south, lng], [north, lng]], { color: dark ? "#71717a" : "#a8a29e", weight: 2, dashArray: "6 6", interactive: false }).addTo(group);
     const labelIcon = (text, color) =>
       L.divIcon({ html: `<div style="background:${color};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${text}</div>`, className: "", iconSize: [0, 0] });
-    L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng - span * 0.5], { icon: labelIcon("Équipe B (ouest) — Tom & Julia", PROSPECTION_TEAM_COLORS.B.main), interactive: false }).addTo(group);
-    L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng + span * 0.1], { icon: labelIcon("Équipe A (est) — Anthony & Thao", PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
+    const teamNames = (t) => Object.keys(PROSPECTION_TEAMS).filter((n) => PROSPECTION_TEAMS[n] === t).map((n) => prospectionEscapeHtml(n.split(" ").pop())).join(" &amp; ");
+    L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng - span * 0.5], { icon: labelIcon(`Équipe B (ouest) — ${teamNames("B")}`, PROSPECTION_TEAM_COLORS.B.main), interactive: false }).addTo(group);
+    L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng + span * 0.1], { icon: labelIcon(`Équipe A (est) — ${teamNames("A")}`, PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
     group.addTo(map);
     teamZoneLayerRef.current = group;
   }, [showTeamZones, dark]);
@@ -5576,6 +5802,20 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tourOpen, tourStops]);
 
+  // On masque les lieux OpenStreetMap déjà connus (prospect, client ou campagne de même nom, à moins de 250 m).
+  const osmShown = useMemo(() => {
+    const known = new Map();
+    const put = (x) => { const k = prospectionNorm(x.societe || ""); if (k && x.lat != null && x.lng != null) { if (!known.has(k)) known.set(k, []); known.get(k).push(x); } };
+    prospects.forEach(put); clients.forEach(put); ciblesProp.forEach(put);
+    return osmPlaces.filter((o) => !(known.get(prospectionNorm(o.societe || "")) || []).some((x) => prospectionDistanceKm(x, o) < 0.25));
+  }, [osmPlaces, prospects, clients, ciblesProp]);
+
+  // Réactive la recherche quand on recoche « entreprises alentour ».
+  useEffect(() => {
+    showOsmRef.current = showOsm;
+    if (showOsm) { osmLastRef.current = null; mapRef.current?.fetchNearbyOsm?.(); }
+  }, [showOsm]);
+
   // Synchronise le calque de découverte OpenStreetMap (entreprises pas encore dans Prospection).
   useEffect(() => {
     const map = mapRef.current;
@@ -5585,15 +5825,15 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       osmMarkersRef.current.clear();
       return;
     }
-    const clusters = prospectionClusterPoints(map, osmPlaces.map((p) => ({ ...p, id: p.osmId })), 36);
+    const clusters = prospectionClusterPoints(map, osmShown.map((p) => ({ ...p, id: p.osmId })), 36);
     prospectionSyncClusterLayer(map, osmMarkersRef, clusters, {
       buildIcon: (p) => prospectionOsmIcon({ selected: false }),
       buildPopup: prospectionOsmPopupHtml,
       onSingleClick: () => {},
-      onPopupAction: (p) => onAddFromOsm(p),
+      onPopupAction: (p) => cbRef.current.onAddFromOsm(p),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#94a3b8" }),
     });
-  }, [osmPlaces, showOsm]);
+  }, [osmShown, showOsm]);
 
   // Synchronise le calque des zones d'activité (ZA/ZI), alimenté par une recherche ponctuelle
   // sur un large rayon (bouton dédié), pas par le déplacement de la carte.
@@ -5642,7 +5882,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
 
   const runGeocode = async () => {
     setBusy("0");
-    const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`));
+    const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`), missing.map((p) => p.id));
     setBusy("");
     showToast(`${res.ok} prospect(s) localisé(s) sur ${res.total}`);
   };
@@ -5684,6 +5924,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
               onChange={(e) => { setSearchQ(e.target.value); setSearchOpen(true); }}
               onFocus={() => setSearchOpen(true)}
               onBlur={() => setTimeout(() => setSearchOpen(false), 180)}
+              onKeyDown={(e) => { if (e.key === "Enter" && searchResults[0]) { e.preventDefault(); goToResult(searchResults[0]); } else if (e.key === "Escape") setSearchOpen(false); }}
               placeholder="Rechercher un client…"
               className={`w-full bg-transparent text-sm outline-none ${dark ? "text-zinc-200 placeholder:text-zinc-600" : "text-stone-700 placeholder:text-stone-400"}`}
             />
@@ -5813,6 +6054,11 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
             Zoomez sur un secteur pour voir les {clients.length} clients existants
           </span>
         )}
+        {showOsm && !zoomTooFar && osmFailed && !osmLoading && (
+          <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-800"}`}>
+            Entreprises alentour indisponibles pour l'instant — déplacez la carte pour réessayer
+          </span>
+        )}
         {showOsm && !zoomTooFar && osmLoading && (
           <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Recherche en cours…</span>
         )}
@@ -5830,11 +6076,14 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
             </label>
             <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Étapes
               <select data-testid="tournee-max" value={tourMax} onChange={(e) => setTourMax(parseInt(e.target.value, 10))} className={`rounded-lg border px-2 py-1 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-700"}`}>
-                {[4, 6, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+                {[4, 6, 8, 9].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </label>
             <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
               <input data-testid="tournee-semaine" type="checkbox" checked={tourWeek} onChange={(e) => setTourWeek(e.target.checked)} className="accent-blue-700" /> Inclure les relances de la semaine
+            </label>
+            <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+              <input data-testid="tournee-retards" type="checkbox" checked={tourLateFirst} onChange={(e) => setTourLateFirst(e.target.checked)} className="accent-blue-700" /> Retards d'abord (même éloignés)
             </label>
             <button onClick={() => setTourOpen(false)} className={`ml-auto text-xs underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>Fermer</button>
           </div>
@@ -5926,8 +6175,9 @@ function ProspectionRelancePill({ dark, p }) {
       : s === "due"
       ? dark ? "bg-sky-500/15 text-sky-300" : "bg-sky-50 text-sky-800"
       : dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-600";
-  const lbl = s === "late" ? `En retard · ${prospectionFrDate(p.relance)}` : s === "due" ? "Aujourd'hui" : prospectionFrDate(p.relance);
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{lbl}</span>;
+  const perdu = p.statut === "Perdu";
+  const lbl = s === "late" ? `${perdu ? "À recontacter" : "En retard"} · ${prospectionFrDate(p.relance)}` : s === "due" ? (perdu ? "À recontacter aujourd'hui" : "Aujourd'hui") : prospectionFrDate(p.relance);
+  return <span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{lbl}</span>;
 }
 
 // ============================================================================
@@ -6244,9 +6494,13 @@ function campagnePlanOuverture(groups, { mode, commercial, sansAdresse }) {
       const list = byTeam[eq];
       const team = campagneTeamCommerciaux(eq);
       if (mode === "repartir" && team.length > 1) {
-        const sorted = [...list].sort((a, b) => (b.lat ?? 0) - (a.lat ?? 0) || a.societe.localeCompare(b.societe, "fr"));
-        const per = Math.max(1, Math.ceil(sorted.length / team.length));
-        sorted.forEach((g, i) => plan.push({ g, equipe: eq, commercial: team[Math.min(Math.floor(i / per), team.length - 1)] }));
+        // Les entreprises localisées sont partagées en blocs du nord au sud ; celles sans position (zone imposée) sont
+        // distribuées à tour de rôle, pour qu'elles ne tombent pas toutes sur le dernier commercial.
+        const located = list.filter((g) => g.lat != null).sort((a, b) => b.lat - a.lat || a.societe.localeCompare(b.societe, "fr"));
+        const unlocated = list.filter((g) => g.lat == null).sort((a, b) => a.societe.localeCompare(b.societe, "fr"));
+        const per = Math.max(1, Math.ceil(located.length / team.length));
+        located.forEach((g, i) => plan.push({ g, equipe: eq, commercial: team[Math.min(Math.floor(i / per), team.length - 1)] }));
+        unlocated.forEach((g, i) => plan.push({ g, equipe: eq, commercial: team[i % team.length] }));
       } else list.forEach((g) => plan.push({ g, equipe: eq, commercial: null }));
     }
   }
@@ -6269,11 +6523,20 @@ function useCampagnes(enabled) {
   const [ouvertures, setOuvertures] = useState([]);
   const [ouverturesReady, setOuverturesReady] = useState(true);
   const loadedOnce = useRef(false);
+  const cibRef = useRef([]);
+  const ouvReadyRef = useRef(true);
+  const hasDataRef = useRef(false);
+  // Toutes les lignes d'une entreprise (même SIRET), y compris celles de campagnes décochées ou archivées :
+  // ouvrir, retirer, étoile et lien prospect doivent agir sur l'entreprise, pas seulement sur ce qui est affiché.
+  const rowsOf = (g) => (g.siret ? cibRef.current.filter((c) => c.siret === g.siret) : g.rows);
+  useEffect(() => { cibRef.current = cibles; }, [cibles]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // silent : rechargement de fond (pas de spinner, une erreur passagère garde l'écran en l'état).
+  const load = useCallback(async (silent) => {
+    if (!silent) setLoading(true);
     const c = await supabase.from("prospection_campagnes").select("*").order("created_at", { ascending: false });
     if (c.error) {
+      if (silent && hasDataRef.current) return;
       setTablesMissing(/relation|does not exist|schema cache/i.test(c.error.message));
       setError(c.error.message);
       setLoading(false);
@@ -6283,16 +6546,27 @@ function useCampagnes(enabled) {
     const all = [];
     for (let from = 0; ; from += 1000) {
       const r = await supabase.from("prospection_cibles").select("*").order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
-      if (r.error) { setError(r.error.message); setLoading(false); return; }
+      if (r.error) { if (silent && hasDataRef.current) return; setError(r.error.message); setLoading(false); return; }
       all.push(...r.data);
       if (r.data.length < 1000) break;
     }
-    // Les ouvertures demandent prospection-ouvertures.sql : sans lui, tout reste visible comme avant.
+    // Les ouvertures demandent prospection-ouvertures.sql : sans lui (table absente), tout reste visible comme avant.
+    // Toute autre erreur ne doit pas faire croire que « tout est ouvert » : on garde l'état précédent.
     const o = await supabase.from("prospection_ouvertures").select("*").order("created_at", { ascending: false });
+    const ouvMissing = !!o.error && /relation|does not exist|schema cache/i.test(o.error.message);
+    if (o.error && !ouvMissing) {
+      if (hasDataRef.current) return;
+      setError(o.error.message);
+      setLoading(false);
+      return;
+    }
+    ouvReadyRef.current = !o.error;
     setOuverturesReady(!o.error);
     setOuvertures(o.error ? [] : o.data);
     setCampagnes(c.data);
+    cibRef.current = all;
     setCibles(all);
+    hasDataRef.current = true;
     setError(null);
     setTablesMissing(false);
     setLoading(false);
@@ -6301,10 +6575,24 @@ function useCampagnes(enabled) {
   useEffect(() => {
     if (enabled && !loadedOnce.current) { loadedOnce.current = true; load(); }
   }, [enabled, load]);
+  // Deux commerciaux, un manager qui ouvre ou ferme une campagne : on se resynchronise au retour sur l'onglet et chaque minute.
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const tick = () => { if (loadedOnce.current && document.visibilityState !== "hidden") load(true); };
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("online", tick);
+    const iv = setInterval(tick, 60 * 1000);
+    return () => { document.removeEventListener("visibilitychange", tick); window.removeEventListener("online", tick); clearInterval(iv); };
+  }, [enabled, load]);
 
-  const patchLocal = useCallback((pred, fields) => setCibles((prev) => prev.map((c) => (pred(c) ? { ...c, ...fields } : c))), []);
+  const patchLocal = useCallback((pred, fields) => setCibles((prev) => {
+    const next = prev.map((c) => (pred(c) ? { ...c, ...fields } : c));
+    cibRef.current = next;
+    return next;
+  }), []);
 
   const importCampagne = useCallback(async ({ nom, mois, but, fichier, rows, onProgress }) => {
+    cibRef.current = cibles;
     const { data: camp, error: e1 } = await supabase.from("prospection_campagnes").insert({ nom, mois: mois || null, but: but || null, fichier: fichier || null }).select().single();
     if (e1) throw e1;
     // Une entreprise déjà connue (autre campagne) garde son adresse : inutile de la rechercher deux fois.
@@ -6312,7 +6600,8 @@ function useCampagnes(enabled) {
     cibles.forEach((c) => { if (c.siret && c.lat != null && !known.has(c.siret)) known.set(c.siret, c); });
     const payload = rows.map((r) => {
       const k = r.siret ? known.get(r.siret) : null;
-      const base = { ...r, campagne_id: camp.id };
+      // SIRET absent = NULL (et non « ») : l'index unique (campagne, siret) n'accepte qu'une seule chaîne vide.
+      const base = { ...r, siret: r.siret || null, campagne_id: camp.id };
       if (k) Object.assign(base, { adresse: k.adresse, commune: k.commune, lat: k.lat, lng: k.lng, adresse_source: k.adresse_source, adresse_essai_le: k.adresse_essai_le });
       return base;
     });
@@ -6328,7 +6617,7 @@ function useCampagnes(enabled) {
       onProgress?.(inserted.length, payload.length);
     }
     setCampagnes((p) => [camp, ...p]);
-    setCibles((p) => [...p, ...inserted]);
+    setCibles((p) => { const next = [...p, ...inserted]; cibRef.current = next; return next; });
     return { campagne: camp, count: inserted.length };
   }, [cibles]);
 
@@ -6346,7 +6635,7 @@ function useCampagnes(enabled) {
   }, []);
 
   const setCibleMois = useCallback(async (g, value) => {
-    const ids = g.rows.map((r) => r.id);
+    const ids = rowsOf(g).map((r) => r.id);
     const { error: e } = await supabase.from("prospection_cibles").update({ cible_mois: value }).in("id", ids);
     if (e) throw e;
     patchLocal((c) => ids.includes(c.id), { cible_mois: value });
@@ -6398,10 +6687,14 @@ function useCampagnes(enabled) {
     const { data: ouv, error: e1 } = await supabase.from("prospection_ouvertures").insert({ nom, date_fin, quota: quota || null }).select().single();
     if (e1) throw e1;
     const combos = new Map();
+    const before = new Map(); // état d'origine des lignes touchées, pour un vrai retour arrière en cas d'échec
     for (const p of plan) {
       const k = `${p.equipe}|${p.commercial || ""}`;
       if (!combos.has(k)) combos.set(k, { equipe: p.equipe, commercial: p.commercial || null, ids: [] });
-      combos.get(k).ids.push(...p.g.rows.map((r) => r.id));
+      for (const r of rowsOf(p.g)) {
+        combos.get(k).ids.push(r.id);
+        before.set(r.id, { ouverture_id: r.ouverture_id || null, equipe: r.equipe || null, commercial_attribue: r.commercial_attribue || null });
+      }
     }
     try {
       for (const c of combos.values()) {
@@ -6414,9 +6707,21 @@ function useCampagnes(enabled) {
         }
       }
     } catch (e) {
-      // pas d'ouverture à moitié faite : on la supprime (les cibles repassent sans ouverture)
+      // pas d'ouverture à moitié faite : les lignes retrouvent leur ouverture d'origine, puis la nouvelle est supprimée
+      const byState = new Map();
+      before.forEach((st, id) => {
+        const k = JSON.stringify(st);
+        if (!byState.has(k)) byState.set(k, { st, ids: [] });
+        byState.get(k).ids.push(id);
+      });
+      for (const { st, ids } of byState.values()) {
+        for (let i = 0; i < ids.length; i += 80) {
+          const part = ids.slice(i, i + 80);
+          await supabase.from("prospection_cibles").update(st).in("id", part);
+          patchLocal((c) => part.includes(c.id), st);
+        }
+      }
       await supabase.from("prospection_ouvertures").delete().eq("id", ouv.id);
-      patchLocal((c) => c.ouverture_id === ouv.id, { ouverture_id: null, equipe: null, commercial_attribue: null });
       throw e;
     }
     setOuvertures((p) => [ouv, ...p]);
@@ -6430,6 +6735,9 @@ function useCampagnes(enabled) {
   }, []);
 
   const deleteOuverture = useCallback(async (id) => {
+    // La base remet ouverture_id à null mais pas l'équipe ni l'attribution : on les efface d'abord.
+    const clr = await supabase.from("prospection_cibles").update({ equipe: null, commercial_attribue: null }).eq("ouverture_id", id);
+    if (clr.error) throw clr.error;
     const { error: e } = await supabase.from("prospection_ouvertures").delete().eq("id", id);
     if (e) throw e;
     setOuvertures((p) => p.filter((o) => o.id !== id));
@@ -6438,7 +6746,7 @@ function useCampagnes(enabled) {
 
   // Retire des entreprises de leur ouverture (elles redeviennent invisibles pour les commerciaux).
   const retirer = useCallback(async (groups) => {
-    const ids = groups.flatMap((g) => g.rows.map((r) => r.id));
+    const ids = groups.flatMap((g) => rowsOf(g).map((r) => r.id));
     const patch = { ouverture_id: null, equipe: null, commercial_attribue: null };
     for (let i = 0; i < ids.length; i += 80) {
       const part = ids.slice(i, i + 80);
@@ -6448,12 +6756,29 @@ function useCampagnes(enabled) {
     }
   }, [patchLocal]);
 
+  // Relit l'entreprise en base : un collègue l'a peut-être déjà ajoutée (les campagnes ne se mettent à jour qu'à la minute).
+  const checkLinked = useCallback(async (g) => {
+    const ids = rowsOf(g).map((r) => r.id);
+    if (!ids.length) return null;
+    const { data } = await supabase.from("prospection_cibles").select("id,prospect_id,ajoute_par,ajoute_commercial").in("id", ids).not("prospect_id", "is", null);
+    const hit = data?.[0];
+    if (!hit) return null;
+    patchLocal((c) => ids.includes(c.id), { prospect_id: hit.prospect_id, ajoute_par: hit.ajoute_par, ajoute_commercial: hit.ajoute_commercial });
+    return hit;
+  }, [patchLocal]);
+
+  // Ne lie que des lignes encore libres : si un collègue a été plus rapide, on le dit au lieu d'écraser son lien.
   const linkProspect = useCallback(async (g, prospectId, par, commercial) => {
-    const ids = g.rows.map((r) => r.id);
+    const ids = rowsOf(g).map((r) => r.id);
     const patch = { prospect_id: prospectId, ajoute_par: par || null, ajoute_le: new Date().toISOString(), ajoute_commercial: commercial || null };
-    const { error: e } = await supabase.from("prospection_cibles").update(patch).in("id", ids);
+    const { data, error: e } = await supabase.from("prospection_cibles").update(patch).in("id", ids).is("prospect_id", null).select("id");
     if (e) throw e;
-    patchLocal((c) => ids.includes(c.id), patch);
+    if (!data?.length) {
+      const err = new Error("cette entreprise vient d'être ajoutée par un collègue");
+      err.code = "DEJA_LIEE";
+      throw err;
+    }
+    patchLocal((c) => data.some((d) => d.id === c.id), patch);
   }, [patchLocal]);
 
   // Crée un prospect par entreprise (statut Prospect, relance choisie) et le relie à sa cible.
@@ -6465,18 +6790,29 @@ function useCampagnes(enabled) {
       if (g.prospectId) continue;
       const fields = campagneProspectFields(g, g.campagneIds.map(nomOf).filter(Boolean));
       const row = prospectionCleanRow({ ...fields, statut: "Prospect", commercial, relance });
-      const send = (r) => prospectionWithRetry(() => supabase.from("prospects").insert(r).select("id").single());
+      row.id = globalThis.crypto?.randomUUID?.() || undefined;
+      const send = async (r) => {
+        const res = await prospectionWithRetry(() => supabase.from("prospects").insert(r).select("id").single());
+        return res.error?.code === "23505" && r.id ? { data: { id: r.id }, error: null } : res;
+      };
       let { data, error: e } = await send(row);
       if (e && prospectionIsMissingCritereCol(e)) ({ data, error: e } = await send(prospectionStripCriteres(row)));
       if (e) throw e;
-      await linkProspect(g, data.id, par, commercial);
+      try {
+        await linkProspect(g, data.id, par, commercial);
+      } catch (le) {
+        if (le.code !== "DEJA_LIEE") throw le;
+        await supabase.from("prospects").delete().eq("id", data.id); // un collègue l'avait déjà ajoutée : pas de doublon
+        onProgress?.(i + 1, groups.length);
+        continue;
+      }
       created++;
       onProgress?.(i + 1, groups.length);
     }
     return created;
   }, [campagnes, linkProspect]);
 
-  return { campagnes, cibles, loading, error, tablesMissing, ouvertures, ouverturesReady, reload: load, importCampagne, updateCampagne, deleteCampagne, setCibleMois, enrich, linkProspect, createProspects, ouvrir, updateOuverture, deleteOuverture, retirer };
+  return { campagnes, cibles, loading, error, tablesMissing, ouvertures, ouverturesReady, reload: load, importCampagne, updateCampagne, deleteCampagne, setCibleMois, enrich, linkProspect, createProspects, ouvrir, updateOuverture, deleteOuverture, retirer, checkLinked };
 }
 
 function CampagneImportModal({ dark, existingSirets, onClose, onImport }) {
@@ -6748,7 +7084,9 @@ function ProspectionCampagnes({ dark, camp, canImport, readOnly, isManager, myCo
   }, [groupsAll]);
 
   const toAddOf = (list) => list.filter((g) => !g.prospectId && !nomsProspects.has(prospectionNorm(g.societe)));
-  const selectedGroups = useMemo(() => groupsAll.filter((g) => selected.has(g.key)), [groupsAll, selected]);
+  // Une sélection faite avant de changer de filtre ne doit pas embarquer des lignes devenues invisibles.
+  const rowKeys = useMemo(() => new Set(rows.map((g) => g.key)), [rows]);
+  const selectedGroups = useMemo(() => groupsAll.filter((g) => selected.has(g.key) && rowKeys.has(g.key)), [groupsAll, selected, rowKeys]);
   const selectedAddable = toAddOf(selectedGroups);
   const withoutAddress = groupsAll.filter((g) => g.lat == null && g.siret);
   const untried = withoutAddress.filter((g) => !g.essaiAdresse);
@@ -6786,14 +7124,21 @@ function ProspectionCampagnes({ dark, camp, canImport, readOnly, isManager, myCo
         if (nb > reste) { showToast(`Quota dépassé pour « ${o.nom} » : il reste ${reste} sur ${o.quota} pour ${commercial}`, { type: "error" }); return; }
       }
     }
+    if (selectedAddable.length > 20 && !window.confirm(`Ajouter ${selectedAddable.length} entreprises à la prospection pour ${commercial} ?`)) return;
     setBusy("0");
     try {
       // Les entreprises sans adresse tentent d'abord une recherche par SIRET (comme sur la fiche)
       const need = selectedAddable.filter((g) => g.lat == null && g.siret && !g.essaiAdresse);
       const res = need.length ? await camp.enrich(need, {}) : null;
+      if (res?.aborted) {
+        showToast(`Ajout annulé — ${res.reason}. Réessayez dans un instant.`, { type: "error" });
+        return;
+      }
       const list = selectedAddable.map((g) => {
         const pt = res?.patches?.get(g.siret);
-        return pt && pt.lat != null ? { ...g, adresse: pt.adresse || g.adresse, code_postal: pt.code_postal || g.code_postal, commune: pt.commune || g.commune, lat: pt.lat, lng: pt.lng } : g;
+        if (!pt) return g;
+        const found = { ...g, adresse: pt.adresse || g.adresse, code_postal: pt.code_postal || g.code_postal, commune: pt.commune || g.commune };
+        return pt.lat != null ? { ...found, lat: pt.lat, lng: pt.lng } : found;
       });
       const n = await camp.createProspects(list, { commercial, relance, par: me, onProgress: (i, t) => setBusy(`${i}/${t}`) });
       await onProspectsChanged?.();
@@ -6908,7 +7253,13 @@ function ProspectionCampagnes({ dark, camp, canImport, readOnly, isManager, myCo
                 </label>
                 {canImport && (
                   <div className="mt-2 flex gap-3 text-xs">
-                    <button onClick={() => camp.updateCampagne(c.id, { archivee: !c.archivee })} className={`underline ${muted}`}>{c.archivee ? "Désarchiver" : "Archiver"}</button>
+                    <button onClick={async () => {
+                      try {
+                        await camp.updateCampagne(c.id, { archivee: !c.archivee });
+                        // une campagne archivée sort aussi de la sélection mémorisée (sinon elle restait sur la carte sans pouvoir la décocher)
+                        if (!c.archivee && selIds) setSelIds(selIds.filter((x) => x !== c.id));
+                      } catch (e) { showToast(e.message, { type: "error" }); }
+                    }} className={`underline ${muted}`}>{c.archivee ? "Désarchiver" : "Archiver"}</button>
                     <button
                       onClick={() => { if (window.confirm(`Supprimer la campagne « ${c.nom} » et ses ${mine.length} entreprises ? Les prospects déjà créés sont conservés.`)) camp.deleteCampagne(c.id).then(() => setSelected(new Set())).catch((er) => showToast(er.message, { type: "error" })); }}
                       className="text-rose-600 underline"
@@ -7189,7 +7540,7 @@ function ProspectionCampagnes({ dark, camp, canImport, readOnly, isManager, myCo
 
 function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager, myCommercial, showToast }) {
   const data = useProspection();
-  const { prospects, actions, loading, error } = data;
+  const { prospects, actions, loading, error, syncError } = data;
   // Les clients existants (importés du CRM) ne font jamais partie du pipeline commercial —
   // ils ne comptent dans aucune statistique et ne servent qu'à se repérer sur la carte.
   const funnelProspects = useMemo(() => prospects.filter((p) => !p.client_existant), [prospects]);
@@ -7231,7 +7582,16 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         return { ...g, state, campagnes, ouvFin: state === "ouverte" && ouv ? ouv.date_fin : "", mapColor: state !== "ouverte" ? "#CBD5E1" : campagnes.length > 1 ? CAMPAGNE_MULTI_COLOR : campagnes[0]?.color || "#94A3B8" };
       });
   }, [camp.cibles, camp.campagnes, camp.ouverturesReady, campOuvMap, campColors, campActiveIds, nomsProspects]);
-  const openNewFromCible = (g) => {
+  const openNewFromCible = async (g) => {
+    // Un collègue l'a peut-être déjà ajoutée depuis le dernier rechargement : on relit avant d'ouvrir la fiche.
+    try {
+      const hit = await camp.checkLinked(g);
+      if (hit) {
+        showToast(`Déjà ajoutée par ${hit.ajoute_par || "un collègue"} — voici sa fiche`, { type: "error" });
+        setOpenId(hit.prospect_id);
+        return;
+      }
+    } catch (e) { /* hors ligne : la base refusera le doublon au moment du lien */ }
     // Quota d'un commercial : refusé avant d'ouvrir la fiche (la base le vérifie aussi)
     if (!isManager && myCommercial && g.state === "ouverte" && g.ouvertureId) {
       const o = campOuvMap.get(g.ouvertureId);
@@ -7293,13 +7653,32 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     await data.addAction(id, type, texte, par);
   };
 
-  const snooze = async (p, n) => {
-    await data.patch(p.id, { relance: prospectionAddDaysISO(n) });
-    await data.addAction(p.id, "Relance", `Reportée de ${n} jours`, currentUserName);
+  // Les actions rapides (Visité, +2 j, Proposition envoyée) préviennent en cas d'échec et ignorent un double clic.
+  const busyRef = useRef(new Set());
+  const guarded = (key, label, fn) => async (...args) => {
+    const k = `${key}:${args[0]?.id ?? ""}`;
+    if (busyRef.current.has(k)) return;
+    busyRef.current.add(k);
+    try {
+      await fn(...args);
+    } catch (e) {
+      showToast(`${label} — ${e.message}`, { type: "error" });
+    } finally {
+      busyRef.current.delete(k);
+    }
   };
 
-  // Proposition envoyée : statut + date d'envoi + relance à 72 h.
-  const propositionEnvoyee = async (p) => {
+  // Report : on repousse à partir de la relance prévue si elle est encore à venir, sinon à partir d'aujourd'hui.
+  const snooze = guarded("snooze", "Report impossible", async (p, n) => {
+    const today = prospectionTodayISO();
+    const base = p.relance && p.relance > today ? new Date(p.relance + "T00:00") : new Date();
+    base.setDate(base.getDate() + n);
+    await data.patch(p.id, { relance: prospectionTodayISO(base) });
+    await data.addAction(p.id, "Relance", `Reportée de ${n} jours`, currentUserName);
+  });
+
+  // Proposition envoyée : statut + date d'envoi + relance à 5 jours.
+  const propositionEnvoyee = guarded("proposition", "Proposition non enregistrée", async (p) => {
     const relance = prospectionAddDaysISO(PROSPECTION_PROPOSITION_RELANCE_JOURS);
     const fields = { statut: "Proposition envoyée", relance, derniere_proposition: prospectionTodayISO() };
     try {
@@ -7310,12 +7689,12 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     }
     await data.addAction(p.id, "Autre", "Proposition envoyée", currentUserName);
     showToast(`Proposition envoyée à ${p.societe} — relance le ${prospectionFrDate(relance)}`, { type: "celebrate" });
-  };
+  });
 
-  const quickVisit = async (p) => {
+  const quickVisit = guarded("visit", "Visite non enregistrée", async (p) => {
     await addAction(p.id, "Visite", "Visite sur le terrain", currentUserName);
     showToast(`Visite notée pour ${p.societe}`, { type: "celebrate" });
-  };
+  });
 
   const exportCsv = () => {
     const blob = new Blob([prospectsToCsv(filtered)], { type: "text/csv;charset=utf-8" });
@@ -7382,6 +7761,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
   }
 
   const dueCount = scoped.filter((p) => ["late", "due"].includes(prospectionRelanceState(p))).length;
+  const sansRelance = scoped.filter((p) => prospectionNeedsRelance(p.statut) && !p.relance);
 
   const Row = ({ p }) => (
     <div className={`pl-interactive grid grid-cols-1 items-center gap-2 p-3.5 sm:grid-cols-[1fr_auto] ${cardCls}`}>
@@ -7408,7 +7788,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         )}
         {!readOnly && <button onClick={() => quickVisit(p)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-emerald-700 text-emerald-400" : "border-emerald-300 text-emerald-700"}`}>Visité</button>}
         {!readOnly && p.statut === "Prospect" && (
-          <button onClick={() => propositionEnvoyee(p)} title="Proposition envoyée : relance dans 72 h" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-violet-700 text-violet-300" : "border-violet-300 text-violet-700"}`}>Proposition envoyée</button>
+          <button onClick={() => propositionEnvoyee(p)} title={`Proposition envoyée : relance dans ${PROSPECTION_PROPOSITION_RELANCE_JOURS} jours`} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-violet-700 text-violet-300" : "border-violet-300 text-violet-700"}`}>Proposition envoyée</button>
         )}
         {!readOnly && <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>}
         {!readOnly && <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>}
@@ -7431,9 +7811,10 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     const due = scoped.filter((p) => prospectionRelanceState(p) === "due");
     const semaine = scoped.filter((p) => prospectionRelanceState(p) === "future" && p.relance <= prospectionAddDaysISO(7)).sort(byDate);
     if (!scoped.length) return <EmptyState dark={dark} icon={Target} title="Aucun prospect pour l'instant" subtitle="Commencez par en ajouter un." />;
-    if (!late.length && !due.length && !semaine.length) return <EmptyState dark={dark} icon={CheckCircle2} title="Rien à relancer cette semaine" />;
+    if (!late.length && !due.length && !semaine.length && !sansRelance.length) return <EmptyState dark={dark} icon={CheckCircle2} title="Rien à relancer cette semaine" />;
     return (
       <>
+        <Block title="Sans date de relance" items={sansRelance} />
         <Block title="En retard" items={late} />
         <Block title="À relancer aujourd'hui" items={due} />
         <Block title="Cette semaine" items={semaine} />
@@ -7592,8 +7973,10 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
             <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
               {groups[t].map((n, i) => {
                 const badgeColor = PROSPECTION_TEAM_COLORS[t] ? (i === 0 ? PROSPECTION_TEAM_COLORS[t].main : PROSPECTION_TEAM_COLORS[t].light) : "#1D4ED8";
-                const l = prospects.filter((p) => p.commercial === n);
-                const nbActions = actions.filter((a) => a.par === n && new Date(a.created_at).getTime() >= weekAgo).length;
+                // Clients CRM exclus (cf. funnelProspects) ; les actions sont signées du nom complet du compte (« ROGER Tom »),
+                // un simple report de relance n'est pas une action commerciale.
+                const l = funnelProspects.filter((p) => p.commercial === n);
+                const nbActions = actions.filter((a) => prospectionCommercialFor(a.par) === n && !/^Reportée/.test(a.texte || "") && new Date(a.created_at).getTime() >= weekAgo).length;
                 const enCours = l.filter((p) => p.statut === "Prospect").length;
                 const propositions = l.filter((p) => p.statut === "Proposition envoyée").length;
                 const perdus = l.filter((p) => p.statut === "Perdu").length;
@@ -7610,16 +7993,16 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
                     <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Prospects en portefeuille</dt>
                       <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length}</dd>
-                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Prospects en cours</dt>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"} title="Statut « Prospect » : hors propositions envoyées, comptées plus bas">Prospects à qualifier</dt>
                       <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{enCours}</dd>
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Propositions envoyées</dt>
                       <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{propositions}</dd>
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Perdus</dt>
                       <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{perdus}</dd>
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Affaires gagnées</dt>
-                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{gagnes.length}{vehicules ? ` (${vehicules} véh.)` : ""}</dd>
-                      <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Taux de transformation</dt>
-                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{l.length ? Math.round((gagnes.length / l.length) * 100) : 0} %</dd>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{gagnes.length}{vehicules ? ` (parc : ${vehicules} véh.)` : ""}</dd>
+                      <dt className={dark ? "text-zinc-500" : "text-stone-500"} title="Gagnés / (gagnés + perdus)">Taux de réussite (dossiers clos)</dt>
+                      <dd className={`text-right font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{gagnes.length + perdus ? Math.round((gagnes.length / (gagnes.length + perdus)) * 100) : "—"}{gagnes.length + perdus ? " %" : ""}</dd>
                       <dt className={dark ? "text-zinc-500" : "text-stone-500"}>Relances en retard</dt>
                       <dd className={`text-right font-semibold ${retard ? "text-rose-500" : dark ? "text-zinc-100" : "text-stone-800"}`}>{retard}</dd>
                     </dl>
@@ -7648,6 +8031,11 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
 
   return (
     <div className="space-y-4">
+      {syncError && (
+        <div role="status" data-testid="sync-error" className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${dark ? "border-amber-700/50 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <RefreshCw size={14} className="animate-spin" /> Synchronisation interrompue — nouvel essai automatique. Vos données affichées restent consultables.
+        </div>
+      )}
       <div>
         <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
           <Target size={15} className={dark ? "text-blue-500" : "text-blue-800"} />
@@ -7705,6 +8093,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
           actions={actions}
           commerciaux={team}
           me={currentUserName}
+          myCommercial={myCommercial || ""}
           readOnly={readOnly}
           newPrefill={newPrefill}
           onClose={closeFiche}

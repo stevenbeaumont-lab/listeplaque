@@ -13,7 +13,7 @@
 --      decideur                nom + fonction du décideur
 --      renouvellement_mois     périodicité de renouvellement du parc (en mois) -> date de relance des Prospects
 --      dernier_renouvellement  date du dernier renouvellement, si connue
---      derniere_proposition    date de la dernière proposition envoyée (relance en général à 72 h)
+--      derniere_proposition    date de la dernière proposition envoyée (relance en général à 5 jours)
 --      motif_perte             pourquoi le prospect est perdu (ex. ne veut plus entendre parler de la marque)
 --    (la taille du parc reste la colonne existante « flotte »)
 -- 2) Statuts ramenés à 4 : Prospect, Proposition envoyée, Gagné, Perdu.
