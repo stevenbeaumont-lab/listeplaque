@@ -5484,15 +5484,21 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       marker._prospectionItem = c.items[0];
       marker._prospectionItems = c.items;
       if (isCluster) {
-        marker.bindPopup(popupHtml);
+        marker.bindPopup(popupHtml, { maxWidth: 260, autoPanPaddingTopLeft: [10, 60], autoPanPaddingBottomRight: [10, 10] });
         // Le gestionnaire de clic par défaut de Leaflet ouvre/ferme le popup : au zoom maximum il refermait celui
         // qu'on venait d'ouvrir. On le retire et on décide nous-mêmes : zoomer, ou — une fois le zoom maximum atteint,
         // ou pour des fiches à la même adresse que le zoom ne sépare jamais — ouvrir la liste des fiches du groupe.
         marker.off("click", marker._openPopup, marker);
         marker.on("click", () => {
+          // Un second toucher pendant un zoom (double-tap, doigt qui glisse) ne doit pas lancer un deuxième zoom en cascade.
+          if (map._animatingZoom || marker._plBusy) return;
           const targetZoom = Math.min(map.getZoom() + 2, map.getMaxZoom());
-          if (targetZoom <= map.getZoom()) marker.openPopup();
-          else map.setView([c.lat, c.lng], targetZoom);
+          if (targetZoom <= map.getZoom()) { marker.openPopup(); return; }
+          // Zoom immédiat (sans animation) : les points se regroupent/se séparent au zoomend, une animation en cours
+          // laissait des marqueurs mal placés pendant quelques instants, surtout sur téléphone.
+          marker._plBusy = true;
+          setTimeout(() => { marker._plBusy = false; }, 400);
+          map.setView([c.lat, c.lng], targetZoom, { animate: false });
         });
       } else {
         marker.on("click", () => onSingleClick(marker._prospectionItem));
@@ -5702,7 +5708,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const mobile = prospectionIsMobile();
-    const map = L.map(containerRef.current, { scrollWheelZoom: true, markerZoomAnimation: !mobile, fadeAnimation: !mobile, zoomSnap: mobile ? 1 : 1 }).setView([PROSPECTION_CAEN_CENTER.lat, PROSPECTION_CAEN_CENTER.lng], 11);
+    const map = L.map(containerRef.current, { scrollWheelZoom: true, markerZoomAnimation: !mobile, fadeAnimation: !mobile }).setView([PROSPECTION_CAEN_CENTER.lat, PROSPECTION_CAEN_CENTER.lng], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
@@ -5710,6 +5716,9 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     map.on("click", () => setSelectedId(null));
     map.on("contextmenu", (e) => {
       L.DomEvent.preventDefault(e.originalEvent);
+      // Appui long sur un point, un regroupement ou une fenêtre : ce n'est pas une demande de nouveau prospect.
+      const t = e.originalEvent?.target;
+      if (t?.closest?.(".leaflet-marker-icon, .leaflet-popup, .leaflet-control")) return;
       onCreateAtLocationRef.current(e.latlng);
     });
     // Les étiquettes permanentes (une par point) pèsent lourd à dézoomé : on les masque tant qu'on est loin.
@@ -5766,7 +5775,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const clusters = prospectionClusterPoints(map, placed, 52);
+    const mob = prospectionIsMobile();
+    const clusters = prospectionClusterPoints(map, placed, mob ? 66 : 52);
     prospectionSyncClusterLayer(map, markersRef, clusters, {
       buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
@@ -5785,7 +5795,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     // Regroupement un peu plus large que celui des prospects (52px) : les clients existants restent
     // une couche secondaire. Le vrai garde-fou contre la saturation est le masquage sous le zoom
     // minimal (PROSPECTION_CLIENT_MIN_ZOOM) ; ce clustering ne sert qu'aux secteurs très denses.
-    const clusters = prospectionClusterPoints(map, clientsPlaced, 60);
+    const clusters = prospectionClusterPoints(map, clientsPlaced, prospectionIsMobile() ? 72 : 60);
     prospectionSyncClusterLayer(map, clientMarkersRef, clusters, {
       buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
@@ -5800,7 +5810,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const clusters = prospectionClusterPoints(map, ciblesPlaced.map((g) => ({ ...g, id: g.key })), 60);
+    const clusters = prospectionClusterPoints(map, ciblesPlaced.map((g) => ({ ...g, id: g.key })), prospectionIsMobile() ? 72 : 60);
     prospectionSyncClusterLayer(map, cibleMarkersRef, clusters, {
       buildIcon: (g) => prospectionCibleIcon(g),
       buildPopup: prospectionCiblePopupHtml,
