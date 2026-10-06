@@ -4373,21 +4373,22 @@ function prospectsToCsv(prospects) {
   return "\ufeff" + [PROSPECTION_CSV_COLS.join(";"), ...prospects.map((p) => PROSPECTION_CSV_COLS.map((c) => esc(p[c])).join(";"))].join("\n");
 }
 
-// true uniquement si le compte connecté est dans prospection_members (RLS applique la vraie restriction).
+// { allowed, readOnly } : allowed = le compte est dans prospection_members ; readOnly = membre en lecture seule
+// (colonne lecture_seule, ex. marketing / direction). La vraie restriction est appliquée par la RLS côté base.
 function useProspectionAccess(userId) {
-  const [allowed, setAllowed] = useState(false);
+  const [access, setAccess] = useState({ allowed: false, readOnly: false });
   useEffect(() => {
     let alive = true;
-    if (!userId) { setAllowed(false); return; }
+    if (!userId) { setAccess({ allowed: false, readOnly: false }); return; }
     supabase
       .from("prospection_members")
-      .select("user_id")
+      .select("*")
       .eq("user_id", userId)
       .maybeSingle()
-      .then(({ data }) => { if (alive) setAllowed(!!data); });
+      .then(({ data }) => { if (alive) setAccess({ allowed: !!data, readOnly: !!data?.lecture_seule }); });
     return () => { alive = false; };
   }, [userId]);
-  return allowed;
+  return access;
 }
 
 const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", ...PROSPECTION_CRITERE_COLS, "modele", "statut", "commercial", "relance", "notes", "client_existant"];
@@ -4595,7 +4596,7 @@ function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
   );
 }
 
-function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, newPrefill, onClose, onSave, onDelete, onAddAction, showToast }) {
+function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, readOnly, newPrefill, onClose, onSave, onDelete, onAddAction, showToast }) {
   // Toujours relu en direct par identifiant (jamais une copie figée) — se remonte automatiquement
   // avec les mises à jour temps réel de useProspection tant que le popup reste ouvert.
   // Nouveau prospect : le commercial est celui du compte connecté (si c'est un des commerciaux B2B).
@@ -4761,7 +4762,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <fieldset disabled={!!readOnly} className="m-0 min-w-0 border-0 p-0"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className={`${labelCls} sm:col-span-2`}>Société *<input className={inputCls} value={p.societe || ""} onChange={set("societe")} autoFocus={isNew} /></label>
           <label className={`${labelCls} sm:col-span-2`}>
             <span className="flex items-center justify-between">
@@ -4891,12 +4892,12 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             </label>
           )}
           <label className={`${labelCls} sm:col-span-2`}>Notes<textarea rows={3} className={inputCls} value={p.notes || ""} onChange={set("notes")} /></label>
-        </div>
+        </div></fieldset>
 
         {!isNew && (
           <section className={`mt-5 rounded-xl border p-4 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
             <h3 className={`mb-3 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Historique des actions</h3>
-            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto]">
+            {!readOnly && <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto]">
               <select className={inputCls} value={logType} onChange={(e) => setLogType(e.target.value)}>{PROSPECTION_TYPES_ACTION.map((t) => <option key={t}>{t}</option>)}</select>
               <input
                 className={inputCls}
@@ -4908,7 +4909,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               <button onClick={addLog} className={`pl-interactive rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
                 Ajouter
               </button>
-            </div>
+            </div>}
             {hist.length === 0 ? (
               <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune action enregistrée.</p>
             ) : (
@@ -4926,7 +4927,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            {!isNew && (
+            {!isNew && !readOnly && (
               <button
                 onClick={() => (deleteConfirm ? doDelete() : setDeleteConfirm(true))}
                 onBlur={() => setDeleteConfirm(false)}
@@ -4935,7 +4936,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 {deleteConfirm ? "Confirmer la suppression" : "Supprimer"}
               </button>
             )}
-            {!isNew && (
+            {!isNew && !readOnly && (
               <button
                 onClick={toggleClientExistant}
                 className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
@@ -4946,11 +4947,13 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
           </div>
           <div className="flex gap-2">
             <button onClick={onClose} className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
-              Annuler
+              {readOnly ? "Fermer" : "Annuler"}
             </button>
-            <button onClick={save} disabled={saving} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-60">
-              {saving ? "Enregistrement…" : "Enregistrer"}
-            </button>
+            {!readOnly && (
+              <button onClick={save} disabled={saving} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-60">
+                {saving ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -5513,7 +5516,7 @@ function ProspectionRelancePill({ dark, p }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{lbl}</span>;
 }
 
-function ProspectionTab({ dark, currentUserName, showToast }) {
+function ProspectionTab({ dark, currentUserName, readOnly, showToast }) {
   const data = useProspection();
   const { prospects, actions, loading, error } = data;
   // Les clients existants (importés du CRM) ne font jamais partie du pipeline commercial —
@@ -5555,9 +5558,15 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
     return [...s];
   }, [commerciaux, funnelProspects]);
 
-  const scoped = scope ? funnelProspects.filter((p) => p.commercial === scope) : funnelProspects;
+  // Filtre « Toute l'équipe » / une équipe (A, B) / un commercial.
+  const scopeTeam = scope.startsWith("team:") ? scope.slice(5) : "";
+  const inScope = (nom) => !scope || (scopeTeam ? PROSPECTION_TEAMS[nom] === scopeTeam : nom === scope);
+  const scoped = scope ? funnelProspects.filter((p) => inScope(p.commercial)) : funnelProspects;
+  const teamIds = [...new Set(Object.values(PROSPECTION_TEAMS))].sort();
+  const teamLabel = (t) => `Équipe ${t} (${Object.keys(PROSPECTION_TEAMS).filter((n) => PROSPECTION_TEAMS[n] === t).join(", ")})`;
 
   const autoCommercial = prospectionCommercialFor(currentUserName);
+  const lectureSeule = () => showToast("Accès en lecture seule : vous pouvez consulter, pas modifier", { type: "error" });
 
   const addAction = async (id, type, texte, par) => {
     await data.addAction(id, type, texte, par);
@@ -5659,7 +5668,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         <div className={`flex flex-wrap items-center gap-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
           {p.societe} <ProspectionRelancePill dark={dark} p={p} />
         </div>
-        <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.contact, p.tel, p.commune, p.statut, !scope && p.commercial].filter(Boolean).join(" · ")}</div>
+        <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.contact, p.tel, p.commune, p.statut, (!scope || scopeTeam) && p.commercial].filter(Boolean).join(" · ")}</div>
         {(p.flotte || p.marques || p.energies) && (
           <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.flotte && `${p.flotte} véh.`, p.marques, p.energies].filter(Boolean).join(" · ")}</div>
         )}
@@ -5676,12 +5685,12 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
             Itinéraire
           </a>
         )}
-        <button onClick={() => quickVisit(p)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-emerald-700 text-emerald-400" : "border-emerald-300 text-emerald-700"}`}>Visité</button>
-        {p.statut === "Prospect" && (
+        {!readOnly && <button onClick={() => quickVisit(p)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-emerald-700 text-emerald-400" : "border-emerald-300 text-emerald-700"}`}>Visité</button>}
+        {!readOnly && p.statut === "Prospect" && (
           <button onClick={() => propositionEnvoyee(p)} title="Proposition envoyée : relance dans 72 h" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-violet-700 text-violet-300" : "border-violet-300 text-violet-700"}`}>Proposition envoyée</button>
         )}
-        <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>
-        <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>
+        {!readOnly && <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>}
+        {!readOnly && <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>}
         <button onClick={() => setOpenId(p.id)} className="rounded-lg bg-blue-700 px-2.5 py-1 text-sm font-semibold text-white">Ouvrir</button>
       </div>
     </div>
@@ -5765,13 +5774,13 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         <button onClick={exportCsv} className={`pl-interactive flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
           <Download size={14} /> Exporter en CSV
         </button>
-        <button
+        {!readOnly && <button
           onClick={() => fileRef.current?.click()}
           disabled={!!importing}
           className={`pl-interactive rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
         >
           {importing ? `Import… ${importing}` : "Importer un CSV"}
-        </button>
+        </button>}
         <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => e.target.files[0] && pickCsv(e.target.files[0])} />
       </div>
 
@@ -5842,7 +5851,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
   const vueEquipe = () => {
     const weekAgo = Date.now() - 7 * 864e5;
     const groups = {};
-    team.forEach((n) => {
+    team.filter(inScope).forEach((n) => {
       const t = PROSPECTION_TEAMS[n] || "Autres";
       (groups[t] = groups[t] || []).push(n);
     });
@@ -5924,11 +5933,20 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
           <select value={scope} onChange={(e) => setScope(e.target.value)} className={inputCls}>
             <option value="">Toute l'équipe</option>
-            {team.map((n) => <option key={n}>{n}</option>)}
+            <optgroup label="Par équipe">
+              {teamIds.map((t) => <option key={t} value={`team:${t}`}>{teamLabel(t)}</option>)}
+            </optgroup>
+            <optgroup label="Par commercial">
+              {team.map((n) => <option key={n}>{n}</option>)}
+            </optgroup>
           </select>
-          <button onClick={() => setOpenId("new")} className="pl-interactive ml-auto rounded-lg bg-blue-700 px-3.5 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500">
-            Nouveau prospect
-          </button>
+          {readOnly ? (
+            <span className={`ml-auto rounded-full px-3 py-1 text-xs font-semibold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>Lecture seule</span>
+          ) : (
+            <button onClick={() => setOpenId("new")} className="pl-interactive ml-auto rounded-lg bg-blue-700 px-3.5 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500">
+              Nouveau prospect
+            </button>
+          )}
         </div>
       </div>
 
@@ -5951,7 +5969,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
         {vue === "jour" && vueJour()}
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
-        {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={openNewFromOsm} onQuickVisit={quickVisit} onCreateAtLocation={openNewFromCoords} onGeocodeMissing={data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
@@ -5963,6 +5981,7 @@ function ProspectionTab({ dark, currentUserName, showToast }) {
           actions={actions}
           commerciaux={team}
           me={currentUserName}
+          readOnly={readOnly}
           newPrefill={newPrefill}
           onClose={closeFiche}
           onSave={data.save}
@@ -10874,7 +10893,8 @@ export default function App() {
   }, [vendorName, vendeursList]);
 
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
-  const canProspect = useProspectionAccess(authUserId);
+  const prospectionAccess = useProspectionAccess(authUserId);
+  const canProspect = prospectionAccess.allowed;
   const marketingMe = useMarketingAccess(authUserId);
   const canMarketing = !!marketingMe;
   const rdvMe = useRdvAccess(authUserId);
@@ -11103,7 +11123,7 @@ export default function App() {
             />
           ) : tab === "prospection" ? (
             canProspect ? (
-              <ProspectionTab dark={dark} currentUserName={vendorName} showToast={showToast} />
+              <ProspectionTab dark={dark} currentUserName={vendorName} readOnly={prospectionAccess.readOnly} showToast={showToast} />
             ) : null
           ) : tab === "rdv" ? (
             rdvMe ? (
