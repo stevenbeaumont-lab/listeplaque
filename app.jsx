@@ -5029,7 +5029,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
 
   return (
     <div className="fixed inset-0 z-50 !m-0 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div role="dialog" aria-modal="true" className={`pl-fade-in h-[100dvh] w-full max-w-xl overflow-y-auto overscroll-contain px-4 pb-4 sm:h-full sm:p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
+      <div role="dialog" aria-modal="true" className={`pl-fade-in h-[100dvh] w-full max-w-xl overflow-y-auto overscroll-contain px-4 pb-0 sm:h-full sm:p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
         <div className={`sticky top-0 z-20 -mx-4 mb-3 flex items-start justify-between gap-3 px-4 py-3 sm:static sm:mx-0 sm:mb-4 sm:px-0 sm:py-0 ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
           <div>
             <h2 className={`text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{isNew ? "Nouveau prospect" : prospect.societe}</h2>
@@ -6211,7 +6211,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                 })}
               </ol>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <span data-testid="tournee-total" className={`text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{tourStops.length} étape(s) · environ {prospectionTourneeKm(tourStart, tourStops).toFixed(1)} km depuis {tourStart.label.toLowerCase()}</span>
+                <span data-testid="tournee-total" className={`text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>{tourStops.length} étape(s) · environ {prospectionTourneeKm(tourStart, tourStops).toFixed(1)} km depuis {tourStartMode === "client" ? tourStart.label : tourStart.label.toLowerCase()}</span>
                 <a data-testid="tournee-gmaps" href={prospectionTourneeUrl(tourStart, tourStops)} target="_blank" rel="noreferrer" className="pl-interactive ml-auto rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500">Ouvrir dans Google Maps</a>
               </div>
             </>
