@@ -5380,6 +5380,7 @@ function prospectionPopupHtml(p) {
     `<button data-action="open" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
     p.client_existant ? "" : `<button data-action="visit" style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">J'ai visité</button>`,
     prospectionContactLinksHtml(p.tel, p.email),
+    p.lat != null && p.lng != null ? `<button data-action="tour" style="background:#fff;color:#1d4ed8;border:1px solid #1d4ed8;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Tournée depuis ici</button>` : "",
     `<a href="${prospectionMapsDirectionsUrl(p)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
     `</div></div>`,
   ];
@@ -5570,7 +5571,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   // Les marqueurs Leaflet gardent les fonctions reçues à leur création : on passe par une référence toujours à jour
   // (sinon un clic « Ajouter à la prospection » utiliserait un quota / des données périmés).
   const cbRef = useRef({});
-  cbRef.current = { onOpen, onQuickVisit, onAddCible, onAddFromOsm };
+  cbRef.current = { onOpen, onQuickVisit, onAddCible, onAddFromOsm, startTourFrom: (it) => startTourFromRef.current?.(it) };
+  const startTourFromRef = useRef(null);
 
   // ---- Rechercher un client : prospects, clients existants et entreprises de campagne, puis zoom dessus.
   const [searchQ, setSearchQ] = useState("");
@@ -5620,7 +5622,26 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [tourLateFirst, setTourLateFirst] = useState(false);
   const [tourExcluded, setTourExcluded] = useState(() => new Set());
   const tourLayerRef = useRef(null);
-  const tourStart = tourStartMode === "position" && tourPos ? { lat: tourPos.lat, lng: tourPos.lng, label: "Ma position" } : { ...PROSPECTION_CAEN_CENTER, label: "Centre de Caen" };
+  // Départ depuis un client de base : la tournée visite les prospects à relancer les plus proches de ce client.
+  const [tourBase, setTourBase] = useState(null);
+  const [tourBaseQ, setTourBaseQ] = useState("");
+  const tourStart = tourStartMode === "client" && tourBase ? { lat: tourBase.lat, lng: tourBase.lng, label: tourBase.societe }
+    : tourStartMode === "position" && tourPos ? { lat: tourPos.lat, lng: tourPos.lng, label: "Ma position" } : { ...PROSPECTION_CAEN_CENTER, label: "Centre de Caen" };
+  const tourBaseResults = useMemo(() => {
+    const n = prospectionNorm(tourBaseQ.trim());
+    if (n.length < 2) return [];
+    return [...prospects, ...clients]
+      .filter((x) => x.lat != null && x.lng != null && prospectionNorm([x.societe, x.commune].filter(Boolean).join(" ")).includes(n))
+      .sort((a, b) => String(a.societe).localeCompare(String(b.societe), "fr"))
+      .slice(0, 6);
+  }, [tourBaseQ, prospects, clients]);
+  const startTourFrom = (item) => {
+    setTourBase({ id: item.id, societe: item.societe, lat: item.lat, lng: item.lng });
+    setTourBaseQ("");
+    setTourStartMode("client");
+    setTourExcluded(new Set([item.id])); // le client de départ n'est pas une étape de sa propre tournée
+    setTourOpen(true);
+  };
   const tourCandidates = useMemo(() => {
     const week = prospectionAddDaysISO(7);
     return prospects.filter((p) => {
@@ -5630,15 +5651,16 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     });
   }, [prospects, tourExcluded, tourWeek]);
   const tourStops = useMemo(
-    () => (tourOpen ? prospectionPlanTournee(tourCandidates, tourStart, { max: tourMax, rank: tourLateFirst ? (p) => (prospectionRelanceState(p) === "late" ? 0 : 1) : null }) : []),
+    () => (tourOpen && !(tourStartMode === "client" && !tourBase) ? prospectionPlanTournee(tourCandidates, tourStart, { max: tourMax, rank: tourLateFirst ? (p) => (prospectionRelanceState(p) === "late" ? 0 : 1) : null }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tourOpen, tourCandidates, tourStart.lat, tourStart.lng, tourMax, tourLateFirst]
+    [tourOpen, tourCandidates, tourStart.lat, tourStart.lng, tourMax, tourLateFirst, tourStartMode, tourBase]
   );
   const locateForTour = async (manual) => {
     const pos = await prospectionGetPosition();
     if (pos) { setTourPos(pos); setTourStartMode("position"); }
     else { setTourStartMode("centre"); if (manual) showToast("Position indisponible : départ du centre de Caen", { type: "error" }); }
   };
+  startTourFromRef.current = startTourFrom;
   const openTour = () => { setTourOpen(true); setTourExcluded(new Set()); locateForTour(true); };
 
   const colorOfCommercial = useMemo(() => {
@@ -5734,7 +5756,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
-      onPopupAction: (p, action) => (action === "visit" ? cbRef.current.onQuickVisit(p) : cbRef.current.onOpen(p.id)),
+      onPopupAction: (p, action) => (action === "visit" ? cbRef.current.onQuickVisit(p) : action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
       onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#1D4ED8" }),
     });
@@ -5753,7 +5775,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
-      onPopupAction: (p) => cbRef.current.onOpen(p.id),
+      onPopupAction: (p, action) => (action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
       onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
     });
@@ -6091,8 +6113,31 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
               <select data-testid="tournee-depart" value={tourStartMode} onChange={(e) => { const v = e.target.value; setTourStartMode(v); if (v === "position" && !tourPos) locateForTour(true); }} className={`rounded-lg border px-2 py-1 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-700"}`}>
                 <option value="position">Ma position</option>
                 <option value="centre">Centre de Caen</option>
+                <option value="client">Un client…</option>
               </select>
             </label>
+            {tourStartMode === "client" && (
+              <div className="relative">
+                <input
+                  data-testid="tournee-base-recherche"
+                  value={tourBaseQ}
+                  onChange={(e) => setTourBaseQ(e.target.value)}
+                  placeholder={tourBase ? tourBase.societe : "Rechercher le client de départ…"}
+                  className={`h-8 w-56 rounded-lg border px-2 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 placeholder:text-zinc-500" : "bg-white border-stone-200 text-stone-700 placeholder:text-stone-500"}`}
+                />
+                {tourBaseResults.length > 0 && (
+                  <ul className={`absolute left-0 z-30 mt-1 w-72 overflow-hidden rounded-xl border shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+                    {tourBaseResults.map((x) => (
+                      <li key={x.id}>
+                        <button data-testid="tournee-base-item" onClick={() => startTourFrom(x)} className={`block w-full truncate px-3 py-2 text-left text-sm ${dark ? "hover:bg-zinc-800 text-zinc-200" : "hover:bg-stone-100 text-stone-800"}`}>
+                          <b>{x.societe}</b><span className={dark ? "text-zinc-500" : "text-stone-500"}>{x.commune ? ` · ${x.commune}` : ""}{x.client_existant ? " · client" : ""}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Étapes
               <select data-testid="tournee-max" value={tourMax} onChange={(e) => setTourMax(parseInt(e.target.value, 10))} className={`rounded-lg border px-2 py-1 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-700"}`}>
                 {[4, 6, 8, 9].map((n) => <option key={n} value={n}>{n}</option>)}
@@ -6106,7 +6151,9 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
             </label>
             <button onClick={() => setTourOpen(false)} className={`ml-auto text-xs underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>Fermer</button>
           </div>
-          {tourStops.length === 0 ? (
+          {tourStartMode === "client" && !tourBase ? (
+            <p data-testid="tournee-base-aide" className={`mt-3 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Choisissez le client de départ : la tournée passera par les prospects à relancer les plus proches de lui.</p>
+          ) : tourStops.length === 0 ? (
             <p data-testid="tournee-vide" className={`mt-3 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Aucun prospect à relancer avec une adresse localisée{tourWeek ? "" : " (cochez « relances de la semaine » pour élargir)"}.</p>
           ) : (
             <>
