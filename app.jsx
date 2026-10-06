@@ -7579,7 +7579,7 @@ const RDV_STAGE_HINT = {
   "Perdu": "Affaire perdue (30 derniers jours)",
 };
 const RDV_FIELD_LABELS = {
-  statut: "Statut", commentaire: "Commentaire", relance: "Relance", motif_perte: "Motif de perte", dossier_numero: "Dossier",
+  statut: "Statut", commentaire: "Commentaire", relance: "Relance", motif_perte: "Motif de perte", dossier_numero: "Dossier", vente_type: "Type de vente", vente_vehicule: "Véhicule vendu", vente_ref: "Réf. vendue",
   commercial: "Vendeur", date_rdv: "Date", client_nom: "Client", tel: "Téléphone", source: "Source", type_rdv: "Type",
   vehicule_vise: "Véhicule visé", vehicule_ref: "Réf. véhicule", consigne: "Consigne", deleted_at: "Corbeille",
 };
@@ -7725,7 +7725,7 @@ function rdvInRange(r, range) {
 
 function rdvStats(rows, now, today, plan) {
   const live = rows.filter((r) => !r.deleted_at);
-  const s = { pris: live.length, aVenir: 0, sansSuivi: 0, venus: 0, absents: 0, vendus: 0, perdus: 0, relancesDues: 0, relancesRetard: 0, reactSum: 0, reactN: 0, suites: 0, affaires: 0, affairesVenues: 0, affairesVendues: 0, motifs: {}, sources: {}, types: {} };
+  const s = { pris: live.length, aVenir: 0, sansSuivi: 0, venus: 0, absents: 0, vendus: 0, perdus: 0, relancesDues: 0, relancesRetard: 0, reactSum: 0, reactN: 0, suites: 0, venteStock: 0, venteCommande: 0, affaires: 0, affairesVenues: 0, affairesVendues: 0, motifs: {}, sources: {}, types: {} };
   const bump = (map, key, r) => {
     const o = map[key] || (map[key] = { pris: 0, venus: 0, vendus: 0 });
     o.pris++; if (r.venu) o.venus++; if (r.statut === "Vendu") o.vendus++;
@@ -7734,7 +7734,7 @@ function rdvStats(rows, now, today, plan) {
     if (r.statut === "À venir") { if (new Date(r.date_rdv) < now) s.sansSuivi++; else s.aVenir++; }
     if (r.venu) s.venus++;
     else if (r.statut === "Absent" || r.statut === "Perdu") s.absents++;
-    if (r.statut === "Vendu") s.vendus++;
+    if (r.statut === "Vendu") { s.vendus++; if (r.vente_type === "Stock") s.venteStock++; else if (r.vente_type === "Commande") s.venteCommande++; }
     if (r.statut === "Perdu") { s.perdus++; const m = r.motif_perte || "Non précisé"; s.motifs[m] = (s.motifs[m] || 0) + 1; }
     if (r.parent_id) s.suites++;
     if (rdvRelanceDue(r, today, plan)) { s.relancesDues++; if (rdvEffectiveRelance(r, plan) < today) s.relancesRetard++; }
@@ -7786,6 +7786,25 @@ function rdvMonthly(rows, archive, months, today, commercial) {
 }
 function rdvMonthLabel(k) {
   return new Date(k + "-01T12:00:00").toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+}
+// Libellé de la vente : « Stock · Puma Titanium » / « Commande · Kuga… ».
+function rdvVenteLabel(r) {
+  if (r.statut !== "Vendu") return "";
+  const t = r.vente_type || "";
+  const v = r.vente_vehicule || "";
+  if (!t && !v) return r.dossier_numero ? `Dossier ${r.dossier_numero}` : "";
+  return [t, v].filter(Boolean).join(" · ");
+}
+// Alerte sur le véhicule choisi pour une vente.
+function rdvSaleWarning(ref, commercial, vehicleByOrder) {
+  if (!ref) return "";
+  const v = vehicleByOrder.get(normalizeOrderNum(ref));
+  if (!v) return "";
+  if (v.baseStatus === "vendu") return "Ce véhicule est déjà marqué vendu";
+  if (v.baseStatus === "livre_client") return "Ce véhicule est déjà livré";
+  if (v.baseStatus === "hs") return "Ce véhicule est HS";
+  if (v.baseStatus === "reserve") { const who = activeReservationVendeur(v); return who && who !== commercial ? `Ce véhicule est réservé par ${who}` : ""; }
+  return "";
 }
 function rdvVehicleWarning(r, vehicleByOrder) {
   if (!r.vehicule_ref || !(r.statut === "À venir" || r.statut === "Honoré" || r.statut === "Absent")) return "";
@@ -7875,7 +7894,7 @@ function rdvExportRows(rows, allRows) {
   return rows.filter((r) => !r.deleted_at).map((r) => ({
     "Date": dt(r.date_rdv), "RDV n°": rank.get(r.id)?.n || 1, "Client": r.client_nom, "Téléphone": r.tel || "", "Vendeur": r.commercial, "Type": r.type_rdv, "Source": r.source || "",
     "Véhicule visé": r.vehicule_vise || "", "Statut": r.statut, "Honoré": r.venu ? "Oui" : "Non", "Motif de perte": r.motif_perte || "",
-    "Dossier": r.dossier_numero || "", "Relance": r.relance || "", "Commentaire": r.commentaire || "", "Résultat saisi le": dt(r.suivi_at),
+    "Type de vente": r.statut === "Vendu" ? r.vente_type || "" : "", "Véhicule vendu": r.statut === "Vendu" ? r.vente_vehicule || "" : "", "Relance": r.relance || "", "Commentaire": r.commentaire || "", "Résultat saisi le": dt(r.suivi_at),
   }));
 }
 async function exportRdvToExcel(rows, label, allRows) {
@@ -8154,6 +8173,7 @@ function RdvRow({ dark, r, now, today, isAdmin, vehicleByOrder, onOpen, onAction
           {r.source && <span>· {r.source}</span>}
           {r.vehicule_vise && <span className="truncate">· {r.vehicule_vise}</span>}
         </div>
+        {r.statut === "Vendu" && rdvVenteLabel(r) && <div className={`mt-0.5 truncate text-xs font-medium ${dark ? "text-violet-300" : "text-violet-700"}`}>Vendu : {rdvVenteLabel(r)}</div>}
         {r.commentaire && <div className={`mt-1 truncate text-xs italic ${s.sub}`}>« {r.commentaire} »</div>}
       </div>
       <div className="flex shrink-0 items-center gap-1.5" onClick={stop}>
@@ -8176,9 +8196,6 @@ function rdvLocalInput(iso) {
 }
 function rdvVehicleLabel(v) {
   return `${[v.model, v.trim, v.color].filter(Boolean).join(" ")} · ${v.orderNumber}`;
-}
-function rdvDossierLabel(d) {
-  return `${d.numero} — ${d.societe || [d.prenom, d.nom].filter(Boolean).join(" ") || "client"}${d.modele ? " · " + d.modele : ""}`;
 }
 function rdvFormatChange(key, pair) {
   const [o, n] = pair;
@@ -8263,7 +8280,7 @@ function RdvVendeurPicker({ dark, value, onChange, names, plan, date, allLabel, 
   );
 }
 
-function RdvVehiclePicker({ dark, label, refNum, vehicles, onChange }) {
+function RdvVehiclePicker({ dark, label, refNum, vehicles, onChange, filter, placeholder }) {
   const s = marketingStyles(dark);
   const [open, setOpen] = useState(false);
   const q = stripAccents(label || "").toLowerCase().trim();
@@ -8271,16 +8288,16 @@ function RdvVehiclePicker({ dark, label, refNum, vehicles, onChange }) {
     if (refNum || q.length < 2) return [];
     const parts = q.split(/\s+/);
     return vehicles
-      .filter((v) => v.baseStatus !== "livre_client" && v.baseStatus !== "vendu")
+      .filter((v) => (filter ? filter(v) : v.baseStatus !== "livre_client" && v.baseStatus !== "vendu"))
       .filter((v) => { const hay = stripAccents([v.model, v.trim, v.color, v.orderNumber, v.vin].join(" ")).toLowerCase(); return parts.every((p) => hay.includes(p)); })
       .slice(0, 6);
-  }, [vehicles, q, refNum]);
+  }, [vehicles, q, refNum, filter]);
   return (
     <div className="relative">
       <input
         className={s.input}
         value={label || ""}
-        placeholder="Modèle, finition, n° de commande… (stock ou texte libre)"
+        placeholder={placeholder || "Modèle, finition, n° de commande… (stock ou texte libre)"}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onChange={(e) => onChange({ label: e.target.value, ref: "" })}
@@ -8302,53 +8319,6 @@ function RdvVehiclePicker({ dark, label, refNum, vehicles, onChange }) {
               </button>
             </li>
           ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function RdvDossierPicker({ dark, value, onChange, dossiers, vendeur }) {
-  const s = marketingStyles(dark);
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-  const sel = value ? dossiers.find((d) => String(d.numero) === String(value)) : null;
-  const sugg = useMemo(() => {
-    const n = stripAccents(q).toLowerCase().trim();
-    let list = dossiers;
-    if (!n) list = dossiers.filter((d) => d.vendeur === vendeur);
-    else { const parts = n.split(/\s+/); list = dossiers.filter((d) => { const hay = stripAccents([d.numero, d.nom, d.prenom, d.societe, d.modele, d.numeroUsine, d.vendeur].join(" ")).toLowerCase(); return parts.every((p) => hay.includes(p)); }); }
-    return [...list].sort((a, b) => String(b.numero).localeCompare(String(a.numero), "fr", { numeric: true })).slice(0, 6);
-  }, [dossiers, q, vendeur]);
-  if (value) {
-    return (
-      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-white"}`}>
-        <FileText size={14} className={s.sub} />
-        <span className={`min-w-0 flex-1 truncate ${s.title}`}>{sel ? rdvDossierLabel(sel) : `Dossier ${value}`}</span>
-        <button type="button" onClick={() => onChange("")} className={`rounded p-1 ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}><X size={14} /></button>
-      </div>
-    );
-  }
-  return (
-    <div className="relative">
-      <input className={s.input} value={q} placeholder="Chercher un dossier (n°, client, modèle)…" onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} onChange={(e) => setQ(e.target.value)} />
-      {open && (sugg.length > 0 || q.trim()) && (
-        <ul className={`absolute left-0 right-0 z-10 mt-1 max-h-60 overflow-auto rounded-lg border p-1 shadow-lg ${dark ? "border-zinc-800 bg-zinc-900" : "border-stone-200 bg-white"}`}>
-          {!q.trim() && sugg.length > 0 && <li className={`px-2.5 py-1 text-[11px] ${s.sub}`}>Dossiers de {vendeur}</li>}
-          {sugg.map((d) => (
-            <li key={d.numero}>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(String(d.numero)); setQ(""); setOpen(false); }} className={`w-full truncate rounded-md px-2.5 py-2 text-left text-sm ${dark ? "text-zinc-200 hover:bg-zinc-800" : "text-stone-700 hover:bg-stone-100"}`}>
-                {rdvDossierLabel(d)}
-              </button>
-            </li>
-          ))}
-          {q.trim() && (
-            <li>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(q.trim()); setQ(""); setOpen(false); }} className={`w-full rounded-md px-2.5 py-2 text-left text-sm ${dark ? "text-blue-300 hover:bg-zinc-800" : "text-blue-700 hover:bg-stone-100"}`}>
-                Utiliser « {q.trim()} » comme n° de dossier
-              </button>
-            </li>
-          )}
         </ul>
       )}
     </div>
@@ -8482,14 +8452,18 @@ function RdvFormModal({ dark, initial, suiteOf, isAdmin, today, plan, vendeurNam
 }
 
 // Fiche d'un rendez-vous : informations, saisie du suivi, historique.
-function RdvModal({ dark, rdv, preset, isAdmin, dossiers, vehicleByOrder, today, plan, chain, notes, onClose, onSaveSuivi, onEdit, onDelete, onSuite, onOpenOther, onAddNote, loadHistory }) {
+function RdvModal({ dark, rdv, preset, isAdmin, vehicles, vehicleByOrder, today, plan, chain, notes, onClose, onSaveSuivi, onEdit, onDelete, onSuite, onOpenOther, onAddNote, loadHistory }) {
   const s = marketingStyles(dark);
   const tomorrow = marketingAddDays(today, 1);
   const [statut, setStatutRaw] = useState(preset || rdv.statut);
   const [commentaire, setCommentaire] = useState(rdv.commentaire || "");
   const [relance, setRelance] = useState(rdv.relance || (preset === "Absent" ? rdvNextPresent(plan, rdv.commercial, tomorrow) : ""));
   const [motif, setMotif] = useState(rdv.motif_perte || "");
-  const [dossier, setDossier] = useState(rdv.dossier_numero || "");
+  const initRef = rdv.vente_ref || rdv.vehicule_ref || "";
+  const initType = rdv.vente_type || (initRef ? (vehicleByOrder.get(normalizeOrderNum(initRef))?.baseStatus === "commande" ? "Commande" : "Stock") : "");
+  const [venteType, setVenteType] = useState(initType);
+  const [venteLabel, setVenteLabel] = useState(rdv.vente_vehicule || rdv.vehicule_vise || "");
+  const [venteRef, setVenteRef] = useState(rdv.vente_ref || rdv.vehicule_ref || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [history, setHistory] = useState(null);
@@ -8515,11 +8489,20 @@ function RdvModal({ dark, rdv, preset, isAdmin, dossiers, vehicleByOrder, today,
     commentaire: commentaire.trim() || null,
     relance: needsRelance ? relance || null : null,
     motif_perte: statut === "Perdu" ? motif || null : null,
-    dossier_numero: statut === "Vendu" ? dossier.trim() || null : null,
+    vente_type: statut === "Vendu" ? venteType || null : null,
+    vente_vehicule: statut === "Vendu" ? venteLabel.trim() || null : null,
+    vente_ref: statut === "Vendu" && venteRef ? venteRef : null,
   };
-  const changed = patch.statut !== rdv.statut || patch.commentaire !== (rdv.commentaire || null) || patch.relance !== (rdv.relance || null) || patch.motif_perte !== (rdv.motif_perte || null) || patch.dossier_numero !== (rdv.dossier_numero || null);
+  const saleWarn = statut === "Vendu" && venteType === "Stock" ? rdvSaleWarning(venteRef, rdv.commercial, vehicleByOrder) : "";
+  const changed = patch.statut !== rdv.statut || patch.commentaire !== (rdv.commentaire || null) || patch.relance !== (rdv.relance || null) || patch.motif_perte !== (rdv.motif_perte || null)
+    || patch.vente_type !== (rdv.vente_type || null) || patch.vente_vehicule !== (rdv.vente_vehicule || null) || patch.vente_ref !== (rdv.vente_ref || null);
   const save = async () => {
     if (statut === "Perdu" && !motif) { setErr("Indiquez le motif de la perte."); return; }
+    if (statut === "Vendu") {
+      if (!venteType) { setErr("Indiquez s'il s'agit d'un véhicule du stock ou d'une commande."); return; }
+      if (venteType === "Stock" && !venteRef) { setErr("Choisissez le véhicule vendu dans le stock."); return; }
+      if (venteType === "Commande" && !venteLabel.trim()) { setErr("Décrivez le véhicule commandé (modèle, finition…)."); return; }
+    }
     setSaving(true); setErr("");
     try { await onSaveSuivi(rdv.id, patch); onClose(); } catch (e) { setErr(e.message || String(e)); setSaving(false); }
   };
@@ -8595,8 +8578,28 @@ function RdvModal({ dark, rdv, preset, isAdmin, dossiers, vehicleByOrder, today,
             </RdvField>
           )}
           {statut === "Vendu" && (
-            <RdvField dark={dark} label="Dossier (facultatif)">
-              <RdvDossierPicker dark={dark} value={dossier} onChange={setDossier} dossiers={dossiers} vendeur={rdv.commercial} />
+            <RdvField dark={dark} label="Véhicule vendu *">
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {[["Stock", "Véhicule du stock"], ["Commande", "Commande client"]].map(([k, lbl]) => (
+                    <button key={k} type="button" onClick={() => { if (venteType !== k) { setVenteType(k); setVenteRef(""); if (k === "Stock") setVenteLabel(""); } }} className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${venteType === k ? (dark ? "bg-violet-500/25 text-violet-200 ring-1 ring-violet-500/50" : "bg-violet-600 text-white") : dark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{lbl}</button>
+                  ))}
+                </div>
+                {venteType === "Stock" && (
+                  <RdvVehiclePicker dark={dark} label={venteLabel} refNum={venteRef} vehicles={vehicles} placeholder="Chercher dans le stock : modèle, finition, n° de commande…"
+                    filter={(v) => v.baseStatus !== "livre_client" && v.baseStatus !== "vendu" && v.baseStatus !== "commande"}
+                    onChange={({ label, ref }) => { setVenteLabel(label); setVenteRef(ref); }} />
+                )}
+                {venteType === "Commande" && (
+                  <>
+                    <RdvVehiclePicker dark={dark} label={venteLabel} refNum={venteRef} vehicles={vehicles} placeholder="Modèle, finition, couleur de la commande… (ou véhicule commandé listé)"
+                      filter={(v) => v.baseStatus === "commande"}
+                      onChange={({ label, ref }) => { setVenteLabel(label); setVenteRef(ref); }} />
+                    <div className={`text-xs ${s.sub}`}>Si la commande n'est pas encore dans ParcLive, décrivez simplement le véhicule.</div>
+                  </>
+                )}
+                {saleWarn && <div className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${dark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-800"}`}><AlertTriangle size={13} /> {saleWarn}</div>}
+              </div>
             </RdvField>
           )}
           {needsRelance && (
@@ -8844,7 +8847,7 @@ function RdvPipelineCard({ dark, a, today, isAdmin, plan, onOpen, onAction, onSu
   else if (a.stage === "En cours") line = <span className={staleTone}>{stale > 0 ? `Sans contact depuis ${stale} j` : "Contacté aujourd'hui"}{a.next ? ` · relance ${marketingFrDate(a.next)}` : ""}</span>;
   else if (a.stage === "À relancer") line = <span className={`font-medium ${dark ? "text-amber-300" : "text-amber-700"}`}>{a.next ? `Relance ${marketingRelativeLabel(a.next, today)}` : "À relancer"}{stale >= 7 ? ` · ${stale} j sans contact` : ""}</span>;
   else if (a.stage === "Perdu") line = <span className={s.sub}>{r.motif_perte || "Motif non précisé"}</span>;
-  else line = <span className={s.sub}>{r.dossier_numero ? `Dossier ${r.dossier_numero}` : "Vente conclue"}</span>;
+  else line = <span className={dark ? "text-violet-300" : "text-violet-700"}>{rdvVenteLabel(r) || "Vente conclue"}</span>;
   const act = (st) => <button key={st} onClick={(e) => { e.stopPropagation(); onAction(r, st); }} className={`pl-interactive rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${dark ? RDV_ACTION_STYLE[st].dark : RDV_ACTION_STYLE[st].light}`}>{st}</button>;
   const open = a.stage === "En cours" || a.stage === "À relancer";
   return (
@@ -9103,6 +9106,7 @@ function RdvFiche(p) {
               <RdvBar dark={dark} value={ratio} max={1} />
             </div>
           ))}
+          {st.vendus > 0 && (st.venteStock > 0 || st.venteCommande > 0) && <div className={`text-xs ${s.sub}`}>{st.venteStock} vendu{st.venteStock > 1 ? "s" : ""} sur stock · {st.venteCommande} sur commande</div>}
           {st.absents > 0 && <div className={`text-xs ${s.sub}`}>{st.absents} absent{st.absents > 1 ? "s" : ""} ou injoignable{st.absents > 1 ? "s" : ""} · {st.perdus} perdu{st.perdus > 1 ? "s" : ""}</div>}
         </div>
         <div className={`space-y-4 rounded-2xl border p-4 ${s.card}`}>
@@ -9425,7 +9429,7 @@ function RdvGestion({ dark, rdv, vendeursList, vendeurNames, now, today, showToa
 }
 
 // ───────── Onglet ─────────
-function RdvTab({ dark, me, rdv, vendeursList, vehicles, dossiers, showToast }) {
+function RdvTab({ dark, me, rdv, vendeursList, vehicles, showToast }) {
   const isAdmin = me.role === "admin";
   const s = marketingStyles(dark);
   const views = isAdmin
@@ -9536,7 +9540,7 @@ function RdvTab({ dark, me, rdv, vendeursList, vehicles, dossiers, showToast }) 
       {modalRdv && (
         <RdvModal
           key={modalRdv.id + (preset || "")}
-          dark={dark} rdv={modalRdv} preset={preset} isAdmin={isAdmin} dossiers={dossiers} vehicleByOrder={vehicleByOrder} today={today}
+          dark={dark} rdv={modalRdv} preset={preset} isAdmin={isAdmin} vehicles={vehicles} vehicleByOrder={vehicleByOrder} today={today}
           plan={plan} chain={modalChain} notes={modalNotes} onSuite={onSuite} onOpenOther={openRdv} onAddNote={rdv.addNote}
           onClose={() => { setModalId(null); setPreset(null); }}
           onSaveSuivi={saveSuivi}
@@ -10727,7 +10731,7 @@ export default function App() {
             ) : null
           ) : tab === "rdv" ? (
             rdvMe ? (
-              <RdvTab dark={dark} me={rdvMe} rdv={rdvData} vendeursList={vendeursList} vehicles={vehicles} dossiers={dossiers} showToast={showToast} />
+              <RdvTab dark={dark} me={rdvMe} rdv={rdvData} vendeursList={vendeursList} vehicles={vehicles} showToast={showToast} />
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (

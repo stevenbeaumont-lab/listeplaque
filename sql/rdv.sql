@@ -77,7 +77,7 @@ create table if not exists public.rdv (
   commentaire text,
   relance date,
   motif_perte text check (motif_perte is null or motif_perte in ('Prix', 'Pas de reprise', 'Financement refusé', 'Délai', 'Injoignable', 'Autre')),
-  dossier_numero text,                                 -- dossier MyAna quand le statut est « Vendu »
+  dossier_numero text,                                 -- ancien champ (n° de dossier), plus utilisé : remplacé par vente_type / vente_vehicule / vente_ref
   -- Calculé automatiquement
   venu boolean not null default false,
   suivi_at timestamptz,                                -- 1re saisie d'un résultat (réactivité)
@@ -96,6 +96,14 @@ alter table public.rdv add column if not exists affaire_id uuid;
 update public.rdv set affaire_id = id where affaire_id is null;
 alter table public.rdv alter column affaire_id set not null;
 create index if not exists rdv_affaire_idx on public.rdv (affaire_id);
+
+-- Vente : véhicule du stock ou commande client. vente_vehicule = libellé, vente_ref = n° de commande si le véhicule est dans ParcLive. Remplace le n° de dossier.
+alter table public.rdv add column if not exists vente_type text;
+alter table public.rdv add column if not exists vente_vehicule text;
+alter table public.rdv add column if not exists vente_ref text;
+do $$ begin
+  alter table public.rdv add constraint rdv_vente_type_check check (vente_type is null or vente_type in ('Stock', 'Commande'));
+exception when duplicate_object then null; end $$;
 
 create table if not exists public.rdv_history (
   id bigint generated always as identity primary key,
@@ -147,7 +155,7 @@ begin
       if new.parent_id is null then raise exception 'Seul l''administrateur peut créer un rendez-vous'; end if;
       new.commercial := public.rdv_my_nom();
       new.statut := 'À venir'; new.commentaire := null; new.relance := null; new.motif_perte := null;
-      new.dossier_numero := null; new.deleted_at := null;
+      new.dossier_numero := null; new.vente_type := null; new.vente_vehicule := null; new.vente_ref := null; new.deleted_at := null;
     end if;
     new.created_by := auth.uid();
     new.created_at := now();
@@ -174,6 +182,7 @@ begin
   new.updated_at := now();
   new.updated_by := auth.uid();
   if new.statut <> 'Perdu' then new.motif_perte := null; end if;
+  if new.statut <> 'Vendu' then new.vente_type := null; new.vente_vehicule := null; new.vente_ref := null; end if;
   return new;
 end;
 $$;
