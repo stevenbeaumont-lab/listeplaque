@@ -537,7 +537,7 @@ const ROLE_PERMISSIONS = {
   "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
   "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
   "Préparateur": { reserve: false, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: true, vendeurs: false, reset: false },
-  // Statut Marketing : consultation du stock et du tableau de bord ; l'onglet Marketing (bêta) est géré par marketing_members.
+  // Statut Marketing : consultation du stock et du tableau de bord ; l'onglet Marketing est géré par marketing_members.
   "Marketing": { reserve: false, reserveForOthers: false, dashboard: true, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
 };
 const DEFAULT_PERMISSIONS = ROLE_PERMISSIONS["Vendeur"];
@@ -832,9 +832,9 @@ function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarke
     { id: "vehicules", label: "Véhicules", group: "Stock" },
     { id: "logistique", label: "Logistique", group: "Stock" },
     permissions.accidentes && { id: "accidentes", label: "Accidentés", group: "Stock" },
-    canProspect && { id: "prospection", label: "Prospection", group: "Commercial", beta: true },
+    canProspect && { id: "prospection", label: "Prospection", group: "Commercial" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Commercial" },
-    canMarketing && { id: "marketing", label: "Marketing", group: "Commercial", beta: true },
+    canMarketing && { id: "marketing", label: "Marketing", group: "Commercial" },
     rdvMe && { id: "rdv", label: rdvMe.role === "admin" ? "Rapports RDV" : "Mes RDV", group: "Commercial", beta: true, count: rdvOverdueCount },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Pilotage" },
     permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Administration" },
@@ -8213,7 +8213,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
 }
 
 // ============================================================================
-// Marketing (bêta) — logique pure (dates, modèles, récurrence). Testée hors navigateur.
+// Marketing — logique pure (dates, modèles, récurrence). Testée hors navigateur.
 // ============================================================================
 const MARKETING_PROJECT_STATUTS = ["À lancer", "En cours", "En pause", "Terminé"];
 const MARKETING_TASK_STATUTS = ["À faire", "En cours", "Fait"];
