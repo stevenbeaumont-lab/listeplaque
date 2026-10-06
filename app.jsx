@@ -7581,7 +7581,7 @@ const RDV_STAGE_HINT = {
 const RDV_FIELD_LABELS = {
   statut: "Statut", commentaire: "Commentaire", relance: "Relance", motif_perte: "Motif de perte", dossier_numero: "Dossier", vente_type: "Type de vente", vente_vehicule: "Véhicule vendu", vente_ref: "Réf. vendue",
   commercial: "Vendeur", date_rdv: "Date", client_nom: "Client", tel: "Téléphone", source: "Source", type_rdv: "Type",
-  vehicule_vise: "Véhicule visé", vehicule_ref: "Réf. véhicule", consigne: "Consigne", deleted_at: "Corbeille",
+  vehicule_vise: "Véhicule visé", vehicule_ref: "Réf. véhicule", vehicules: "Véhicules visés", consigne: "Consigne", deleted_at: "Corbeille",
 };
 
 function rdvDigits(tel) {
@@ -7806,16 +7806,27 @@ function rdvSaleWarning(ref, commercial, vehicleByOrder) {
   if (v.baseStatus === "reserve") { const who = activeReservationVendeur(v); return who && who !== commercial ? `Ce véhicule est réservé par ${who}` : ""; }
   return "";
 }
+// Véhicules visés par un rendez-vous : liste [{type: "Stock"|"Commande", label, ref}] (anciens rendez-vous : un seul véhicule déduit des champs historiques).
+function rdvVehiclesOf(r) {
+  if (Array.isArray(r.vehicules) && r.vehicules.length) return r.vehicules;
+  if (r.vehicule_vise || r.vehicule_ref) return [{ type: r.vehicule_ref ? "Stock" : "Commande", label: r.vehicule_vise || r.vehicule_ref, ref: r.vehicule_ref || null }];
+  return [];
+}
 function rdvVehicleWarning(r, vehicleByOrder) {
-  if (!r.vehicule_ref || !(r.statut === "À venir" || r.statut === "Honoré" || r.statut === "Absent")) return "";
-  const v = vehicleByOrder.get(normalizeOrderNum(r.vehicule_ref));
-  if (!v) return "";
-  if (v.baseStatus === "vendu") return "Véhicule déjà vendu";
-  if (v.baseStatus === "livre_client") return "Véhicule livré";
-  if (v.baseStatus === "hs") return "Véhicule HS";
-  if (v.baseStatus === "reserve") {
-    const who = activeReservationVendeur(v);
-    return who && who === r.commercial ? "" : `Véhicule réservé${who ? " (" + who + ")" : ""}`;
+  if (!(r.statut === "À venir" || r.statut === "Honoré" || r.statut === "Absent")) return "";
+  const list = rdvVehiclesOf(r).filter((x) => x.ref);
+  for (const item of list) {
+    const v = vehicleByOrder.get(normalizeOrderNum(item.ref));
+    if (!v) continue;
+    let w = "";
+    if (v.baseStatus === "vendu") w = "Véhicule déjà vendu";
+    else if (v.baseStatus === "livre_client") w = "Véhicule livré";
+    else if (v.baseStatus === "hs") w = "Véhicule HS";
+    else if (v.baseStatus === "reserve") {
+      const who = activeReservationVendeur(v);
+      if (!(who && who === r.commercial)) w = `Véhicule réservé${who ? " (" + who + ")" : ""}`;
+    }
+    if (w) return list.length > 1 ? `${w} : ${item.label}` : w;
   }
   return "";
 }
@@ -7841,12 +7852,13 @@ function rdvIcs(r) {
   ].join("\r\n");
 }
 function rdvCleanRow(f) {
+  const vs = (Array.isArray(f.vehicules) ? f.vehicules : []).map((v) => ({ type: v.type === "Stock" ? "Stock" : "Commande", label: String(v.label || "").trim(), ref: v.ref ? String(v.ref) : null })).filter((v) => v.label);
   const t = (v) => { const s = typeof v === "string" ? v.trim() : v; return s === "" || s === undefined ? null : s; };
   return {
     client_nom: String(f.client_nom || "").trim(),
     tel: t(f.tel), commercial: String(f.commercial || "").trim(),
     date_rdv: f.date_rdv, type_rdv: f.type_rdv || "Showroom", source: t(f.source),
-    vehicule_vise: t(f.vehicule_vise), vehicule_ref: t(f.vehicule_ref), consigne: t(f.consigne),
+    vehicules: vs, vehicule_vise: vs.length ? vs.map((v) => v.label).join(" + ") : null, vehicule_ref: vs.find((v) => v.ref)?.ref || null, consigne: t(f.consigne),
   };
 }
 // Points de la semaine (récap) : synthèse équipe + vendeurs + points d'attention.
@@ -8204,6 +8216,7 @@ function rdvFormatChange(key, pair) {
     if (v == null || v === "") return "—";
     if (key === "date_rdv") return new Date(v).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
     if (key === "relance") return marketingFrDate(v);
+    if (key === "vehicules") return Array.isArray(v) && v.length ? v.map((x) => x.label).join(" + ") : "—";
     const t = String(v);
     return t.length > 60 ? t.slice(0, 57) + "…" : t;
   };
@@ -8325,6 +8338,54 @@ function RdvVehiclePicker({ dark, label, refNum, vehicles, onChange, filter, pla
   );
 }
 
+// Véhicules visés : plusieurs possibles, chacun pris dans le stock ou en commande (liée à une commande listée, ou décrite librement).
+function RdvVehiclesField({ dark, value, onChange, vehicles }) {
+  const s = marketingStyles(dark);
+  const [type, setType] = useState("Stock");
+  const [draft, setDraft] = useState("");
+  const add = (v) => {
+    const label = String(v.label || "").trim();
+    if (!label) return;
+    if (v.ref && value.some((x) => x.ref === v.ref)) { setDraft(""); return; }
+    onChange([...value, { type: v.type, label, ref: v.ref || null }]);
+    setDraft("");
+  };
+  const stockFilter = (v) => v.baseStatus !== "livre_client" && v.baseStatus !== "vendu" && v.baseStatus !== "commande";
+  const orderFilter = (v) => v.baseStatus === "commande";
+  const typeBtn = (k, lbl) => (
+    <button key={k} type="button" onClick={() => { setType(k); setDraft(""); }} className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${type === k ? (dark ? "bg-blue-500/20 text-blue-200 ring-1 ring-blue-500/50" : "bg-blue-600 text-white") : dark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{lbl}</button>
+  );
+  return (
+    <div className="space-y-2">
+      {value.length > 0 && (
+        <ul className="space-y-1.5">
+          {value.map((v, i) => (
+            <li key={`${v.ref || v.label}-${i}`} className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-white"}`}>
+              <RdvPill dark={dark} tone={v.type === "Stock" ? "blue" : "amber"}>{v.type === "Stock" ? "Stock" : "Commande"}</RdvPill>
+              <span className={`min-w-0 flex-1 truncate ${s.title}`}>{v.label}</span>
+              <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className={`rounded p-1 ${dark ? "text-zinc-500 hover:bg-zinc-800" : "text-stone-400 hover:bg-stone-100"}`} aria-label={`Retirer ${v.label}`}><X size={14} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`text-xs ${s.sub}`}>{value.length ? "Ajouter un autre :" : "Ajouter :"}</span>
+        {typeBtn("Stock", "Véhicule du stock")}
+        {typeBtn("Commande", "Commande")}
+      </div>
+      <div onKeyDown={(e) => { if (e.key === "Enter" && type === "Commande" && draft.trim()) { e.preventDefault(); add({ type, label: draft, ref: "" }); } }} className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <RdvVehiclePicker key={type} dark={dark} label={draft} refNum="" vehicles={vehicles} filter={type === "Stock" ? stockFilter : orderFilter}
+            placeholder={type === "Stock" ? "Chercher dans le stock : modèle, finition, n° de commande…" : "Commande : modèle, finition, couleur… (ou véhicule commandé listé)"}
+            onChange={({ label, ref }) => { if (ref) add({ type, label, ref }); else setDraft(label); }} />
+        </div>
+        {type === "Commande" && <button type="button" onClick={() => add({ type, label: draft, ref: "" })} disabled={!draft.trim()} className={s.ghostBtn}>Ajouter</button>}
+      </div>
+      <div className={`text-xs ${s.sub}`}>{type === "Stock" ? "Cliquez sur un véhicule de la liste pour l'ajouter." : "Choisissez une commande listée, ou décrivez-la puis « Ajouter » (Entrée)."}</div>
+    </div>
+  );
+}
+
 function RdvField({ dark, label, children, hint }) {
   const s = marketingStyles(dark);
   return (
@@ -8350,7 +8411,7 @@ function RdvFormModal({ dark, initial, suiteOf, isAdmin, today, plan, vendeurNam
   const [f, setF] = useState(() => ({
     client_nom: initial?.client_nom || suiteOf?.client_nom || "", tel: initial?.tel || suiteOf?.tel || "", commercial: initial?.commercial || suiteOf?.commercial || "",
     date: rdvLocalInput(initial?.date_rdv || defaultStart()), type_rdv: initial?.type_rdv || "Showroom", source: initial?.source || suiteOf?.source || "",
-    vehicule_vise: initial?.vehicule_vise || suiteOf?.vehicule_vise || "", vehicule_ref: initial?.vehicule_ref || suiteOf?.vehicule_ref || "", consigne: initial?.consigne || "",
+    vehicules: rdvVehiclesOf(initial || suiteOf || {}), consigne: initial?.consigne || "",
   }));
   const [another, setAnother] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -8370,7 +8431,7 @@ function RdvFormModal({ dark, initial, suiteOf, isAdmin, today, plan, vendeurNam
     setSaving(true); setErr("");
     try {
       await onSave({ ...f, date_rdv: new Date(f.date).toISOString(), parent_id: suite ? suiteOf.id : undefined }, another);
-      if (another && !editing && !suite) setF((x) => ({ ...x, client_nom: "", tel: "", vehicule_vise: "", vehicule_ref: "", consigne: "" }));
+      if (another && !editing && !suite) setF((x) => ({ ...x, client_nom: "", tel: "", vehicules: [], consigne: "" }));
     } catch (e) { setErr(e.message || String(e)); }
     setSaving(false);
   };
@@ -8428,9 +8489,10 @@ function RdvFormModal({ dark, initial, suiteOf, isAdmin, today, plan, vendeurNam
             {clashes.slice(0, 3).map((c) => <div key={c.id}>{rdvTime(c)} · {c.client_nom} · {c.type_rdv}</div>)}
           </div>
         )}
-        <RdvField dark={dark} label="Véhicule visé">
-          <RdvVehiclePicker dark={dark} label={f.vehicule_vise} refNum={f.vehicule_ref} vehicles={vehicles} onChange={({ label, ref }) => setF((x) => ({ ...x, vehicule_vise: label, vehicule_ref: ref }))} />
-        </RdvField>
+        <div>
+          <div className={s.label}>Véhicules visés</div>
+          <RdvVehiclesField dark={dark} value={f.vehicules} vehicles={vehicles} onChange={(list) => setF((x) => ({ ...x, vehicules: list }))} />
+        </div>
         <RdvField dark={dark} label={suite && !isAdmin ? "Note pour ce rendez-vous" : "Consigne pour le vendeur"} hint="Contexte utile : reprise, financement, attentes du client…">
           <textarea className={s.input} rows={2} value={f.consigne} onChange={set("consigne")} />
         </RdvField>
@@ -8459,11 +8521,12 @@ function RdvModal({ dark, rdv, preset, isAdmin, vehicles, vehicleByOrder, today,
   const [commentaire, setCommentaire] = useState(rdv.commentaire || "");
   const [relance, setRelance] = useState(rdv.relance || (preset === "Absent" ? rdvNextPresent(plan, rdv.commercial, tomorrow) : ""));
   const [motif, setMotif] = useState(rdv.motif_perte || "");
-  const initRef = rdv.vente_ref || rdv.vehicule_ref || "";
-  const initType = rdv.vente_type || (initRef ? (vehicleByOrder.get(normalizeOrderNum(initRef))?.baseStatus === "commande" ? "Commande" : "Stock") : "");
-  const [venteType, setVenteType] = useState(initType);
-  const [venteLabel, setVenteLabel] = useState(rdv.vente_vehicule || rdv.vehicule_vise || "");
-  const [venteRef, setVenteRef] = useState(rdv.vente_ref || rdv.vehicule_ref || "");
+  const visesList = rdvVehiclesOf(rdv);
+  const firstVise = visesList.find((v) => v.ref) || visesList[0] || null;
+  const typeOfVise = (v) => (v.ref && vehicleByOrder.get(normalizeOrderNum(v.ref))?.baseStatus === "commande" ? "Commande" : v.type === "Stock" ? "Stock" : "Commande");
+  const [venteType, setVenteType] = useState(rdv.vente_type || (firstVise ? typeOfVise(firstVise) : ""));
+  const [venteLabel, setVenteLabel] = useState(rdv.vente_vehicule || firstVise?.label || "");
+  const [venteRef, setVenteRef] = useState(rdv.vente_ref || firstVise?.ref || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [history, setHistory] = useState(null);
@@ -8527,8 +8590,20 @@ function RdvModal({ dark, rdv, preset, isAdmin, vehicles, vehicleByOrder, today,
           {info("Type", rdv.type_rdv)}
           {info("Source", rdv.source)}
           {info("Téléphone", rdv.tel)}
-          {info("Véhicule visé", rdv.vehicule_vise)}
         </div>
+        {visesList.length > 0 && (
+          <div>
+            <div className={`text-[11px] ${s.sub}`}>{visesList.length > 1 ? "Véhicules visés" : "Véhicule visé"}</div>
+            <ul className="mt-1 space-y-1">
+              {visesList.map((v, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm">
+                  <RdvPill dark={dark} tone={v.type === "Stock" ? "blue" : "amber"}>{v.type === "Stock" ? "Stock" : "Commande"}</RdvPill>
+                  <span className={`min-w-0 flex-1 truncate ${s.title}`}>{v.label}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {warn && <div className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${dark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-800"}`}><AlertTriangle size={13} /> {warn}</div>}
         {rdv.consigne && (
           <div className={`rounded-lg px-3 py-2 text-sm ${dark ? "bg-zinc-800/60 text-zinc-300" : "bg-stone-100 text-stone-700"}`}>
@@ -8580,6 +8655,14 @@ function RdvModal({ dark, rdv, preset, isAdmin, vehicles, vehicleByOrder, today,
           {statut === "Vendu" && (
             <RdvField dark={dark} label="Véhicule vendu *">
               <div className="space-y-2">
+                {visesList.length > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`text-xs ${s.sub}`}>Parmi les véhicules visés :</span>
+                    {visesList.map((v, i) => (
+                      <button key={i} type="button" onClick={() => { setVenteType(typeOfVise(v)); setVenteLabel(v.label); setVenteRef(v.ref || ""); }} className={`max-w-full truncate rounded-full px-2.5 py-1 text-xs font-semibold ${venteLabel === v.label ? (dark ? "bg-violet-500/25 text-violet-200 ring-1 ring-violet-500/50" : "bg-violet-100 text-violet-800 ring-1 ring-violet-300") : dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-700 hover:bg-stone-200"}`}>{v.label}</button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-1.5">
                   {[["Stock", "Véhicule du stock"], ["Commande", "Commande client"]].map(([k, lbl]) => (
                     <button key={k} type="button" onClick={() => { if (venteType !== k) { setVenteType(k); setVenteRef(""); if (k === "Stock") setVenteLabel(""); } }} className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${venteType === k ? (dark ? "bg-violet-500/25 text-violet-200 ring-1 ring-violet-500/50" : "bg-violet-600 text-white") : dark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>{lbl}</button>
@@ -8666,7 +8749,7 @@ function RdvModal({ dark, rdv, preset, isAdmin, vehicles, vehicleByOrder, today,
                   <div className={s.muted}>
                     <span className={`font-semibold ${s.title}`}>{h.by_nom || "—"}</span> · {h.action} · {new Date(h.at).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </div>
-                  {Object.entries(h.changes || {}).map(([k, pair]) => <div key={k} className={s.sub}>{rdvFormatChange(k, pair)}</div>)}
+                  {Object.entries(h.changes || {}).filter(([k]) => !("vehicules" in (h.changes || {})) || (k !== "vehicule_vise" && k !== "vehicule_ref")).map(([k, pair]) => <div key={k} className={s.sub}>{rdvFormatChange(k, pair)}</div>)}
                 </li>
               ))}
             </ul>

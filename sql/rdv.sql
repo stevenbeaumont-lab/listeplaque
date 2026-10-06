@@ -105,6 +105,30 @@ do $$ begin
   alter table public.rdv add constraint rdv_vente_type_check check (vente_type is null or vente_type in ('Stock', 'Commande'));
 exception when duplicate_object then null; end $$;
 
+-- Véhicules visés : plusieurs possibles, chacun du stock ou en commande. [{"type":"Stock"|"Commande","label":"…","ref":"n° de commande ou null"}]
+-- vehicule_vise (libellés réunis) et vehicule_ref (1re réf.) restent renseignés automatiquement pour les écrans et exports existants.
+alter table public.rdv add column if not exists vehicules jsonb not null default '[]'::jsonb;
+do $$ begin
+  alter table public.rdv add constraint rdv_vehicules_check check (jsonb_typeof(vehicules) = 'array');
+exception when duplicate_object then null; end $$;
+do $$
+declare has_trg boolean := exists (select 1 from pg_trigger where tgname = 'rdv_before_write_trg' and tgrelid = 'public.rdv'::regclass);
+begin
+  if has_trg then
+    alter table public.rdv disable trigger rdv_before_write_trg;
+    alter table public.rdv disable trigger rdv_after_write_trg;
+  end if;
+  update public.rdv
+    set vehicules = jsonb_build_array(jsonb_build_object(
+      'type', case when nullif(trim(coalesce(vehicule_ref, '')), '') is not null then 'Stock' else 'Commande' end,
+      'label', vehicule_vise, 'ref', nullif(trim(coalesce(vehicule_ref, '')), '')))
+    where vehicules = '[]'::jsonb and nullif(trim(coalesce(vehicule_vise, '')), '') is not null;
+  if has_trg then
+    alter table public.rdv enable trigger rdv_before_write_trg;
+    alter table public.rdv enable trigger rdv_after_write_trg;
+  end if;
+end $$;
+
 create table if not exists public.rdv_history (
   id bigint generated always as identity primary key,
   rdv_id uuid not null references public.rdv(id) on delete cascade,
@@ -164,9 +188,9 @@ begin
   else
     -- Un commercial ne peut modifier que le suivi : tout le reste est figé.
     if not public.rdv_is_admin() then
-      if (new.client_nom, new.tel, new.commercial, new.date_rdv, new.type_rdv, new.source, new.vehicule_vise, new.vehicule_ref, new.consigne, new.deleted_at, new.created_by, new.created_at, new.parent_id)
+      if (new.client_nom, new.tel, new.commercial, new.date_rdv, new.type_rdv, new.source, new.vehicule_vise, new.vehicule_ref, new.vehicules, new.consigne, new.deleted_at, new.created_by, new.created_at, new.parent_id)
          is distinct from
-         (old.client_nom, old.tel, old.commercial, old.date_rdv, old.type_rdv, old.source, old.vehicule_vise, old.vehicule_ref, old.consigne, old.deleted_at, old.created_by, old.created_at, old.parent_id) then
+         (old.client_nom, old.tel, old.commercial, old.date_rdv, old.type_rdv, old.source, old.vehicule_vise, old.vehicule_ref, old.vehicules, old.consigne, old.deleted_at, old.created_by, old.created_at, old.parent_id) then
         raise exception 'Seul le suivi (statut, commentaire, relance, motif, dossier) est modifiable';
       end if;
     end if;
@@ -181,6 +205,11 @@ begin
   end if;
   new.updated_at := now();
   new.updated_by := auth.uid();
+  -- Libellé et réf. « historiques » dérivés de la liste des véhicules visés.
+  if jsonb_array_length(new.vehicules) > 0 then
+    new.vehicule_vise := (select string_agg(v->>'label', ' + ') from jsonb_array_elements(new.vehicules) v);
+    new.vehicule_ref := (select nullif(v->>'ref', '') from jsonb_array_elements(new.vehicules) v where nullif(v->>'ref', '') is not null limit 1);
+  end if;
   if new.statut <> 'Perdu' then new.motif_perte := null; end if;
   if new.statut <> 'Vendu' then new.vente_type := null; new.vente_vehicule := null; new.vente_ref := null; end if;
   return new;
