@@ -4371,6 +4371,10 @@ const PROSPECTION_OSM_MIN_ZOOM = 15;
 // En dessous de ce zoom (vue large de l'agglo), les clients existants sont masqués : à 582 clients,
 // les afficher sur toute la carte la rend illisible. Ils réapparaissent dès qu'on zoome sur un secteur.
 const PROSPECTION_CLIENT_MIN_ZOOM = 13;
+// Téléphone / tablette : appareils moins puissants → recherche alentour à la demande, moins d'animations, moins d'étiquettes.
+function prospectionIsMobile() {
+  try { return typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(max-width: 768px), (pointer: coarse)").matches; } catch (e) { return false; }
+}
 async function prospectionSearchNearbyBusinesses(bounds, signal) {
   const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
   const amenities = ["car_rental", "car_wash", "fuel", "bank", "bureau_de_change", "pharmacy", "veterinary", "driving_school", "dentist", "doctors", "clinic", "hospital", "post_office"];
@@ -4860,6 +4864,8 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   const prospect = prospectId === "new" ? { statut: "Prospect", commercial: autoCommercial, relance: prospectionAddDaysISO(PROSPECTION_RELANCE_DEFAUT_JOURS), ...newPrefill } : prospects.find((x) => x.id === prospectId);
   const isNew = prospectId === "new";
   const [p, setP] = useState(prospect);
+  // Téléphone : la qualification du parc est repliée (on y revient après l'essentiel) ; sur grand écran elle reste ouverte.
+  const [critOpen, setCritOpen] = useState(() => !prospectionIsMobile());
   const [orig] = useState(prospect); // état à l'ouverture : sert à détecter une saisie non enregistrée
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4933,7 +4939,8 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
 
   if (!prospect) return null; // supprimé par quelqu'un d'autre pendant que le popup était ouvert
 
-  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
+  // 16 px sur téléphone : en dessous, iOS zoome sur le champ à chaque saisie (impression d'écran qui « saute »).
+  const inputCls = `w-full rounded-lg border px-3 py-2.5 text-base sm:py-2 sm:text-sm outline-none transition-shadow focus:ring-2 ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-blue-700/30" : "bg-white border-stone-200 text-stone-700 focus:ring-blue-700/20"}`;
   const labelCls = `flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`;
   const chipCls = (on) => `pl-interactive rounded-full border px-2.5 py-1 text-xs font-semibold normal-case tracking-normal transition-colors ${on ? "border-blue-700 bg-blue-700 text-white" : dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`;
   const renewal = prospectionRenewalPlan(p);
@@ -5021,9 +5028,9 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   const hist = actions.filter((a) => a.prospect_id === prospect.id);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div role="dialog" aria-modal="true" className={`pl-fade-in h-full w-full max-w-xl overflow-y-auto p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
-        <div className="mb-4 flex items-start justify-between gap-3">
+    <div className="fixed inset-0 z-50 !m-0 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
+      <div role="dialog" aria-modal="true" className={`pl-fade-in h-[100dvh] w-full max-w-xl overflow-y-auto overscroll-contain px-4 pb-4 sm:h-full sm:p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
+        <div className={`sticky top-0 z-20 -mx-4 mb-3 flex items-start justify-between gap-3 px-4 py-3 sm:static sm:mx-0 sm:mb-4 sm:px-0 sm:py-0 ${dark ? "bg-zinc-950/95" : "bg-stone-50/95"} backdrop-blur`}>
           <div>
             <h2 className={`text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{isNew ? "Nouveau prospect" : prospect.societe}</h2>
             {!isNew && prospect.created_at && (
@@ -5048,15 +5055,15 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 Itinéraire
               </a>
             )}
-            <button onClick={requestClose} aria-label="Fermer" className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}>
+            <button onClick={requestClose} aria-label="Fermer" className={`rounded-lg p-2.5 sm:p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}>
               <X size={16} />
             </button>
           </div>
         </div>
 
-        <fieldset disabled={!!readOnly} className="m-0 min-w-0 border-0 p-0"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className={`${labelCls} sm:col-span-2`}>Société *<input className={inputCls} value={p.societe || ""} onChange={set("societe")} autoFocus={isNew} /></label>
-          <label className={`${labelCls} sm:col-span-2`}>
+        <fieldset disabled={!!readOnly} className="m-0 min-w-0 border-0 p-0"><div className="grid grid-cols-2 gap-3">
+          <label className={`${labelCls} col-span-2`}>Société *<input className={inputCls} value={p.societe || ""} onChange={set("societe")} autoFocus={isNew && !prospectionIsMobile()} /></label>
+          <label className={`${labelCls} col-span-2`}>
             <span className="flex items-center justify-between">
               Adresse
               <button
@@ -5075,25 +5082,28 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               onPick={(s) => setP((x) => ({ ...x, adresse: s.adresse, code_postal: s.code_postal, commune: s.commune, lat: s.lat, lng: s.lng, _coordsFromSuggestion: true }))}
             />
           </label>
-          <label className={labelCls}>Code postal<input className={inputCls} value={p.code_postal || ""} onChange={set("code_postal")} /></label>
+          <label className={labelCls}>Code postal<input inputMode="numeric" autoComplete="postal-code" className={inputCls} value={p.code_postal || ""} onChange={set("code_postal")} /></label>
           <label className={labelCls}>Commune<input className={inputCls} value={p.commune || ""} onChange={set("commune")} /></label>
-          <label className={labelCls}>
+          <label className={`${labelCls} col-span-2 sm:col-span-1`}>
             Secteur
             <input className={inputCls} list="prospection-secteurs" value={p.secteur || ""} onChange={set("secteur")} />
             <datalist id="prospection-secteurs">{PROSPECTION_SECTEURS.map((s) => <option key={s} value={s} />)}</datalist>
           </label>
-          <label className={labelCls}>Contact<input className={inputCls} value={p.contact || ""} onChange={set("contact")} /></label>
+          <label className={labelCls}>Contact<input autoComplete="off" className={inputCls} value={p.contact || ""} onChange={set("contact")} /></label>
           <label className={labelCls}>Fonction<input className={inputCls} value={p.fonction || ""} onChange={set("fonction")} /></label>
-          <label className={labelCls}>Téléphone<input type="tel" className={inputCls} value={p.tel || ""} onChange={set("tel")} /></label>
-          <label className={labelCls}>Email<input type="email" className={inputCls} value={p.email || ""} onChange={set("email")} /></label>
-          <label className={labelCls}>
+          <label className={`${labelCls} col-span-2 sm:col-span-1`}>Téléphone<input type="tel" inputMode="tel" className={inputCls} value={p.tel || ""} onChange={set("tel")} /></label>
+          <label className={`${labelCls} col-span-2 sm:col-span-1`}>Email<input type="email" inputMode="email" autoCapitalize="none" className={inputCls} value={p.email || ""} onChange={set("email")} /></label>
+          <label className={`${labelCls} col-span-2 sm:col-span-1`}>
             Modèle visé
             <input className={inputCls} list="prospection-modeles" value={p.modele || ""} onChange={set("modele")} />
             <datalist id="prospection-modeles">{PROSPECTION_MODELES.map((s) => <option key={s} value={s} />)}</datalist>
           </label>
-          <section data-testid="prospect-criteres" className={`rounded-xl border p-3.5 sm:col-span-2 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
-            <h3 className={`mb-3 text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Qualification du parc (5 critères)</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <section data-testid="prospect-criteres" className={`rounded-xl border p-3.5 col-span-2 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
+            <button type="button" data-testid="criteres-toggle" aria-expanded={critOpen} onClick={() => setCritOpen((v) => !v)} className={`flex w-full items-center justify-between text-left text-[11px] font-bold uppercase tracking-widest sm:pointer-events-none sm:mb-3 ${critOpen ? "mb-3" : ""} ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+              <span>Qualification du parc (5 critères)</span>
+              <span className="text-[11px] normal-case tracking-normal underline sm:hidden">{critOpen ? "Masquer" : "Afficher"}</span>
+            </button>
+            <div className={critOpen ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "hidden gap-3 sm:grid sm:grid-cols-2"}>
               <label className={labelCls}>1 · Taille du parc (véhicules)<input type="number" min="0" className={inputCls} value={p.flotte ?? ""} onChange={set("flotte")} /></label>
               <div className={`${labelCls} sm:col-span-2`}>
                 2 · Marques du parc
@@ -5103,7 +5113,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                   ))}
                   <input
                     placeholder="+ Autre marque"
-                    className={`w-32 rounded-full border px-2.5 py-1 text-xs font-normal normal-case tracking-normal outline-none ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-200" : "border-stone-300 bg-white text-stone-700"}`}
+                    className={`w-32 rounded-full border px-2.5 py-1 text-base sm:text-xs font-normal normal-case tracking-normal outline-none ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-200" : "border-stone-300 bg-white text-stone-700"}`}
                     onKeyDown={(e) => {
                       if (e.key !== "Enter") return;
                       e.preventDefault();
@@ -5195,7 +5205,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               <input type="date" data-testid="derniere-proposition" className={inputCls} value={p.derniere_proposition || ""} onChange={set("derniere_proposition")} />
             </label>
           )}
-          <label className={`${labelCls} sm:col-span-2`}>Notes<textarea rows={3} className={inputCls} value={p.notes || ""} onChange={set("notes")} /></label>
+          <label className={`${labelCls} col-span-2`}>Notes<textarea rows={3} className={inputCls} value={p.notes || ""} onChange={set("notes")} /></label>
         </div></fieldset>
 
         {!isNew && (
@@ -5229,36 +5239,34 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
           </section>
         )}
 
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {!isNew && !readOnly && (
-              <button
-                onClick={() => (deleteConfirm ? doDelete() : setDeleteConfirm(true))}
-                onBlur={() => setDeleteConfirm(false)}
-                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${deleteConfirm ? "text-rose-500" : dark ? "text-rose-400 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}
-              >
-                {deleteConfirm ? "Confirmer la suppression" : "Supprimer"}
-              </button>
-            )}
-            {!isNew && !readOnly && (
-              <button
-                onClick={toggleClientExistant}
-                className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
-              >
-                {p.client_existant ? "Remettre en prospect" : "Marquer comme client existant"}
-              </button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button onClick={onClose} className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
-              {readOnly ? "Fermer" : "Annuler"}
+        {!isNew && !readOnly && (
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => (deleteConfirm ? doDelete() : setDeleteConfirm(true))}
+              onBlur={() => setDeleteConfirm(false)}
+              className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors sm:py-2 ${deleteConfirm ? "text-rose-500" : dark ? "text-rose-400 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}
+            >
+              {deleteConfirm ? "Confirmer la suppression" : "Supprimer"}
             </button>
-            {!readOnly && (
-              <button onClick={save} disabled={saving} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-60">
-                {saving ? "Enregistrement…" : "Enregistrer"}
-              </button>
-            )}
+            <button
+              onClick={toggleClientExistant}
+              className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors sm:py-2 ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}
+            >
+              {p.client_existant ? "Remettre en prospect" : "Marquer comme client existant"}
+            </button>
           </div>
+        )}
+
+        {/* Barre d'actions : collée en bas de l'écran, pour enregistrer sans remonter/descendre tout le formulaire. */}
+        <div className={`sticky bottom-0 z-20 -mx-4 mt-5 flex gap-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:justify-end sm:border-0 sm:px-0 sm:pb-0 sm:pt-0 ${dark ? "border-zinc-800 bg-zinc-950" : "border-stone-200 bg-stone-50"}`}>
+          <button onClick={onClose} className={`flex-1 rounded-lg border px-4 py-3 text-sm font-semibold transition-colors sm:flex-none sm:py-2 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>
+            {readOnly ? "Fermer" : "Annuler"}
+          </button>
+          {!readOnly && (
+            <button onClick={save} disabled={saving} className="pl-interactive flex-[2] rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-60 sm:flex-none sm:py-2">
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -5461,7 +5469,7 @@ function prospectionWirePopupActions(marker, onPopupAction) {
   });
 }
 
-function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, onPopupAction, onPopupClose, buildClusterIcon, buildLabel }) {
+function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, onPopupAction, onPopupClose, buildClusterIcon, buildLabel, noLabel }) {
   const labelOf = (item) => (buildLabel ? buildLabel(item) : prospectionEscapeHtml(prospectionShortLabel(item.societe || item.nom)));
   const seen = new Set();
   clusters.forEach((c) => {
@@ -5469,7 +5477,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
     const isCluster = c.items.length > 1;
     const icon = isCluster ? buildClusterIcon(c.items.length) : buildIcon(c.items[0]);
     const popupHtml = isCluster ? prospectionClusterPopupHtml(c.items, buildPopup) : buildPopup(c.items[0]);
-    const label = isCluster ? "" : labelOf(c.items[0]);
+    const label = isCluster || noLabel ? "" : labelOf(c.items[0]);
     let marker = markersRef.current.get(c.key);
     if (!marker) {
       marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
@@ -5489,7 +5497,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       } else {
         marker.on("click", () => onSingleClick(marker._prospectionItem));
         marker.bindPopup(popupHtml);
-        marker.bindTooltip(label, { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+        if (!noLabel) marker.bindTooltip(label, { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
       }
       // Les boutons d'action sont reliés une seule fois par délégation (voir prospectionWirePopupActions) :
       // ils lisent toujours l'item courant sur le marqueur, jamais une valeur figée à la création.
@@ -5507,7 +5515,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       // On ne touche au DOM que si le contenu a réellement changé (la carte se resynchronise à chaque rendu).
       if (marker._pIcon !== icon.options.html) { marker.setIcon(icon); marker._pIcon = icon.options.html; }
       if (marker._pPop !== popupHtml) { marker.setPopupContent(popupHtml); marker._pPop = popupHtml; }
-      if (!isCluster && marker._pLabel !== label) { marker.setTooltipContent(label); marker._pLabel = label; }
+      if (!isCluster && !noLabel && marker._pLabel !== label) { marker.setTooltipContent(label); marker._pLabel = label; }
     }
   });
   markersRef.current.forEach((marker, key) => {
@@ -5693,7 +5701,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   // Crée la carte Leaflet une seule fois (pas de wrapper React — évite tout risque de double instance de React).
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const map = L.map(containerRef.current, { scrollWheelZoom: true }).setView([PROSPECTION_CAEN_CENTER.lat, PROSPECTION_CAEN_CENTER.lng], 11);
+    const mobile = prospectionIsMobile();
+    const map = L.map(containerRef.current, { scrollWheelZoom: true, markerZoomAnimation: !mobile, fadeAnimation: !mobile, zoomSnap: mobile ? 1 : 1 }).setView([PROSPECTION_CAEN_CENTER.lat, PROSPECTION_CAEN_CENTER.lng], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
@@ -5703,8 +5712,13 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       L.DomEvent.preventDefault(e.originalEvent);
       onCreateAtLocationRef.current(e.latlng);
     });
-    map.on("zoomend", () => { setZoomTick((t) => t + 1); setMapZoom(map.getZoom()); });
-    const fetchNearby = () => {
+    // Les étiquettes permanentes (une par point) pèsent lourd à dézoomé : on les masque tant qu'on est loin.
+    const labelZoom = mobile ? 16 : 14;
+    const syncLabels = () => map.getContainer().classList.toggle("pl-nolabels", map.getZoom() < labelZoom);
+    syncLabels();
+    map.on("zoomend", () => { syncLabels(); setZoomTick((t) => t + 1); setMapZoom(map.getZoom()); });
+    // manual = true : demandé par le bouton « Chercher ici » (sur mobile, plus de recherche automatique à chaque déplacement).
+    const fetchNearby = (manual = false) => {
       const zoom = map.getZoom();
       if (zoom < PROSPECTION_OSM_MIN_ZOOM) {
         // On annule la recherche en cours : sinon « Recherche… » restait affiché après un dézoom.
@@ -5719,8 +5733,9 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       setZoomTooFar(false);
       clearTimeout(osmFetchTimer.current);
       if (!showOsmRef.current) return;
+      if (mobile && !manual) return;
       const last = osmLastRef.current;
-      if (last && Date.now() - last.ts < 5 * 60 * 1000 && last.bounds.contains(map.getBounds())) return;
+      if (!manual && last && Date.now() - last.ts < 5 * 60 * 1000 && last.bounds.contains(map.getBounds())) return;
       osmFetchTimer.current = setTimeout(async () => {
         osmAbortRef.current?.abort();
         const controller = new AbortController();
@@ -5735,9 +5750,9 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
         setOsmFailed(false);
         osmLastRef.current = { bounds: fetchBounds, ts: Date.now() };
         setOsmPlaces(places);
-      }, 400);
+      }, manual ? 0 : 400);
     };
-    map.on("moveend", fetchNearby);
+    map.on("moveend", () => fetchNearby(false));
     map.fetchNearbyOsm = fetchNearby;
     mapRef.current = map;
     // Le conteneur peut ne pas encore avoir sa taille finale au tout premier rendu (Tailwind CDN
@@ -5866,10 +5881,15 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       osmMarkersRef.current.clear();
       return;
     }
-    const clusters = prospectionClusterPoints(map, osmShown.map((p) => ({ ...p, id: p.osmId })), 36);
+    // Au-delà de quelques dizaines de points, un téléphone rame : on plafonne (les plus proches du centre d'abord).
+    const cap = prospectionIsMobile() ? 60 : 120;
+    const c = map.getCenter();
+    const shown = osmShown.length > cap ? [...osmShown].sort((a, b) => (a.lat - c.lat) ** 2 + (a.lng - c.lng) ** 2 - ((b.lat - c.lat) ** 2 + (b.lng - c.lng) ** 2)).slice(0, cap) : osmShown;
+    const clusters = prospectionClusterPoints(map, shown.map((p) => ({ ...p, id: p.osmId })), 36);
     prospectionSyncClusterLayer(map, osmMarkersRef, clusters, {
       buildIcon: (p) => prospectionOsmIcon({ selected: false }),
       buildPopup: prospectionOsmPopupHtml,
+      noLabel: true,
       onSingleClick: () => {},
       onPopupAction: (p) => cbRef.current.onAddFromOsm(p),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#94a3b8" }),
@@ -6094,6 +6114,15 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
           <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-zinc-800 text-zinc-400" : "bg-stone-100 text-stone-500"}`}>
             Zoomez sur un secteur pour voir les {clients.length} clients existants
           </span>
+        )}
+        {showOsm && !zoomTooFar && !osmLoading && prospectionIsMobile() && (
+          <button
+            data-testid="osm-chercher-ici"
+            onClick={() => mapRef.current?.fetchNearbyOsm?.(true)}
+            className={`pl-interactive rounded-lg border px-3 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+          >
+            Chercher les entreprises ici
+          </button>
         )}
         {showOsm && !zoomTooFar && osmFailed && !osmLoading && (
           <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-800"}`}>
@@ -6930,7 +6959,7 @@ function CampagneImportModal({ dark, existingSirets, onClose, onImport }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={progress ? undefined : onClose}>
+    <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black/50 p-4" onClick={progress ? undefined : onClose}>
       <div data-testid="campagne-import" className={`max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border p-5 shadow-xl ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`} onClick={(e) => e.stopPropagation()}>
         <h3 className={`mb-1 text-lg font-bold ${dark ? "text-zinc-100" : "text-stone-900"}`}>Importer une campagne Datanéo</h3>
         <p className={`mb-4 text-sm ${dark ? "text-zinc-400" : "text-stone-500"}`}>Déposez le fichier de ciblage tel qu'il sort de Datanéo (.xls, .csv ou .txt). Les adresses sont retrouvées ensuite à partir du SIRET.</p>
@@ -7019,7 +7048,7 @@ function CampagneOuvrirModal({ dark, groups, defaultNom, onClose, onConfirm }) {
     }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={busy ? undefined : onClose}>
+    <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black/50 p-4" onClick={busy ? undefined : onClose}>
       <div data-testid="campagne-ouvrir" className={`max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border p-5 shadow-xl ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`} onClick={(e) => e.stopPropagation()}>
         <h3 className={`mb-1 text-lg font-bold ${dark ? "text-zinc-100" : "text-stone-900"}`}>Ouvrir {groups.length} entreprise(s) aux commerciaux</h3>
         <p className={`mb-4 text-sm ${muted}`}>Les commerciaux ne voient que les entreprises ouvertes de leur équipe, sur la liste et sur la carte, jusqu'à la date de fin.</p>
@@ -13179,6 +13208,7 @@ export default function App() {
         .leaflet-container img.leaflet-marker-icon, .leaflet-container img.leaflet-marker-shadow { max-width: none !important; }
         .prospection-label { background: #ffffff; color: #292524; border: 1px solid #e7e5e4; border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.25); white-space: nowrap; }
         .prospection-label::before { display: none; }
+        .pl-nolabels .prospection-label { display: none; }
         .prospection-map-dark .prospection-label { background: #18181b; color: #f4f4f5; border-color: #3f3f46; }
       `}</style>
       <datalist id="vendeurs-datalist">
