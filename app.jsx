@@ -4516,10 +4516,28 @@ function useProspection() {
   const lastSig = useRef("");
 
   const load = useCallback(async () => {
-    const [p, a] = await Promise.all([
-      supabase.from("prospects").select("*").order("updated_at", { ascending: false }),
-      supabase.from("prospect_actions").select("*").order("created_at", { ascending: false }).limit(3000),
-    ]);
+    // PostgREST plafonne chaque réponse à 1000 lignes : on pagine pour charger tous les prospects et clients importés.
+    const loadAllProspects = async () => {
+      const rows = [];
+      for (let from = 0; ; from += 1000) {
+        const r = await supabase.from("prospects").select("*").order("updated_at", { ascending: false }).order("id", { ascending: true }).range(from, from + 999);
+        if (r.error) return { data: null, error: r.error };
+        rows.push(...r.data);
+        if (r.data.length < 1000) break;
+      }
+      return { data: rows, error: null };
+    };
+    const loadActions = async () => {
+      const rows = [];
+      for (let from = 0; from < 3000; from += 1000) {
+        const r = await supabase.from("prospect_actions").select("*").order("created_at", { ascending: false }).order("id", { ascending: true }).range(from, from + 999);
+        if (r.error) return { data: null, error: r.error };
+        rows.push(...r.data);
+        if (r.data.length < 1000) break;
+      }
+      return { data: rows, error: null };
+    };
+    const [p, a] = await Promise.all([loadAllProspects(), loadActions()]);
     const err = p.error || a.error;
     if (err) { setError(err.message); setLoading(false); return; }
     // Détection de changement : on ne re-rend que si les données ont réellement bougé.
