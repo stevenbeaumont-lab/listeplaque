@@ -5030,7 +5030,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   return (
     <div className="fixed inset-0 z-50 !m-0 flex justify-end bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div role="dialog" aria-modal="true" className={`pl-fade-in h-[100dvh] w-full max-w-xl overflow-y-auto overscroll-contain px-4 pb-4 sm:h-full sm:p-5 shadow-xl ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
-        <div className={`sticky top-0 z-20 -mx-4 mb-3 flex items-start justify-between gap-3 px-4 py-3 sm:static sm:mx-0 sm:mb-4 sm:px-0 sm:py-0 ${dark ? "bg-zinc-950/95" : "bg-stone-50/95"} backdrop-blur`}>
+        <div className={`sticky top-0 z-20 -mx-4 mb-3 flex items-start justify-between gap-3 px-4 py-3 sm:static sm:mx-0 sm:mb-4 sm:px-0 sm:py-0 ${dark ? "bg-zinc-950" : "bg-stone-50"}`}>
           <div>
             <h2 className={`text-xl font-bold ${dark ? "text-zinc-50" : "text-stone-900"}`}>{isNew ? "Nouveau prospect" : prospect.societe}</h2>
             {!isNew && prospect.created_at && (

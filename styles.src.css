@@ -35,3 +35,13 @@
 
 /* modal backdrops: soft blur instead of a flat dark veil */
 .fixed.inset-0[class*="bg-black"], .fixed.inset-0[class*="bg-zinc-950/"], .fixed.inset-0[class*="bg-stone-900/"] { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+
+/* Téléphone / tablette :
+   - pas de zoom de page au double-toucher (un toucher rapproché sur la carte zoomait toute la page, qui ne tenait plus à l'écran) ;
+   - champs en 16 px : en dessous, iOS zoome sur le champ à la saisie et laisse la page zoomée ;
+   - pas de flou d'arrière-plan sous les fenêtres : très coûteux sur mobile, surtout au-dessus d'une carte. */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+@media (max-width: 768px), (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
+  .fixed.inset-0[class*="bg-black"], .fixed.inset-0[class*="bg-zinc-950/"], .fixed.inset-0[class*="bg-stone-900/"], [class*="backdrop-blur"] { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+}
