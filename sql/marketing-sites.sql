@@ -35,8 +35,7 @@ begin
   return new;
 end; $$;
 
-drop trigger if exists marketing_tasks_site on public.marketing_tasks;
-create trigger marketing_tasks_site before insert or update of project_id on public.marketing_tasks
+create or replace trigger marketing_tasks_site before insert or update of project_id on public.marketing_tasks
   for each row execute function public.marketing_task_follow_project_site();
 
 -- Si un projet change de site, ses tâches le suivent.
@@ -49,8 +48,7 @@ begin
   return new;
 end; $$;
 
-drop trigger if exists marketing_projects_site on public.marketing_projects;
-create trigger marketing_projects_site after update of site on public.marketing_projects
+create or replace trigger marketing_projects_site after update of site on public.marketing_projects
   for each row execute function public.marketing_project_site_cascade();
 
 -- 2. Consultation seule pour les managers de Caen et Saint-Lô ----------------------
@@ -92,25 +90,16 @@ revoke all on function public.marketing_access() from public, anon;
 grant execute on function public.is_marketing_viewer() to authenticated;
 grant execute on function public.marketing_access() to authenticated;
 
--- Lecture seule : aucune policy d'écriture pour les viewers.
-drop policy if exists "marketing_members_viewers_read" on public.marketing_members;
-create policy "marketing_members_viewers_read" on public.marketing_members
-  for select using (public.is_marketing_viewer());
-drop policy if exists "marketing_projects_viewers_read" on public.marketing_projects;
-create policy "marketing_projects_viewers_read" on public.marketing_projects
-  for select using (public.is_marketing_viewer());
-drop policy if exists "marketing_tasks_viewers_read" on public.marketing_tasks;
-create policy "marketing_tasks_viewers_read" on public.marketing_tasks
-  for select using (public.is_marketing_viewer());
-drop policy if exists "marketing_comments_viewers_read" on public.marketing_comments;
-create policy "marketing_comments_viewers_read" on public.marketing_comments
-  for select using (public.is_marketing_viewer());
-drop policy if exists "marketing_links_viewers_read" on public.marketing_links;
-create policy "marketing_links_viewers_read" on public.marketing_links
-  for select using (public.is_marketing_viewer());
-drop policy if exists "marketing_expenses_viewers_read" on public.marketing_expenses;
-create policy "marketing_expenses_viewers_read" on public.marketing_expenses
-  for select using (public.is_marketing_viewer());
+-- Lecture seule : aucune policy d'écriture pour les viewers (créées seulement si absentes).
+do $$
+declare t text;
+begin
+  foreach t in array array['marketing_members','marketing_projects','marketing_tasks','marketing_comments','marketing_links','marketing_expenses'] loop
+    if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = t || '_viewers_read') then
+      execute format('create policy %I on public.%I for select using (public.is_marketing_viewer())', t || '_viewers_read', t);
+    end if;
+  end loop;
+end $$;
 
 -- Vérification : qui est consultant aujourd'hui ?
 -- select e ->> 'nom' as nom, e ->> 'role' as role, e ->> 'site' as site

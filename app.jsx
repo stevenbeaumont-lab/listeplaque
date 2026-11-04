@@ -8486,7 +8486,7 @@ function marketingBilanText(b) {
   return L.join("\n");
 }
 
-const MARKETING_TASK_FIELDS = ["project_id", "titre", "notes", "statut", "priorite", "assignee", "echeance", "relance", "recurrence", "done_at"];
+const MARKETING_TASK_FIELDS = ["project_id", "titre", "notes", "statut", "priorite", "assignee", "echeance", "relance", "recurrence", "done_at", "site"];
 function marketingCleanTask(t) {
   const row = {};
   for (const k of MARKETING_TASK_FIELDS) {
@@ -8497,9 +8497,11 @@ function marketingCleanTask(t) {
   }
   if (!row.statut) row.statut = "À faire";
   if (!row.priorite) row.priorite = "Normale";
+  if (!MARKETING_SITES.includes(row.site)) row.site = "Ford Caen";
   return row;
 }
-const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie", "budget"];
+const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie", "budget", "site"];
+const MARKETING_SITES = ["Ford Caen", "Ford St-Lô"];
 function marketingCleanProject(p) {
   const row = {};
   for (const k of MARKETING_PROJECT_FIELDS) {
@@ -8509,11 +8511,15 @@ function marketingCleanProject(p) {
     row[k] = v;
   }
   if (!row.statut) row.statut = "En cours";
+  if (!MARKETING_SITES.includes(row.site)) row.site = "Ford Caen";
   row.budget = marketingParseAmount(row.budget);
   return row;
 }
 // Exécute une requête Supabase ; ne retente que les vraies coupures réseau (pas les refus RLS/contraintes).
+let marketingReadOnly = false; // consultation seule (managers) : aucune écriture n'est envoyée
+const MarketingReadOnlyContext = React.createContext(false);
 async function marketingExec(fn, attempts = 3) {
+  if (marketingReadOnly) throw new Error("Lecture seule : seuls les membres Marketing peuvent modifier");
   for (let i = 0; ; i++) {
     let res;
     try { res = await fn(); } catch (e) { res = { error: e }; }
@@ -8588,22 +8594,24 @@ function marketingDigest({ tasks, projects, today, scopeLabel, risks }) {
 }
 
 
-// Retourne le nom du membre (ex. "Ophélie") si le compte connecté est dans marketing_members, sinon "".
-// (RLS applique la vraie restriction côté base.)
+// Accès au module : { nom, readOnly }. nom = membre Marketing (gestion) ; readOnly = chef des ventes / responsable
+// de site de Caen ou St-Lô (consultation). RLS applique la vraie restriction côté base.
 function useMarketingAccess(userId) {
-  const [nom, setNom] = useState("");
+  const [acc, setAcc] = useState({ nom: "", readOnly: false });
   useEffect(() => {
     let alive = true;
-    if (!userId) { setNom(""); return; }
-    supabase
-      .from("marketing_members")
-      .select("nom")
-      .eq("user_id", userId)
-      .maybeSingle()
-      .then(({ data }) => { if (alive) setNom(data?.nom || ""); });
+    if (!userId) { setAcc({ nom: "", readOnly: false }); return; }
+    (async () => {
+      const { data } = await supabase.from("marketing_members").select("nom").eq("user_id", userId).maybeSingle();
+      if (!alive) return;
+      if (data?.nom) { setAcc({ nom: data.nom, readOnly: false }); return; }
+      let level = "";
+      try { const r = await supabase.rpc("marketing_access"); level = r.data || ""; } catch (e) { level = ""; }
+      if (alive) setAcc({ nom: "", readOnly: level === "viewer" });
+    })();
     return () => { alive = false; };
   }, [userId]);
-  return nom;
+  return acc;
 }
 
 function useMarketing() {
@@ -8889,10 +8897,15 @@ function MarketingDrawer({ dark, onClose, z = "z-50", children, title, right }) 
             <button onClick={onClose} aria-label="Fermer" className={`rounded-lg p-1.5 transition-colors ${dark ? "text-zinc-400 hover:bg-zinc-800" : "text-stone-500 hover:bg-stone-100"}`}><X size={16} /></button>
           </div>
         </div>
-        {children}
+        <MarketingFieldset>{children}</MarketingFieldset>
       </div>
     </div>
   );
+}
+// En consultation seule, tous les champs et boutons de la fiche sont désactivés (les liens restent cliquables).
+function MarketingFieldset({ children }) {
+  const ro = React.useContext(MarketingReadOnlyContext);
+  return ro ? <fieldset disabled className="m-0 min-w-0 border-0 p-0 opacity-90">{children}</fieldset> : <>{children}</>;
 }
 
 async function marketingCopy(txt, showToast, okMsg) {
@@ -9082,13 +9095,13 @@ function MarketingBilanPanel({ dark, bilan, onCopy, onClose }) {
   );
 }
 
-function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, me, ext, onClose, onSave, onDelete, showToast }) {
+function MarketingTaskFiche({ defaultSite, dark, taskId, tasks, projects, members, prefill, me, ext, onClose, onSave, onDelete, showToast }) {
   const s = marketingStyles(dark);
   const isNew = taskId === "new";
   const today = prospectionTodayISO();
   // Relu en direct par identifiant : si l'autre personne supprime la tâche pendant qu'elle est ouverte, on ferme.
   const live = isNew ? null : tasks.find((x) => x.id === taskId);
-  const [p, setP] = useState(() => (isNew ? { statut: "À faire", priorite: "Normale", assignee: me || "", ...prefill } : live));
+  const [p, setP] = useState(() => (isNew ? { statut: "À faire", priorite: "Normale", assignee: me || "", site: projects.find((x) => x.id === prefill?.project_id)?.site || defaultSite, ...prefill } : live));
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
@@ -9134,6 +9147,14 @@ function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, m
               {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.titre}</option>)}
             </select>
           </div>
+          {!p.project_id && (
+            <div>
+              <div className={s.label}>Site</div>
+              <select className={s.input} value={p.site || "Ford Caen"} onChange={set("site")}>
+                {MARKETING_SITES.map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <div className={s.label}>Attribuée à</div>
             <select className={s.input} value={p.assignee || ""} onChange={set("assignee")}>
@@ -9203,7 +9224,7 @@ function MarketingTaskFiche({ dark, taskId, tasks, projects, members, prefill, m
 }
 
 
-function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects, tasks, members, me, ext, blocked, onClose, onSave, onDelete, onDuplicate, onOpenTask, onNewTask, onToggleTask, onQuickAddTask, showToast }) {
+function MarketingProjectFiche({ dark, defaultSite, projectId, duplicateOf, premium, projects, tasks, members, me, ext, blocked, onClose, onSave, onDelete, onDuplicate, onOpenTask, onNewTask, onToggleTask, onQuickAddTask, showToast }) {
   const s = marketingStyles(dark);
   const isNew = projectId === "new";
   const today = prospectionTodayISO();
@@ -9211,8 +9232,8 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
   const source = isNew && duplicateOf ? projects.find((x) => x.id === duplicateOf) : null;
   const [p, setP] = useState(() => {
     if (!isNew) return live;
-    if (source) return { titre: `${source.titre} (copie)`, description: source.description || "", categorie: source.categorie || "", responsable: source.responsable || me || "", statut: "À lancer", deadline: "" };
-    return { titre: "", statut: "À lancer", responsable: me || "", deadline: "", categorie: "", description: "" };
+    if (source) return { titre: `${source.titre} (copie)`, description: source.description || "", categorie: source.categorie || "", responsable: source.responsable || me || "", statut: "À lancer", deadline: "", site: source.site || defaultSite };
+    return { titre: "", statut: "À lancer", responsable: me || "", deadline: "", categorie: "", description: "", site: defaultSite };
   });
   const [draft, setDraft] = useState(() => (source ? marketingDraftFromProject(source, tasks) : []));
   const [tplId, setTplId] = useState("");
@@ -9376,6 +9397,12 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
             </select>
           </div>
           <div>
+            <div className={s.label}>Site</div>
+            <select className={s.input} value={p.site || "Ford Caen"} onChange={set("site")}>
+              {MARKETING_SITES.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </div>
+          <div>
             <div className={s.label}>Responsable</div>
             <select className={s.input} value={p.responsable || ""} onChange={set("responsable")}>
               <option value="">—</option>
@@ -9484,10 +9511,18 @@ function MarketingProjectFiche({ dark, projectId, duplicateOf, premium, projects
 }
 
 
-function MarketingTab({ dark, me, showToast }) {
+function MarketingTab({ dark, me, readOnly = false, showToast }) {
   const s = marketingStyles(dark);
+  marketingReadOnly = readOnly;
+  useEffect(() => { marketingReadOnly = readOnly; return () => { marketingReadOnly = false; }; }, [readOnly]);
   const data = useMarketing();
-  const { projects, tasks, members, loading, error } = data;
+  const { members, loading, error } = data;
+  // Site affiché : un site ou les deux ("" = les deux). Les nouveaux éléments prennent le site affiché (Caen par défaut).
+  const [site, setSite] = useState(() => { const v = loadLocal("dsr:marketing-site", ""); return MARKETING_SITES.includes(v) ? v : ""; });
+  useEffect(() => { saveLocal("dsr:marketing-site", site); }, [site]);
+  const projects = useMemo(() => (site ? data.projects.filter((p) => (p.site || "Ford Caen") === site) : data.projects), [data.projects, site]);
+  const tasks = useMemo(() => (site ? data.tasks.filter((t) => (t.site || "Ford Caen") === site) : data.tasks), [data.tasks, site]);
+  const newSite = site || "Ford Caen";
   const today = prospectionTodayISO();
   const weekEnd = marketingAddDays(today, 7);
 
@@ -9531,7 +9566,9 @@ function MarketingTab({ dark, me, showToast }) {
   const duplicateProject = (id) => { setDupSource(id); setOpenProject("new"); };
   const changeVue = (k) => { setVue(k); setSelected([]); };
 
+  const blockedRO = () => { if (readOnly) showToast("Lecture seule : modification réservée à l'équipe Marketing"); return readOnly; };
   const onToggle = async (t) => {
+    if (blockedRO()) return;
     const wasDone = t.statut === "Fait";
     try {
       const { next } = await data.toggleDone(t);
@@ -9539,12 +9576,14 @@ function MarketingTab({ dark, me, showToast }) {
     } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
   };
   const onRelance = async (t, days) => {
+    if (blockedRO()) return;
     try {
       await data.patchTask(t.id, { relance: days > 0 ? marketingAddDays(today, days) : null });
       showToast(days > 0 ? `Relance reportée au ${marketingFrDate(marketingAddDays(today, days))}` : "Relance clôturée");
     } catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
   };
   const onReschedule = async (t, days) => {
+    if (blockedRO()) return;
     try {
       await data.patchTask(t.id, { echeance: marketingAddDays(today, days) });
       showToast(`Échéance replanifiée au ${marketingFrDate(marketingAddDays(today, days))}`);
@@ -9554,7 +9593,7 @@ function MarketingTab({ dark, me, showToast }) {
     await data.saveTask({ project_id, statut: "À faire", priorite: "Normale", ...fields });
   };
   const moveTask = async (t, statut) => {
-    if (t.statut === statut) return;
+    if (t.statut === statut || blockedRO()) return;
     try {
       const { next } = await data.saveTask({ ...t, statut }, t);
       if (next) showToast(`Prochaine occurrence le ${marketingFrDate(next.echeance)}`);
@@ -9578,13 +9617,13 @@ function MarketingTab({ dark, me, showToast }) {
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (typing || openProject || openTask) return;
       const k = e.key.toLowerCase();
-      if (k === "n") { e.preventDefault(); newTask(); }
-      else if (k === "p") { e.preventDefault(); newProject(); }
+      if (k === "n" && !readOnly) { e.preventDefault(); newTask(); }
+      else if (k === "p" && !readOnly) { e.preventDefault(); newProject(); }
       else if (VUE_KEYS[k]) { e.preventDefault(); setVue(VUE_KEYS[k]); setSelected([]); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [premium, openProject, openTask, newTask, newProject]);
+  }, [premium, readOnly, openProject, openTask, newTask, newProject]);
 
   const toggleSelect = (id) => setSelected((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
   const runBulk = async (label, makeFields) => {
@@ -9882,7 +9921,7 @@ function MarketingTab({ dark, me, showToast }) {
         <div>
           <div className="mb-2 flex items-center justify-between">
             <div className={`text-sm font-bold capitalize ${s.title}`}>{marketingFrDate(calSel, true)}{calSel === today ? " · aujourd'hui" : ""}</div>
-            <button onClick={() => newTask({ echeance: calSel })} className={s.ghostBtn}>+ Tâche ce jour</button>
+            {!readOnly && <button onClick={() => newTask({ echeance: calSel })} className={s.ghostBtn}>+ Tâche ce jour</button>}
           </div>
           {selEvents.length === 0 ? (
             <div className={`text-sm ${s.sub}`}>Rien de prévu ce jour-là.</div>
@@ -9940,11 +9979,11 @@ function MarketingTab({ dark, me, showToast }) {
                   return (
                     <div
                       key={t.id}
-                      draggable
+                      draggable={!readOnly}
                       onDragStart={(e) => { setDragId(t.id); e.dataTransfer?.setData("text/plain", t.id); }}
                       onDragEnd={() => setDragId(null)}
                       onClick={() => setOpenTask(t.id)}
-                      className={`cursor-grab rounded-xl border p-2.5 text-sm active:cursor-grabbing ${s.card} ${dragId === t.id ? "opacity-50" : ""}`}
+                      className={`rounded-xl border p-2.5 text-sm ${readOnly ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"} ${s.card} ${dragId === t.id ? "opacity-50" : ""}`}
                     >
                       <div className={`flex items-start justify-between gap-2 font-medium ${t.statut === "Fait" ? "line-through " + s.sub : s.title}`}>
                         <span className="min-w-0 break-words">{t.titre}</span>
@@ -9990,6 +10029,10 @@ function MarketingTab({ dark, me, showToast }) {
           </span>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <select value={site} onChange={(e) => setSite(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par site">
+            <option value="">Caen + St-Lô</option>
+            {MARKETING_SITES.map((x) => <option key={x} value={x}>{x}</option>)}
+          </select>
           <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par personne">
             <option value="">Toute l'équipe</option>
             {members.map((m) => <option key={m}>{m}</option>)}
@@ -9997,13 +10040,18 @@ function MarketingTab({ dark, me, showToast }) {
           </select>
           <div className="ml-auto flex flex-wrap gap-2">
             {premium && <button onClick={copyDigest} className={s.ghostBtn}>Copier le point de la semaine</button>}
-            <button onClick={() => newTask()} className={s.ghostBtn}>Nouvelle tâche</button>
-            <button onClick={newProject} className={s.primaryBtn}>Nouveau projet</button>
+            {!readOnly && <button onClick={() => newTask()} className={s.ghostBtn}>Nouvelle tâche</button>}
+            {!readOnly && <button onClick={newProject} className={s.primaryBtn}>Nouveau projet</button>}
           </div>
         </div>
       </div>
 
-      <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : <b>N</b> nouvelle tâche · <b>P</b> nouveau projet · <b>1–5</b> changer de vue</div>
+      {readOnly && (
+        <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
+          Lecture seule — vous consultez le Marketing de Ford Caen et Ford St-Lô. La gestion est assurée par l'équipe Marketing.
+        </div>
+      )}
+      <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : {!readOnly && <><b>N</b> nouvelle tâche · <b>P</b> nouveau projet · </>}<b>1–5</b> changer de vue</div>
 
       <div className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
         {VUES.map(([k, l]) => (
@@ -10032,10 +10080,12 @@ function MarketingTab({ dark, me, showToast }) {
         </div>
       )}
 
+      <MarketingReadOnlyContext.Provider value={readOnly}>
       {openProject && (
         <MarketingProjectFiche
           key={`${openProject}:${dupSource || ""}`}
           dark={dark}
+          defaultSite={newSite}
           projectId={openProject}
           duplicateOf={dupSource}
           premium={premium}
@@ -10060,6 +10110,7 @@ function MarketingTab({ dark, me, showToast }) {
         <MarketingTaskFiche
           dark={dark}
           taskId={openTask}
+          defaultSite={newSite}
           tasks={tasks}
           projects={projects}
           members={members}
@@ -10072,6 +10123,7 @@ function MarketingTab({ dark, me, showToast }) {
           showToast={showToast}
         />
       )}
+      </MarketingReadOnlyContext.Provider>
     </div>
   );
 }
@@ -13113,8 +13165,10 @@ export default function App() {
   const permissions = useMemo(() => getPermissions(vendorName, vendeursList), [vendorName, vendeursList]);
   const prospectionAccess = useProspectionAccess(authUserId);
   const canProspect = prospectionAccess.allowed;
-  const marketingMe = useMarketingAccess(authUserId);
-  const canMarketing = !!marketingMe;
+  const marketingAccess = useMarketingAccess(authUserId);
+  const marketingMe = marketingAccess.nom;
+  const marketingReadOnly_ = marketingAccess.readOnly;
+  const canMarketing = !!(marketingAccess.nom || marketingAccess.readOnly);
   const rdvMe = useRdvAccess(authUserId);
   const rdvData = useRdv(rdvMe);
   const rdvOverdueCount = useMemo(() => { const n = new Date(); return rdvData.rows.filter((r) => rdvIsOverdue(r, n)).length; }, [rdvData.rows]);
@@ -13350,7 +13404,7 @@ export default function App() {
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (
-              <MarketingTab dark={dark} me={marketingMe} showToast={showToast} />
+              <MarketingTab dark={dark} me={marketingMe || vendorName} readOnly={marketingReadOnly_} showToast={showToast} />
             ) : null
           ) : tab === "challenge" ? (
             <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} challengeConfig={challengeConfig} challengeEntries={challengeEntries} onOpenVehicle={openInVehicules} />
