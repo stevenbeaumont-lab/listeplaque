@@ -817,6 +817,7 @@ const NAV_ICONS = {
   convoyage: ArrowRightLeft,
   prospection: Target,
   marketing: Megaphone,
+  livraison: CheckCircle2,
   challenge: Trophy,
   dashboard: TrendingUp,
   dossiers: FileText,
@@ -827,7 +828,7 @@ const NAV_ICONS = {
   accidentes: AlertTriangle,
   rdv: CalendarClock,
 };
-function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount) {
+function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount, canLivraison) {
   return [
     { id: "vehicules", label: "Véhicules", group: "Stock" },
     { id: "logistique", label: "Logistique", group: "Stock" },
@@ -835,13 +836,14 @@ function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarke
     canProspect && { id: "prospection", label: "Prospection", group: "Commercial" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Commercial" },
     canMarketing && { id: "marketing", label: "Marketing", group: "Commercial" },
+    canLivraison && { id: "livraison", label: "En livraison", group: "Commercial", beta: true },
     rdvMe && { id: "rdv", label: rdvMe.role === "admin" ? "Rapports RDV" : "Mes RDV", group: "Commercial", beta: true, count: rdvOverdueCount },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Pilotage" },
     permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Administration" },
   ].filter(Boolean);
 }
-function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing, rdvMe, rdvOverdueCount }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount);
+function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing, rdvMe, rdvOverdueCount, canLivraison }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount, canLivraison);
   let lastGroup = null;
   return (
     <nav className="sticky top-20 flex w-52 shrink-0 flex-col gap-0.5 self-start">
@@ -863,7 +865,7 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
             >
               <Icon size={16} className="shrink-0" />
               <span className="flex-1 truncate text-left">{it.label}</span>
-              {it.beta && !it.count && (isSuperAdmin(vendorName) || it.id === "marketing" || it.id === "rdv") && (
+              {it.beta && !it.count && (isSuperAdmin(vendorName) || it.id === "marketing" || it.id === "rdv" || it.id === "livraison") && (
                 <span className={`rounded-full px-1.5 py-px text-[9px] font-semibold ${dark ? "bg-blue-500/15 text-blue-300" : "bg-blue-100/70 text-blue-700"}`}>
                   Bêta
                 </span>
@@ -881,8 +883,8 @@ function Sidebar({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, perm
   );
 }
 
-function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing, rdvMe, rdvOverdueCount }) {
-  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount);
+function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permissions, vendorName, canProspect, canMarketing, rdvMe, rdvOverdueCount, canLivraison }) {
+  const items = buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarketing, rdvMe, rdvOverdueCount, canLivraison);
   let lastGroup = null;
   return (
     <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200 shadow-sm"}`} style={{ scrollbarWidth: "none" }}>
@@ -903,7 +905,7 @@ function Tabs({ dark, tab, setTab, accidentCount, dossierUnmatchedCount, permiss
               }`}
             >
               {it.label}
-              {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing" || it.id === "rdv") && (
+              {it.beta && (isSuperAdmin(vendorName) || it.id === "marketing" || it.id === "rdv" || it.id === "livraison") && (
                 <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tab === it.id ? "bg-white/25 text-white" : dark ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-800"}`}>
                   Bêta
                 </span>
@@ -981,6 +983,7 @@ function TopBar({ dark, setDark, vendorName, onOpenPasswordModal, onLogout, onIm
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Accidentés</span> — véhicules signalés HS</li>
                 {navAccess?.prospect && <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Prospection</span> — carte et suivi des prospects B2B</li>}
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Dossiers</span> — import MyAna, attribution des ventes</li>
+                {navAccess?.livraison && <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>En livraison</span> — planning des livraisons et préparation (Saint-Lô)</li>}
                 {navAccess?.marketing && <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Marketing</span> — projets, tâches et relances</li>}
                 {navAccess?.rdv && <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>{navAccess.rdv === "admin" ? "Rapports RDV" : "Mes RDV"}</span> — rendez-vous clients et suivi</li>}
                 <li><span className={`font-semibold ${dark ? "text-zinc-200" : "text-stone-700"}`}>Tableau de bord</span> — statistiques et tendances</li>
@@ -12226,6 +12229,393 @@ function RdvTab({ dark, me, rdv, vendeursList, vehicles, showToast }) {
   );
 }
 
+// Droit sur l'onglet En livraison : 'gestion' | 'preparateur' | 'lecture' | '' (aucun) ; undefined = en cours de vérification.
+function useLivraisonAccess(userId) {
+  const [droit, setDroit] = useState(undefined);
+  useEffect(() => {
+    let alive = true;
+    if (!userId) return undefined;
+    (async () => {
+      let d = "";
+      try { const r = await supabase.rpc("livraison_droit"); d = r.data || ""; } catch (e) { d = ""; }
+      if (alive) setDroit(d);
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+  return droit;
+}
+
+// ───────────── En livraison (bêta, Ford St-Lô) — autonome : aucune liaison avec le stock ni les dossiers ─────────────
+const LIV_PAIEMENTS = ["Préfacturé", "Virement en cours", "Virement OK", "Chèque de banque", "BAF en cours", "BAF OK", "LLD Ford Lease"];
+const LIV_PREPA = [["a_faire", "À faire"], ["meca_ok", "Méca OK"], ["pret", "Véhicule prêt"]];
+const LIV_FIELDS = ["date_livraison", "heure", "no_commande", "modele", "n_serie", "immat", "client", "vendeur", "paiement", "montage", "accessoires", "carburant", "kms", "sous_traiter", "note", "champagne_pris_le", "champagne_debit", "prepa"];
+
+function livCleanRow(p) {
+  const row = {};
+  for (const k of LIV_FIELDS) {
+    let v = p[k];
+    if (typeof v === "string") v = v.trim();
+    if (v === "" || v === undefined) v = null;
+    row[k] = v;
+  }
+  row.champagne_debit = !!p.champagne_debit;
+  if (!["a_faire", "meca_ok", "pret"].includes(row.prepa)) row.prepa = "a_faire";
+  if (row.no_commande) row.no_commande = row.no_commande.toUpperCase();
+  if (row.n_serie) row.n_serie = row.n_serie.toUpperCase();
+  if (row.immat) row.immat = row.immat.toUpperCase();
+  return row;
+}
+function livMonday(iso) {
+  const d = new Date(iso + "T12:00:00");
+  return marketingAddDays(iso, -((d.getDay() + 6) % 7));
+}
+function livWeekNumber(iso) {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const w1 = new Date(d.getFullYear(), 0, 4, 12);
+  return 1 + Math.round(((d - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7);
+}
+function livPrepaTone(key, dark) {
+  if (key === "pret") return dark ? "border-emerald-500/60 bg-emerald-500/20 text-emerald-300" : "border-emerald-400 bg-emerald-100 text-emerald-800";
+  if (key === "meca_ok") return dark ? "border-yellow-500/60 bg-yellow-500/20 text-yellow-300" : "border-yellow-400 bg-yellow-100 text-yellow-800";
+  return dark ? "border-zinc-700 bg-zinc-800 text-zinc-300" : "border-stone-300 bg-stone-100 text-stone-600";
+}
+function livPaiementTone(p, dark) {
+  if (/ok|lease/i.test(p)) return dark ? "bg-emerald-500/20 text-emerald-300" : "bg-emerald-100 text-emerald-800";
+  if (/en cours/i.test(p)) return dark ? "bg-amber-500/20 text-amber-300" : "bg-amber-100 text-amber-800";
+  return dark ? "bg-sky-500/20 text-sky-300" : "bg-sky-100 text-sky-800";
+}
+
+function useLivraisons() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const timer = useRef(null);
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.from("livraisons").select("*").order("date_livraison", { ascending: true }).order("heure", { ascending: true, nullsFirst: false }).limit(5000);
+    if (err) { setError(err.message); setLoading(false); return; }
+    setRows(data); setError(null); setLoading(false);
+  }, []);
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel("livraisons-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "livraisons" }, () => { clearTimeout(timer.current); timer.current = setTimeout(load, 300); })
+      .subscribe();
+    return () => { clearTimeout(timer.current); supabase.removeChannel(ch); };
+  }, [load]);
+  const save = useCallback(async (p) => {
+    const row = livCleanRow(p);
+    const q = p.id ? supabase.from("livraisons").update(row).eq("id", p.id) : supabase.from("livraisons").insert(row);
+    const { error: err } = await q;
+    if (err) throw err;
+    await load();
+  }, [load]);
+  const patch = useCallback(async (id, fields) => {
+    setRows((arr) => arr.map((r) => (r.id === id ? { ...r, ...fields } : r)));
+    const { error: err } = await supabase.from("livraisons").update(fields).eq("id", id);
+    if (err) { await load(); throw err; }
+  }, [load]);
+  const remove = useCallback(async (id) => {
+    const { error: err } = await supabase.from("livraisons").delete().eq("id", id);
+    if (err) throw err;
+    await load();
+  }, [load]);
+  return { rows, loading, error, save, patch, remove };
+}
+
+function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, onDelete, showToast }) {
+  const s = marketingStyles(dark);
+  const isNew = !initial.id;
+  const canEdit = droit === "gestion";
+  const [p, setP] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const save = async () => {
+    if (!p.date_livraison) { showToast("Indiquez la date de livraison", { type: "error" }); return; }
+    setSaving(true);
+    try { await onSave(p); showToast("Livraison enregistrée"); onClose(); }
+    catch (e) { showToast(`Échec de l'enregistrement : ${e.message || e}`, { type: "error" }); }
+    finally { setSaving(false); }
+  };
+  const del = async () => {
+    if (!confirmDel) { setConfirmDel(true); return; }
+    try { await onDelete(p.id); showToast("Livraison supprimée"); onClose(); }
+    catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const field = (label, k, props = {}) => (
+    <div className={props.wide ? "col-span-2" : ""}>
+      <div className={s.label}>{label}</div>
+      <input className={s.input} value={p[k] || ""} onChange={set(k)} {...props.input} />
+    </div>
+  );
+  return (
+    <MarketingDrawer dark={dark} onClose={onClose} z="z-[60]" title={isNew ? "Nouvelle livraison" : "Livraison"}>
+      <fieldset disabled={!canEdit && droit !== "preparateur"} className="m-0 min-w-0 border-0 p-0">
+        <div className="space-y-4">
+          {!canEdit && (
+            <div className={`rounded-lg border px-3 py-2 text-xs ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
+              {droit === "preparateur" ? "Vous pouvez modifier uniquement Prépa et Champagne." : "Lecture seule."}
+            </div>
+          )}
+          <fieldset disabled={!canEdit} className="m-0 min-w-0 space-y-4 border-0 p-0">
+            <div className="grid grid-cols-2 gap-3">
+              <div><div className={s.label}>Date *</div><input type="date" className={s.input} value={p.date_livraison || ""} onChange={set("date_livraison")} /></div>
+              {field("Heure", "heure", { input: { placeholder: "Ex. 10H30" } })}
+              {field("N° commande", "no_commande", { input: { inputMode: "numeric" } })}
+              {field("Modèle", "modele", { input: { placeholder: "Ex. KUGA" } })}
+              {field("N° de série", "n_serie")}
+              {field("Immatriculation", "immat")}
+              {field("Client", "client", { wide: true })}
+              <div>
+                <div className={s.label}>Vendeur</div>
+                <input className={s.input} list="liv-vendeurs" value={p.vendeur || ""} onChange={set("vendeur")} placeholder="Choisir ou écrire…" />
+                <datalist id="liv-vendeurs">{vendeurNames.map((n) => <option key={n} value={n} />)}</datalist>
+              </div>
+              <div>
+                <div className={s.label}>Paiement / financement</div>
+                <select className={s.input} value={p.paiement || ""} onChange={set("paiement")}>
+                  <option value="">—</option>
+                  {LIV_PAIEMENTS.map((x) => <option key={x}>{x}</option>)}
+                  {p.paiement && !LIV_PAIEMENTS.includes(p.paiement) && <option>{p.paiement}</option>}
+                </select>
+              </div>
+              {field("Montage", "montage", { input: { placeholder: "Ex. Gravage, rien" } })}
+              {field("Accessoires", "accessoires", { input: { placeholder: "Ex. Attelage + tapis" } })}
+              <div>
+                <div className={s.label}>Carburant</div>
+                <input className={s.input} list="liv-carburant" value={p.carburant || ""} onChange={set("carburant")} placeholder="Ex. 30€" />
+                <datalist id="liv-carburant"><option value="30€" /><option value="A RECHARGER" /></datalist>
+              </div>
+              {field("Kms pour VD", "kms", { input: { inputMode: "numeric" } })}
+              {field("À sous-traiter", "sous_traiter", { wide: true })}
+              <div className="col-span-2">
+                <div className={s.label}>Note</div>
+                <textarea rows={2} className={s.input} value={p.note || ""} onChange={set("note")} />
+              </div>
+            </div>
+          </fieldset>
+          <div className={`rounded-xl border p-3 ${s.card}`}>
+            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Préparateur</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className={s.label}>Champagne pris le</div>
+                <input type="date" className={s.input} value={p.champagne_pris_le || ""} onChange={set("champagne_pris_le")} />
+              </div>
+              <label className={`flex items-end gap-2 pb-2 text-sm ${s.title}`}>
+                <input type="checkbox" checked={!!p.champagne_debit} onChange={(e) => setP((x) => ({ ...x, champagne_debit: e.target.checked }))} />Débité
+              </label>
+              <div className="col-span-2">
+                <div className={s.label}>Prépa</div>
+                <div className="flex flex-wrap gap-2">
+                  {LIV_PREPA.map(([k, l]) => (
+                    <button key={k} type="button" onClick={() => setP((x) => ({ ...x, prepa: k }))} className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${p.prepa === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-400"}`}>{l}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+      {(canEdit || droit === "preparateur") && (
+        <div className="mt-5 flex items-center justify-between gap-2">
+          {canEdit && !isNew ? (
+            <button type="button" onClick={del} className={`rounded-lg px-3 py-2 text-sm font-semibold ${confirmDel ? "bg-rose-600 text-white" : dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}>{confirmDel ? "Confirmer la suppression" : "Supprimer"}</button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className={s.ghostBtn}>Annuler</button>
+            <button type="button" disabled={saving} onClick={save} className={s.primaryBtn}>{saving ? "Enregistrement…" : "Enregistrer"}</button>
+          </div>
+        </div>
+      )}
+    </MarketingDrawer>
+  );
+}
+
+function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
+  const s = marketingStyles(dark);
+  const tomorrow = marketingAddDays(today, 1);
+  const notReady = l.prepa !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
+  const tint = l.prepa === "pret"
+    ? (dark ? "border-emerald-500/50 bg-emerald-500/10" : "border-emerald-300 bg-emerald-50")
+    : l.prepa === "meca_ok"
+    ? (dark ? "border-yellow-500/50 bg-yellow-500/10" : "border-yellow-300 bg-yellow-50")
+    : s.card;
+  const chip = (txt, extra) => <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${extra || (dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600")}`}>{txt}</span>;
+  const stop = (e) => e.stopPropagation();
+  const act = (fields) => onPatch(l.id, fields);
+  return (
+    <div onClick={() => onOpen(l)} className={`cursor-pointer rounded-xl border p-3 text-sm transition-colors ${tint}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`text-base font-bold tabular-nums ${s.title}`}>{l.heure || "—"}</span>
+            <span className={`font-semibold ${s.title}`}>{l.modele || "Modèle ?"}</span>
+            <span className={s.muted}>{l.client || "Client ?"}</span>
+            {l.vendeur && chip(l.vendeur)}
+            {notReady && chip("Non prête", dark ? "bg-rose-500/20 text-rose-300" : "bg-rose-100 text-rose-700")}
+          </div>
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${s.sub}`}>
+            {l.no_commande && <span>Cde {l.no_commande}</span>}
+            {l.n_serie && <span>Série {l.n_serie}</span>}
+            {l.immat && <span>{l.immat}</span>}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {l.paiement && chip(l.paiement, livPaiementTone(l.paiement, dark))}
+            {l.montage && chip(`Montage : ${l.montage}`)}
+            {l.accessoires && chip(l.accessoires, dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-800")}
+            {l.carburant && chip(`Carburant : ${l.carburant}`)}
+            {l.kms && chip(`${l.kms} km`)}
+            {l.sous_traiter && chip(`Sous-traiter : ${l.sous_traiter}`, dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800")}
+          </div>
+          {l.note && <div className={`text-xs ${s.muted}`}>{l.note}</div>}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2" onClick={stop}>
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className={s.sub}>Champagne</span>
+            {l.champagne_pris_le ? (
+              <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: null, champagne_debit: false })} title="Annuler" className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-stone-100 text-stone-700"}`}>Pris le {marketingFrDate(l.champagne_pris_le)}</button>
+            ) : (
+              <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: today })} className={`rounded-full border px-2 py-0.5 font-semibold disabled:opacity-50 ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>Pris</button>
+            )}
+            <label className={`flex items-center gap-1 ${s.muted}`}>
+              <input type="checkbox" disabled={!canPrep} checked={!!l.champagne_debit} onChange={(e) => act({ champagne_debit: e.target.checked })} />Débité
+            </label>
+          </div>
+          <div className="flex gap-1" role="group" aria-label="Prépa">
+            {LIV_PREPA.map(([k, lab]) => (
+              <button key={k} type="button" disabled={!canPrep} onClick={() => l.prepa !== k && act({ prepa: k })} className={`rounded-lg border px-2 py-1 text-xs font-semibold disabled:cursor-default ${l.prepa === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>{lab}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LivraisonTab({ dark, droit, vendeursList, showToast }) {
+  const s = marketingStyles(dark);
+  const data = useLivraisons();
+  const today = prospectionTodayISO();
+  const [monday, setMonday] = useState(() => livMonday(today));
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(null); // objet livraison (nouvelle ou existante)
+  const canEdit = droit === "gestion";
+  const canPrep = droit === "gestion" || droit === "preparateur";
+
+  const vendeurNames = useMemo(() => {
+    const set = new Set((vendeursList || []).filter((v) => v.site === "Ford St-Lô" && !["Secrétariat", "Préparateur", "Marketing"].includes(v.role)).map((v) => v.nom));
+    data.rows.forEach((r) => r.vendeur && set.add(r.vendeur));
+    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [vendeursList, data.rows]);
+
+  const q = query.trim().toLowerCase();
+  const found = useMemo(() => {
+    if (!q) return null;
+    return data.rows
+      .filter((r) => [r.client, r.no_commande, r.n_serie, r.modele, r.vendeur, r.immat, r.accessoires, r.note].some((v) => (v || "").toLowerCase().includes(q)))
+      .sort((a, b) => b.date_livraison.localeCompare(a.date_livraison) || (a.heure || "").localeCompare(b.heure || ""));
+  }, [q, data.rows]);
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => marketingAddDays(monday, i));
+  const byDay = useMemo(() => {
+    const m = new Map();
+    data.rows.forEach((r) => { if (!m.has(r.date_livraison)) m.set(r.date_livraison, []); m.get(r.date_livraison).push(r); });
+    return m;
+  }, [data.rows]);
+  const visibleDays = weekDays.filter((d, i) => i < 5 || (byDay.get(d) || []).length > 0);
+  const weekRows = weekDays.flatMap((d) => byDay.get(d) || []);
+  const ready = weekRows.filter((r) => r.prepa === "pret").length;
+
+  const newAt = (date) => setOpen({ date_livraison: date, prepa: "a_faire", champagne_debit: false });
+  const onPatch = async (id, fields) => {
+    try { await data.patch(id, fields); }
+    catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  const card = (l) => <LivraisonCard key={l.id} dark={dark} l={l} today={today} canPrep={canPrep} onOpen={setOpen} onPatch={onPatch} />;
+  const dayLabel = (d) => new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+
+  if (data.error) {
+    return <EmptyState dark={dark} icon={AlertTriangle} title="Impossible de charger En livraison" subtitle={`${data.error} — vérifiez que le script livraisons.sql a bien été exécuté dans Supabase.`} />;
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className={`text-[26px] font-semibold leading-8 tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>En livraison</h1>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${dark ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-blue-300 bg-blue-50 text-blue-700"}`}>Ford St-Lô</span>
+      </div>
+      {droit === "lecture" && (
+        <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
+          Lecture seule — la saisie est assurée par le secrétariat et la direction du site.
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <div className={`flex items-center gap-1 rounded-xl border p-1 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
+          <button type="button" aria-label="Semaine précédente" onClick={() => setMonday(marketingAddDays(monday, -7))} className={`rounded-lg p-1.5 ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}><ChevronLeft size={16} /></button>
+          <div className={`min-w-[170px] px-2 text-center font-semibold ${s.title}`}>Semaine {livWeekNumber(monday)} · {marketingFrDate(monday)} – {marketingFrDate(marketingAddDays(monday, 6))}</div>
+          <button type="button" aria-label="Semaine suivante" onClick={() => setMonday(marketingAddDays(monday, 7))} className={`rounded-lg p-1.5 ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}><ChevronRight size={16} /></button>
+        </div>
+        <button type="button" onClick={() => setMonday(livMonday(today))} className={s.ghostBtn}>Aujourd'hui</button>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher (client, n° commande, série…) dans tout l'historique" className={`${s.input} !w-full sm:!w-80`} aria-label="Rechercher une livraison" />
+        {canEdit && <button type="button" onClick={() => newAt(today > weekDays[4] || today < monday ? monday : today)} className={`${s.primaryBtn} ml-auto`}>Nouvelle livraison</button>}
+      </div>
+
+      {data.loading ? (
+        <div className="flex h-40 items-center justify-center"><RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={20} /></div>
+      ) : found ? (
+        <div className="space-y-2">
+          <div className={`text-xs font-bold uppercase tracking-widest ${s.sub}`}>{found.length} résultat{found.length > 1 ? "s" : ""} · historique complet</div>
+          {found.length === 0 && <div className={`text-sm ${s.sub}`}>Aucune livraison ne correspond.</div>}
+          {found.map((l) => (
+            <div key={l.id}>
+              <div className={`mb-1 mt-2 text-xs font-semibold capitalize ${s.muted}`}>{dayLabel(l.date_livraison)}</div>
+              {card(l)}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className={`text-xs ${s.sub}`}>{weekRows.length} livraison{weekRows.length > 1 ? "s" : ""} cette semaine · {ready} prête{ready > 1 ? "s" : ""}</div>
+          {visibleDays.map((d) => {
+            const list = byDay.get(d) || [];
+            return (
+              <section key={d}>
+                <div className="mb-2 flex items-center gap-2">
+                  <div className={`text-sm font-bold capitalize ${d === today ? (dark ? "text-blue-300" : "text-blue-700") : s.title}`}>{dayLabel(d)}</div>
+                  {d === today && <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">Aujourd'hui</span>}
+                  <span className={`text-xs ${s.sub}`}>{list.length || ""}</span>
+                  {canEdit && <button type="button" onClick={() => newAt(d)} className={`ml-auto text-xs font-semibold ${dark ? "text-blue-300" : "text-blue-700"}`}>+ Ajouter</button>}
+                </div>
+                {list.length === 0 ? <div className={`rounded-xl border border-dashed px-3 py-3 text-sm ${dark ? "border-zinc-800" : "border-stone-200"} ${s.sub}`}>Aucune livraison</div> : <div className="space-y-2">{list.map(card)}</div>}
+              </section>
+            );
+          })}
+        </div>
+      )}
+
+      {open && (
+        <LivraisonFiche
+          key={open.id || "new"}
+          dark={dark}
+          initial={open}
+          droit={droit}
+          vendeurNames={vendeurNames}
+          onClose={() => setOpen(null)}
+          onSave={droit === "preparateur" ? (p) => data.patch(p.id, { prepa: p.prepa, champagne_pris_le: p.champagne_pris_le || null, champagne_debit: !!p.champagne_debit }) : data.save}
+          onDelete={data.remove}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [dark, setDark] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
@@ -13170,6 +13560,7 @@ export default function App() {
   const marketingReadOnly_ = marketingAccess.readOnly;
   const canMarketing = !!(marketingAccess.nom || marketingAccess.readOnly);
   const rdvMe = useRdvAccess(authUserId);
+  const livraisonDroit = useLivraisonAccess(authUserId);
   const rdvData = useRdv(rdvMe);
   const rdvOverdueCount = useMemo(() => { const n = new Date(); return rdvData.rows.filter((r) => rdvIsOverdue(r, n)).length; }, [rdvData.rows]);
 
@@ -13213,9 +13604,10 @@ export default function App() {
   useEffect(() => {
     if (tab === "vendeurs" || tab === "permissions") { setTab("vehicules"); return; }
     if (tab === "rdv" && rdvMe === null) { setTab("vehicules"); return; }
+    if (tab === "livraison" && livraisonDroit === "") { setTab("vehicules"); return; }
     const gated = { dossiers: permissions.dossiers, accidentes: permissions.accidentes, dashboard: permissions.dashboard };
     if (tab in gated && !gated[tab]) setTab("vehicules");
-  }, [tab, permissions, rdvMe]);
+  }, [tab, permissions, rdvMe, livraisonDroit]);
 
   useEffect(() => {
     if (!unlocked || vehicles.length === 0) return;
@@ -13318,7 +13710,7 @@ export default function App() {
         legendOpen={legendOpen}
         setLegendOpen={setLegendOpen}
         canImport={permissions.import}
-        navAccess={{ prospect: canProspect, marketing: canMarketing, rdv: rdvMe?.role || "" }}
+        navAccess={{ prospect: canProspect, marketing: canMarketing, livraison: !!livraisonDroit, rdv: rdvMe?.role || "" }}
       />
       {dbStatus === "error" && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold md:px-8 ${dark ? "bg-rose-500/15 text-rose-300" : "bg-rose-50 text-rose-700"}`}>
@@ -13347,7 +13739,7 @@ export default function App() {
       ) : (
         <div className="mx-auto w-full max-w-[1400px] px-4 pb-12 pt-6 md:px-8">
           <div className="mb-6 lg:hidden">
-            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} canMarketing={canMarketing} rdvMe={rdvMe} rdvOverdueCount={rdvOverdueCount} />
+            <Tabs dark={dark} tab={tab} setTab={setTab} accidentCount={accidents.length} dossierUnmatchedCount={dossiers.filter((d) => !d.vehicle).length} permissions={permissions} vendorName={vendorName} canProspect={canProspect} canMarketing={canMarketing} rdvMe={rdvMe} rdvOverdueCount={rdvOverdueCount} canLivraison={!!livraisonDroit} />
           </div>
           <div className="flex items-start gap-8">
             <div className="hidden lg:block">
@@ -13363,6 +13755,7 @@ export default function App() {
                 canMarketing={canMarketing}
                 rdvMe={rdvMe}
                 rdvOverdueCount={rdvOverdueCount}
+                canLivraison={!!livraisonDroit}
               />
             </div>
             <div key={tab} className="pl-fade-in min-w-0 flex-1 space-y-6">
@@ -13401,6 +13794,10 @@ export default function App() {
           ) : tab === "rdv" ? (
             rdvMe ? (
               <RdvTab dark={dark} me={rdvMe} rdv={rdvData} vendeursList={vendeursList} vehicles={vehicles} showToast={showToast} />
+            ) : null
+          ) : tab === "livraison" ? (
+            livraisonDroit ? (
+              <LivraisonTab dark={dark} droit={livraisonDroit} vendeursList={vendeursList} showToast={showToast} />
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (
