@@ -12331,7 +12331,7 @@ function useLivraisons() {
   return { rows, loading, error, save, patch, remove };
 }
 
-function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, onDelete, showToast }) {
+function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose, onSave, onDelete, showToast }) {
   const s = marketingStyles(dark);
   const isNew = !initial.id;
   const canEdit = droit === "gestion";
@@ -12339,6 +12339,15 @@ function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, o
   const [saving, setSaving] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const set = (k) => (e) => setP((x) => ({ ...x, [k]: e.target.value }));
+  // Lien avec le stock ParcLive uniquement sur le n° de commande d'un VN : on recopie modèle et n° de série dans la
+  // livraison (copie figée → l'archive reste lisible même quand le véhicule sort du stock).
+  const orderKey = normalizeOrderNum(p.no_commande);
+  const stockMatch = useMemo(() => (orderKey && (p.type_vehicule || "VN") === "VN" ? (vehicles || []).find((v) => normalizeOrderNum(v.orderNumber) === orderKey) || null : null), [orderKey, p.type_vehicule, vehicles]);
+  const setOrder = (e) => {
+    const value = e.target.value;
+    const m = normalizeOrderNum(value) ? (vehicles || []).find((v) => normalizeOrderNum(v.orderNumber) === normalizeOrderNum(value)) : null;
+    setP((x) => (m ? { ...x, no_commande: value, modele: m.model || x.modele, n_serie: m.vin || x.n_serie } : { ...x, no_commande: value }));
+  };
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
@@ -12383,7 +12392,22 @@ function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, o
             <div className="grid grid-cols-2 gap-3">
               <div><div className={s.label}>Date *</div><input type="date" className={s.input} value={p.date_livraison || ""} onChange={set("date_livraison")} /></div>
               {field("Heure", "heure", { input: { placeholder: "Ex. 10H30" } })}
-              {(p.type_vehicule || "VN") === "VN" && field("N° commande", "no_commande", { input: { inputMode: "numeric" } })}
+              {(p.type_vehicule || "VN") === "VN" && (
+                <div className="col-span-2">
+                  <div className={s.label}>N° commande</div>
+                  <input className={s.input} inputMode="numeric" value={p.no_commande || ""} onChange={setOrder} placeholder="Tapez le n° : le véhicule du stock ParcLive est retrouvé" />
+                  {orderKey && (stockMatch ? (
+                    <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${dark ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
+                      <div className="font-bold">Dans le stock ParcLive : {displayModel(stockMatch)}{stockMatch.trim ? ` · ${stockMatch.trim}` : ""}</div>
+                      <div className="mt-0.5 opacity-90">
+                        {[stockMatch.color, stockMatch.vin && `Série ${stockMatch.vin}`, stockMatch.concession, STATUS_META[stockMatch.baseStatus]?.label, clientLine(stockMatch) && `Client ${clientLine(stockMatch)}`, (stockMatch.venduPar || activeReservationVendeur(stockMatch)) && `Vendeur ${stockMatch.venduPar || activeReservationVendeur(stockMatch)}`].filter(Boolean).join(" · ")}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`mt-1.5 text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucun véhicule de ce numéro dans le stock ParcLive : saisie manuelle.</div>
+                  ))}
+                </div>
+              )}
               {field("Modèle", "modele", { input: { placeholder: "Ex. KUGA" } })}
               {(p.type_vehicule || "VN") === "VN" && field("N° de série", "n_serie")}
               {(p.type_vehicule === "VD" || p.type_vehicule === "VO") && field("Immatriculation", "immat")}
@@ -12515,7 +12539,7 @@ function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
   );
 }
 
-function LivraisonTab({ dark, droit, vendeursList, showToast }) {
+function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
   const s = marketingStyles(dark);
   const data = useLivraisons();
   const today = prospectionTodayISO();
@@ -12628,6 +12652,7 @@ function LivraisonTab({ dark, droit, vendeursList, showToast }) {
           dark={dark}
           initial={open}
           droit={droit}
+          vehicles={vehicles}
           vendeurNames={vendeurNames}
           onClose={() => setOpen(null)}
           onSave={droit === "preparateur" ? (p) => data.patch(p.id, { prepa: p.prepa, champagne_pris_le: p.champagne_pris_le || null, champagne_debit: !!p.champagne_debit }) : data.save}
@@ -13820,7 +13845,7 @@ export default function App() {
             ) : null
           ) : tab === "livraison" ? (
             livraisonDroit ? (
-              <LivraisonTab dark={dark} droit={livraisonDroit} vendeursList={vendeursList} showToast={showToast} />
+              <LivraisonTab dark={dark} droit={livraisonDroit} vehicles={vehicles} vendeursList={vendeursList} showToast={showToast} />
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (
