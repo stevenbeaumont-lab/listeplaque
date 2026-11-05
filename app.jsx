@@ -12267,10 +12267,27 @@ function livCleanRow(p) {
   row.champagne_debit = !!p.champagne_debit;
   if (!LIV_TYPES.includes(row.type_vehicule)) row.type_vehicule = "VN";
   if (!["a_faire", "meca_ok", "pret"].includes(row.prepa)) row.prepa = "a_faire";
+  if (row.heure) row.heure = livNormHeure(row.heure);
   if (row.no_commande) row.no_commande = row.no_commande.toUpperCase();
   if (row.n_serie) row.n_serie = row.n_serie.toUpperCase();
   if (row.immat) row.immat = row.immat.toUpperCase();
   return row;
+}
+// Heure lisible : "11" → "11H00", "11h" → "11H00", "930" → "9H30", "11:30" → "11H30". Autre texte conservé tel quel.
+function livNormHeure(v) {
+  const t = String(v || "").trim();
+  if (!t) return "";
+  let h, m;
+  let r = t.match(/^(\d{1,2})\s*(?:[hH:.]\s*(\d{1,2})?)?$/);
+  if (r) { h = Number(r[1]); m = r[2] === undefined ? 0 : Number(r[2]); }
+  else if ((r = t.match(/^(\d{1,2})(\d{2})$/))) { h = Number(r[1]); m = Number(r[2]); }
+  else return t.toUpperCase();
+  if (h > 23 || m > 59) return t.toUpperCase();
+  return `${h}H${String(m).padStart(2, "0")}`;
+}
+function livHeureMin(v) {
+  const r = livNormHeure(v).match(/^(\d{1,2})H(\d{2})$/);
+  return r ? Number(r[1]) * 60 + Number(r[2]) : 9999;
 }
 function livMonday(iso) {
   const d = new Date(iso + "T12:00:00");
@@ -12306,7 +12323,8 @@ function useLivraisons() {
   const load = useCallback(async () => {
     const { data, error: err } = await supabase.from("livraisons").select("*").order("date_livraison", { ascending: true }).order("heure", { ascending: true, nullsFirst: false }).limit(5000);
     if (err) { setError(err.message); setLoading(false); return; }
-    setRows(data); setError(null); setLoading(false);
+    setRows([...data].sort((a, b) => a.date_livraison.localeCompare(b.date_livraison) || livHeureMin(a.heure) - livHeureMin(b.heure)));
+    setError(null); setLoading(false);
   }, []);
   useEffect(() => {
     load();
@@ -12396,7 +12414,7 @@ function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose,
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><div className={s.label}>Date *</div><input type="date" className={s.input} value={p.date_livraison || ""} onChange={set("date_livraison")} /></div>
-              {field("Heure", "heure", { input: { placeholder: "Ex. 10H30" } })}
+              {field("Heure", "heure", { input: { placeholder: "Ex. 11 ou 10h30", onBlur: () => setP((x) => ({ ...x, heure: livNormHeure(x.heure) })) } })}
               {(p.type_vehicule || "VN") === "VN" && (
                 <div className="col-span-2">
                   <div className={s.label}>N° commande</div>
@@ -12499,7 +12517,7 @@ function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`text-base font-bold tabular-nums ${s.title}`}>{l.heure || "—"}</span>
+            <span className={`text-base font-bold tabular-nums ${s.title}`}>{livNormHeure(l.heure) || "—"}</span>
             <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${livTypeTone(l.type_vehicule || "VN", dark)}`}>{l.type_vehicule || "VN"}</span>
             <span className={`font-semibold ${s.title}`}>{l.modele || "Modèle ?"}</span>
             <span className={s.muted}>{l.client || "Client ?"}</span>
@@ -12567,7 +12585,7 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
     if (!q) return null;
     return typedRows
       .filter((r) => [r.client, r.no_commande, r.n_serie, r.modele, r.vendeur, r.immat, r.accessoires, r.note, r.type_vehicule].some((v) => (v || "").toLowerCase().includes(q)))
-      .sort((a, b) => b.date_livraison.localeCompare(a.date_livraison) || (a.heure || "").localeCompare(b.heure || ""));
+      .sort((a, b) => b.date_livraison.localeCompare(a.date_livraison) || livHeureMin(a.heure) - livHeureMin(b.heure));
   }, [q, typedRows]);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => marketingAddDays(monday, i));
