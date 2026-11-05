@@ -43,6 +43,9 @@ create table if not exists public.livraisons (
 );
 -- Pour une table créée avant l'ajout du type :
 alter table public.livraisons add column if not exists type_vehicule text not null default 'VN' check (type_vehicule in ('VN', 'VO', 'VD'));
+-- Étapes de préparation : À faire, Mécanique OK, Intérieur OK, Véhicule prêt (colonne etape ; l'ancienne colonne prepa n'est plus utilisée).
+alter table public.livraisons add column if not exists etape text not null default 'a_faire' check (etape in ('a_faire', 'meca_ok', 'interieur_ok', 'pret'));
+update public.livraisons set etape = prepa where prepa in ('meca_ok', 'pret') and etape = 'a_faire';
 create index if not exists livraisons_date_idx on public.livraisons (date_livraison);
 alter table public.livraisons enable row level security;
 
@@ -75,9 +78,9 @@ create or replace function public.livraisons_before_update()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if public.livraison_droit() = 'preparateur' then
-    if (to_jsonb(new) - array['prepa', 'champagne_pris_le', 'champagne_debit', 'updated_at', 'updated_by'])
+    if (to_jsonb(new) - array['etape', 'prepa', 'champagne_pris_le', 'champagne_debit', 'updated_at', 'updated_by'])
        is distinct from
-       (to_jsonb(old) - array['prepa', 'champagne_pris_le', 'champagne_debit', 'updated_at', 'updated_by']) then
+       (to_jsonb(old) - array['etape', 'prepa', 'champagne_pris_le', 'champagne_debit', 'updated_at', 'updated_by']) then
       raise exception 'Le préparateur ne peut modifier que Prépa et Champagne';
     end if;
   end if;

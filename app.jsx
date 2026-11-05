@@ -3040,7 +3040,7 @@ const PERMISSION_LABELS = {
   vendeurs: "Onglet Vendeurs (gestion, sites, rôles)",
   reset: "Réinitialiser toutes les données",
   livraisonVoir: "En livraison : voir l'onglet (Ford St-Lô)",
-  livraisonPrepa: "En livraison : cocher la Prépa (préparateur)",
+  livraisonPrepa: "En livraison : cocher les étapes de préparation (préparateur)",
   livraisonGerer: "En livraison : créer, modifier, supprimer (secrétariat / direction)",
   marketingVoir: "Marketing : consulter en lecture seule (Caen + St-Lô)",
 };
@@ -12252,9 +12252,9 @@ function useLivraisonAccess(userId) {
 
 // ───────────── En livraison (bêta, Ford St-Lô) — autonome : aucune liaison avec le stock ni les dossiers ─────────────
 const LIV_PAIEMENTS = ["Préfacturé", "Virement en cours", "Virement OK", "Chèque de banque", "BAF en cours", "BAF OK", "LLD Ford Lease"];
-const LIV_PREPA = [["a_faire", "À faire"], ["meca_ok", "Méca OK"], ["pret", "Véhicule prêt"]];
+const LIV_PREPA = [["a_faire", "À faire"], ["meca_ok", "Mécanique OK"], ["interieur_ok", "Intérieur OK"], ["pret", "Véhicule prêt"]];
 const LIV_TYPES = ["VN", "VO", "VD"];
-const LIV_FIELDS = ["type_vehicule", "date_livraison", "heure", "no_commande", "modele", "n_serie", "immat", "client", "vendeur", "paiement", "montage", "accessoires", "carburant", "kms", "sous_traiter", "note", "prepa"];
+const LIV_FIELDS = ["type_vehicule", "date_livraison", "heure", "no_commande", "modele", "n_serie", "immat", "client", "vendeur", "paiement", "montage", "accessoires", "carburant", "kms", "sous_traiter", "note", "etape"];
 
 function livCleanRow(p) {
   const row = {};
@@ -12265,7 +12265,7 @@ function livCleanRow(p) {
     row[k] = v;
   }
   if (!LIV_TYPES.includes(row.type_vehicule)) row.type_vehicule = "VN";
-  if (!["a_faire", "meca_ok", "pret"].includes(row.prepa)) row.prepa = "a_faire";
+  if (!["a_faire", "meca_ok", "interieur_ok", "pret"].includes(row.etape)) row.etape = "a_faire";
   if (row.heure) row.heure = livNormHeure(row.heure);
   if (row.no_commande) row.no_commande = row.no_commande.toUpperCase();
   if (row.n_serie) row.n_serie = row.n_serie.toUpperCase();
@@ -12300,6 +12300,7 @@ function livWeekNumber(iso) {
 }
 function livPrepaTone(key, dark) {
   if (key === "pret") return dark ? "border-emerald-500/60 bg-emerald-500/20 text-emerald-300" : "border-emerald-400 bg-emerald-100 text-emerald-800";
+  if (key === "interieur_ok") return dark ? "border-sky-500/60 bg-sky-500/20 text-sky-300" : "border-sky-400 bg-sky-100 text-sky-800";
   if (key === "meca_ok") return dark ? "border-yellow-500/60 bg-yellow-500/20 text-yellow-300" : "border-yellow-400 bg-yellow-100 text-yellow-800";
   return dark ? "border-zinc-700 bg-zinc-800 text-zinc-300" : "border-stone-300 bg-stone-100 text-stone-600";
 }
@@ -12399,7 +12400,7 @@ function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose,
         <div className="space-y-4">
           {!canEdit && (
             <div className={`rounded-lg border px-3 py-2 text-xs ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
-              {droit === "preparateur" ? "Vous pouvez modifier uniquement la Prépa." : "Lecture seule."}
+              {droit === "preparateur" ? "Vous pouvez modifier uniquement la préparation." : "Lecture seule."}
             </div>
           )}
           <fieldset disabled={!canEdit} className="m-0 min-w-0 space-y-4 border-0 p-0">
@@ -12469,7 +12470,7 @@ function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose,
                 <div className={s.label}>Prépa</div>
                 <div className="flex flex-wrap gap-2">
                   {LIV_PREPA.map(([k, l]) => (
-                    <button key={k} type="button" onClick={() => setP((x) => ({ ...x, prepa: k }))} className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${p.prepa === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-400"}`}>{l}</button>
+                    <button key={k} type="button" onClick={() => setP((x) => ({ ...x, etape: k }))} className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${p.etape === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-400"}`}>{l}</button>
                   ))}
                 </div>
               </div>
@@ -12495,10 +12496,12 @@ function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose,
 function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
   const s = marketingStyles(dark);
   const tomorrow = marketingAddDays(today, 1);
-  const notReady = l.prepa !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
-  const tint = l.prepa === "pret"
+  const notReady = l.etape !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
+  const tint = l.etape === "pret"
     ? (dark ? "border-emerald-500/50 bg-emerald-500/10" : "border-emerald-300 bg-emerald-50")
-    : l.prepa === "meca_ok"
+    : l.etape === "interieur_ok"
+    ? (dark ? "border-sky-500/50 bg-sky-500/10" : "border-sky-300 bg-sky-50")
+    : l.etape === "meca_ok"
     ? (dark ? "border-yellow-500/50 bg-yellow-500/10" : "border-yellow-300 bg-yellow-50")
     : s.card;
   const chip = (txt, extra) => <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${extra || (dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600")}`}>{txt}</span>;
@@ -12534,7 +12537,7 @@ function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
         <div className="flex shrink-0 flex-col items-end gap-2" onClick={stop}>
           <div className="flex gap-1" role="group" aria-label="Prépa">
             {LIV_PREPA.map(([k, lab]) => (
-              <button key={k} type="button" disabled={!canPrep} onClick={() => l.prepa !== k && act({ prepa: k })} className={`rounded-lg border px-2 py-1 text-xs font-semibold disabled:cursor-default ${l.prepa === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>{lab}</button>
+              <button key={k} type="button" disabled={!canPrep} onClick={() => l.etape !== k && act({ etape: k })} className={`rounded-lg border px-2 py-1 text-xs font-semibold disabled:cursor-default ${l.etape === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>{lab}</button>
             ))}
           </div>
         </div>
@@ -12547,8 +12550,8 @@ function LivraisonCardPremium({ dark, l, today, canPrep, onOpen, onPatch }) {
   const s = marketingStyles(dark);
   const tomorrow = marketingAddDays(today, 1);
   const type = l.type_vehicule || "VN";
-  const notReady = l.prepa !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
-  const accent = l.prepa === "pret" ? "bg-emerald-500" : l.prepa === "meca_ok" ? "bg-yellow-400" : dark ? "bg-zinc-700" : "bg-stone-300";
+  const notReady = l.etape !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
+  const accent = l.etape === "pret" ? "bg-emerald-500" : l.etape === "interieur_ok" ? "bg-sky-400" : l.etape === "meca_ok" ? "bg-yellow-400" : dark ? "bg-zinc-700" : "bg-stone-300";
   const surface = dark ? "border-zinc-800 bg-zinc-900/60 hover:border-zinc-700" : "border-stone-200 bg-white shadow-sm hover:shadow-md";
   const fields = [
     ["N° commande", l.no_commande], ["N° de série", l.n_serie], ["Immatriculation", l.immat], ["Kilométrage", l.kms && `${l.kms} km`],
@@ -12591,14 +12594,14 @@ function LivraisonCardPremium({ dark, l, today, canPrep, onOpen, onPatch }) {
           {l.note && <div className={`rounded-lg px-3 py-2 text-sm ${dark ? "bg-zinc-800/70 text-zinc-300" : "bg-stone-50 text-stone-600"}`}>{l.note}</div>}
         </div>
 
-        <div className="w-full shrink-0 space-y-3 lg:w-64" onClick={stop}>
+        <div className="w-full shrink-0 space-y-3 lg:w-80" onClick={stop}>
           <div>
             <div className={`mb-1.5 text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>Préparation</div>
-            <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Prépa">
+            <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Préparation">
               {LIV_PREPA.map(([k, lab]) => {
-                const active = l.prepa === k;
+                const active = l.etape === k;
                 return (
-                  <button key={k} type="button" disabled={!canPrep} onClick={() => !active && act({ prepa: k })} className={`flex flex-col items-center justify-center gap-0.5 rounded-xl border px-1 py-2 text-[11px] font-semibold leading-tight disabled:cursor-default ${active ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>
+                  <button key={k} type="button" disabled={!canPrep} onClick={() => !active && act({ etape: k })} className={`flex flex-col items-center justify-center gap-0.5 rounded-xl border px-0.5 py-2 text-[10px] font-semibold leading-tight disabled:cursor-default ${active ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>
                     {active ? <Check size={14} /> : <span className="h-3.5" />}
                     {lab}
                   </button>
@@ -12648,9 +12651,9 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
   }, [typedRows]);
   const visibleDays = weekDays.filter((d, i) => i < 5 || (byDay.get(d) || []).length > 0);
   const weekRows = weekDays.flatMap((d) => byDay.get(d) || []);
-  const ready = weekRows.filter((r) => r.prepa === "pret").length;
+  const ready = weekRows.filter((r) => r.etape === "pret").length;
 
-  const newAt = (date) => setOpen({ date_livraison: date, type_vehicule: typeFilter || "VN", prepa: "a_faire" });
+  const newAt = (date) => setOpen({ date_livraison: date, type_vehicule: typeFilter || "VN", etape: "a_faire" });
   const onPatch = async (id, fields) => {
     try { await data.patch(id, fields); }
     catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
@@ -12735,7 +12738,7 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
                   {d === today && <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">Aujourd'hui</span>}
                   {list.length > 0 && (
                     <span className={`text-xs ${s.sub}`}>
-                      {list.length} livraison{list.length > 1 ? "s" : ""} · {list.filter((r) => r.prepa === "pret").length} prête{list.filter((r) => r.prepa === "pret").length > 1 ? "s" : ""}
+                      {list.length} livraison{list.length > 1 ? "s" : ""} · {list.filter((r) => r.etape === "pret").length} prête{list.filter((r) => r.etape === "pret").length > 1 ? "s" : ""}
                     </span>
                   )}
                   {canEdit && <button type="button" onClick={() => newAt(d)} className={`ml-auto text-xs font-semibold ${dark ? "text-blue-300" : "text-blue-700"}`}>+ Ajouter</button>}
@@ -12756,7 +12759,7 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
           vehicles={vehicles}
           vendeurNames={vendeurNames}
           onClose={() => setOpen(null)}
-          onSave={droit === "preparateur" ? (p) => data.patch(p.id, { prepa: p.prepa }) : data.save}
+          onSave={droit === "preparateur" ? (p) => data.patch(p.id, { etape: p.etape }) : data.save}
           onDelete={data.remove}
           showToast={showToast}
         />
