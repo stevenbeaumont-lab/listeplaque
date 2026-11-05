@@ -3040,7 +3040,7 @@ const PERMISSION_LABELS = {
   vendeurs: "Onglet Vendeurs (gestion, sites, rôles)",
   reset: "Réinitialiser toutes les données",
   livraisonVoir: "En livraison : voir l'onglet (Ford St-Lô)",
-  livraisonPrepa: "En livraison : cocher Prépa et Champagne (préparateur)",
+  livraisonPrepa: "En livraison : cocher la Prépa (préparateur)",
   livraisonGerer: "En livraison : créer, modifier, supprimer (secrétariat / direction)",
   marketingVoir: "Marketing : consulter en lecture seule (Caen + St-Lô)",
 };
@@ -12254,7 +12254,7 @@ function useLivraisonAccess(userId) {
 const LIV_PAIEMENTS = ["Préfacturé", "Virement en cours", "Virement OK", "Chèque de banque", "BAF en cours", "BAF OK", "LLD Ford Lease"];
 const LIV_PREPA = [["a_faire", "À faire"], ["meca_ok", "Méca OK"], ["pret", "Véhicule prêt"]];
 const LIV_TYPES = ["VN", "VO", "VD"];
-const LIV_FIELDS = ["type_vehicule", "date_livraison", "heure", "no_commande", "modele", "n_serie", "immat", "client", "vendeur", "paiement", "montage", "accessoires", "carburant", "kms", "sous_traiter", "note", "champagne_pris_le", "champagne_debit", "prepa"];
+const LIV_FIELDS = ["type_vehicule", "date_livraison", "heure", "no_commande", "modele", "n_serie", "immat", "client", "vendeur", "paiement", "montage", "accessoires", "carburant", "kms", "sous_traiter", "note", "prepa"];
 
 function livCleanRow(p) {
   const row = {};
@@ -12264,7 +12264,6 @@ function livCleanRow(p) {
     if (v === "" || v === undefined) v = null;
     row[k] = v;
   }
-  row.champagne_debit = !!p.champagne_debit;
   if (!LIV_TYPES.includes(row.type_vehicule)) row.type_vehicule = "VN";
   if (!["a_faire", "meca_ok", "pret"].includes(row.prepa)) row.prepa = "a_faire";
   if (row.heure) row.heure = livNormHeure(row.heure);
@@ -12400,7 +12399,7 @@ function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose,
         <div className="space-y-4">
           {!canEdit && (
             <div className={`rounded-lg border px-3 py-2 text-xs ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
-              {droit === "preparateur" ? "Vous pouvez modifier uniquement Prépa et Champagne." : "Lecture seule."}
+              {droit === "preparateur" ? "Vous pouvez modifier uniquement la Prépa." : "Lecture seule."}
             </div>
           )}
           <fieldset disabled={!canEdit} className="m-0 min-w-0 space-y-4 border-0 p-0">
@@ -12464,15 +12463,8 @@ function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose,
             </div>
           </fieldset>
           <div className={`rounded-xl border p-3 ${s.card}`}>
-            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Préparateur</div>
+            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Préparation</div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className={s.label}>Champagne pris le</div>
-                <input type="date" className={s.input} value={p.champagne_pris_le || ""} onChange={set("champagne_pris_le")} />
-              </div>
-              <label className={`flex items-end gap-2 pb-2 text-sm ${s.title}`}>
-                <input type="checkbox" checked={!!p.champagne_debit} onChange={(e) => setP((x) => ({ ...x, champagne_debit: e.target.checked }))} />Débité
-              </label>
               <div className="col-span-2">
                 <div className={s.label}>Prépa</div>
                 <div className="flex flex-wrap gap-2">
@@ -12540,17 +12532,6 @@ function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
           {l.note && <div className={`text-xs ${s.muted}`}>{l.note}</div>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2" onClick={stop}>
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className={s.sub}>Champagne</span>
-            {l.champagne_pris_le ? (
-              <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: null, champagne_debit: false })} title="Annuler" className={`rounded-full px-2 py-0.5 font-semibold ${dark ? "bg-zinc-800 text-zinc-200" : "bg-stone-100 text-stone-700"}`}>Pris le {marketingFrDate(l.champagne_pris_le)}</button>
-            ) : (
-              <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: today })} className={`rounded-full border px-2 py-0.5 font-semibold disabled:opacity-50 ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-300 text-stone-600 hover:bg-stone-100"}`}>Pris</button>
-            )}
-            <label className={`flex items-center gap-1 ${s.muted}`}>
-              <input type="checkbox" disabled={!canPrep} checked={!!l.champagne_debit} onChange={(e) => act({ champagne_debit: e.target.checked })} />Débité
-            </label>
-          </div>
           <div className="flex gap-1" role="group" aria-label="Prépa">
             {LIV_PREPA.map(([k, lab]) => (
               <button key={k} type="button" disabled={!canPrep} onClick={() => l.prepa !== k && act({ prepa: k })} className={`rounded-lg border px-2 py-1 text-xs font-semibold disabled:cursor-default ${l.prepa === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>{lab}</button>
@@ -12625,19 +12606,6 @@ function LivraisonCardPremium({ dark, l, today, canPrep, onOpen, onPatch }) {
               })}
             </div>
           </div>
-          <div className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
-            <div>
-              <div className={`text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>Champagne</div>
-              {l.champagne_pris_le ? (
-                <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: null, champagne_debit: false })} title="Annuler" className={`text-sm font-medium ${s.title}`}>Pris le {marketingFrDate(l.champagne_pris_le)}</button>
-              ) : (
-                <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: today })} className={`text-sm font-semibold disabled:opacity-50 ${dark ? "text-blue-300" : "text-blue-700"}`}>Marquer comme pris</button>
-              )}
-            </div>
-            <label className={`flex items-center gap-1.5 text-sm ${s.muted}`}>
-              <input type="checkbox" disabled={!canPrep} checked={!!l.champagne_debit} onChange={(e) => act({ champagne_debit: e.target.checked })} className="accent-blue-700" />Débité
-            </label>
-          </div>
         </div>
       </div>
     </div>
@@ -12682,7 +12650,7 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
   const weekRows = weekDays.flatMap((d) => byDay.get(d) || []);
   const ready = weekRows.filter((r) => r.prepa === "pret").length;
 
-  const newAt = (date) => setOpen({ date_livraison: date, type_vehicule: typeFilter || "VN", prepa: "a_faire", champagne_debit: false });
+  const newAt = (date) => setOpen({ date_livraison: date, type_vehicule: typeFilter || "VN", prepa: "a_faire" });
   const onPatch = async (id, fields) => {
     try { await data.patch(id, fields); }
     catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
@@ -12788,7 +12756,7 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
           vehicles={vehicles}
           vendeurNames={vendeurNames}
           onClose={() => setOpen(null)}
-          onSave={droit === "preparateur" ? (p) => data.patch(p.id, { prepa: p.prepa, champagne_pris_le: p.champagne_pris_le || null, champagne_debit: !!p.champagne_debit }) : data.save}
+          onSave={droit === "preparateur" ? (p) => data.patch(p.id, { prepa: p.prepa }) : data.save}
           onDelete={data.remove}
           showToast={showToast}
         />
