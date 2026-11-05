@@ -529,16 +529,17 @@ async function exportFullBackup(vehicles, dossiers, vendeursList) {
   XLSX.writeFile(wb, `parclive-sauvegarde-complete-${stamp}.xlsx`);
 }
 const ROLES = ["Directeur de plaque", "Chef des ventes", "Responsable de site", "Vendeur", "Secrétariat", "Préparateur", "Marketing"];
-const PERMISSION_KEYS = ["reserve", "reserveForOthers", "dashboard", "import", "dossiers", "accidentes", "vendeurs", "reset"];
+const PERMISSION_KEYS = ["reserve", "reserveForOthers", "dashboard", "import", "dossiers", "accidentes", "vendeurs", "reset", "livraisonVoir", "livraisonPrepa", "livraisonGerer", "marketingVoir"];
 const ROLE_PERMISSIONS = {
-  "Directeur de plaque": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
-  "Chef des ventes": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true },
-  "Responsable de site": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
-  "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
-  "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false },
-  "Préparateur": { reserve: false, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: true, vendeurs: false, reset: false },
+  "Directeur de plaque": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: false },
+  "Chef des ventes": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: true },
+  "Responsable de site": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: true },
+  "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false },
+  "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: false },
+  "Préparateur": { reserve: false, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: true, livraisonGerer: false, marketingVoir: false },
+  // livraison* / marketingVoir : relus par la base (livraison_droit, is_marketing_viewer) ; les accès livraison ne valent que pour Ford St-Lô, marketingVoir que pour Caen et St-Lô.
   // Statut Marketing : consultation du stock et du tableau de bord ; l'onglet Marketing est géré par marketing_members.
-  "Marketing": { reserve: false, reserveForOthers: false, dashboard: true, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false },
+  "Marketing": { reserve: false, reserveForOthers: false, dashboard: true, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false },
 };
 const DEFAULT_PERMISSIONS = ROLE_PERMISSIONS["Vendeur"];
 function isSuperAdmin(name) {
@@ -3038,6 +3039,10 @@ const PERMISSION_LABELS = {
   accidentes: "Onglet Accidentés",
   vendeurs: "Onglet Vendeurs (gestion, sites, rôles)",
   reset: "Réinitialiser toutes les données",
+  livraisonVoir: "En livraison : voir l'onglet (Ford St-Lô)",
+  livraisonPrepa: "En livraison : cocher Prépa et Champagne (préparateur)",
+  livraisonGerer: "En livraison : créer, modifier, supprimer (secrétariat / direction)",
+  marketingVoir: "Marketing : consulter en lecture seule (Caen + St-Lô)",
 };
 
 function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail }) {
