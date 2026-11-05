@@ -12248,7 +12248,8 @@ function useLivraisonAccess(userId) {
 // ───────────── En livraison (bêta, Ford St-Lô) — autonome : aucune liaison avec le stock ni les dossiers ─────────────
 const LIV_PAIEMENTS = ["Préfacturé", "Virement en cours", "Virement OK", "Chèque de banque", "BAF en cours", "BAF OK", "LLD Ford Lease"];
 const LIV_PREPA = [["a_faire", "À faire"], ["meca_ok", "Méca OK"], ["pret", "Véhicule prêt"]];
-const LIV_FIELDS = ["date_livraison", "heure", "no_commande", "modele", "n_serie", "immat", "client", "vendeur", "paiement", "montage", "accessoires", "carburant", "kms", "sous_traiter", "note", "champagne_pris_le", "champagne_debit", "prepa"];
+const LIV_TYPES = ["VN", "VO", "VD"];
+const LIV_FIELDS = ["type_vehicule", "date_livraison", "heure", "no_commande", "modele", "n_serie", "immat", "client", "vendeur", "paiement", "montage", "accessoires", "carburant", "kms", "sous_traiter", "note", "champagne_pris_le", "champagne_debit", "prepa"];
 
 function livCleanRow(p) {
   const row = {};
@@ -12259,6 +12260,7 @@ function livCleanRow(p) {
     row[k] = v;
   }
   row.champagne_debit = !!p.champagne_debit;
+  if (!LIV_TYPES.includes(row.type_vehicule)) row.type_vehicule = "VN";
   if (!["a_faire", "meca_ok", "pret"].includes(row.prepa)) row.prepa = "a_faire";
   if (row.no_commande) row.no_commande = row.no_commande.toUpperCase();
   if (row.n_serie) row.n_serie = row.n_serie.toUpperCase();
@@ -12279,6 +12281,11 @@ function livPrepaTone(key, dark) {
   if (key === "pret") return dark ? "border-emerald-500/60 bg-emerald-500/20 text-emerald-300" : "border-emerald-400 bg-emerald-100 text-emerald-800";
   if (key === "meca_ok") return dark ? "border-yellow-500/60 bg-yellow-500/20 text-yellow-300" : "border-yellow-400 bg-yellow-100 text-yellow-800";
   return dark ? "border-zinc-700 bg-zinc-800 text-zinc-300" : "border-stone-300 bg-stone-100 text-stone-600";
+}
+function livTypeTone(t, dark) {
+  if (t === "VO") return dark ? "bg-orange-500/20 text-orange-300" : "bg-orange-100 text-orange-800";
+  if (t === "VD") return dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800";
+  return dark ? "bg-blue-500/20 text-blue-300" : "bg-blue-100 text-blue-800";
 }
 function livPaiementTone(p, dark) {
   if (/ok|lease/i.test(p)) return dark ? "bg-emerald-500/20 text-emerald-300" : "bg-emerald-100 text-emerald-800";
@@ -12365,6 +12372,14 @@ function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, o
             </div>
           )}
           <fieldset disabled={!canEdit} className="m-0 min-w-0 space-y-4 border-0 p-0">
+            <div>
+              <div className={s.label}>Type de véhicule *</div>
+              <div className="flex gap-2" role="group" aria-label="Type de véhicule">
+                {LIV_TYPES.map((t) => (
+                  <button key={t} type="button" onClick={() => setP((x) => ({ ...x, type_vehicule: t }))} className={`rounded-lg px-4 py-1.5 text-sm font-bold ${(p.type_vehicule || "VN") === t ? livTypeTone(t, dark) + " ring-2 ring-current" : dark ? "bg-zinc-800 text-zinc-500" : "bg-stone-100 text-stone-400"}`}>{t}</button>
+                ))}
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div><div className={s.label}>Date *</div><input type="date" className={s.input} value={p.date_livraison || ""} onChange={set("date_livraison")} /></div>
               {field("Heure", "heure", { input: { placeholder: "Ex. 10H30" } })}
@@ -12456,6 +12471,7 @@ function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`text-base font-bold tabular-nums ${s.title}`}>{l.heure || "—"}</span>
+            <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${livTypeTone(l.type_vehicule || "VN", dark)}`}>{l.type_vehicule || "VN"}</span>
             <span className={`font-semibold ${s.title}`}>{l.modele || "Modèle ?"}</span>
             <span className={s.muted}>{l.client || "Client ?"}</span>
             {l.vendeur && chip(l.vendeur)}
@@ -12506,6 +12522,7 @@ function LivraisonTab({ dark, droit, vendeursList, showToast }) {
   const [monday, setMonday] = useState(() => livMonday(today));
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(null); // objet livraison (nouvelle ou existante)
+  const [typeFilter, setTypeFilter] = useState("");
   const canEdit = droit === "gestion";
   const canPrep = droit === "gestion" || droit === "preparateur";
 
@@ -12516,24 +12533,25 @@ function LivraisonTab({ dark, droit, vendeursList, showToast }) {
   }, [vendeursList, data.rows]);
 
   const q = query.trim().toLowerCase();
+  const typedRows = useMemo(() => (typeFilter ? data.rows.filter((r) => (r.type_vehicule || "VN") === typeFilter) : data.rows), [data.rows, typeFilter]);
   const found = useMemo(() => {
     if (!q) return null;
-    return data.rows
-      .filter((r) => [r.client, r.no_commande, r.n_serie, r.modele, r.vendeur, r.immat, r.accessoires, r.note].some((v) => (v || "").toLowerCase().includes(q)))
+    return typedRows
+      .filter((r) => [r.client, r.no_commande, r.n_serie, r.modele, r.vendeur, r.immat, r.accessoires, r.note, r.type_vehicule].some((v) => (v || "").toLowerCase().includes(q)))
       .sort((a, b) => b.date_livraison.localeCompare(a.date_livraison) || (a.heure || "").localeCompare(b.heure || ""));
-  }, [q, data.rows]);
+  }, [q, typedRows]);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => marketingAddDays(monday, i));
   const byDay = useMemo(() => {
     const m = new Map();
-    data.rows.forEach((r) => { if (!m.has(r.date_livraison)) m.set(r.date_livraison, []); m.get(r.date_livraison).push(r); });
+    typedRows.forEach((r) => { if (!m.has(r.date_livraison)) m.set(r.date_livraison, []); m.get(r.date_livraison).push(r); });
     return m;
-  }, [data.rows]);
+  }, [typedRows]);
   const visibleDays = weekDays.filter((d, i) => i < 5 || (byDay.get(d) || []).length > 0);
   const weekRows = weekDays.flatMap((d) => byDay.get(d) || []);
   const ready = weekRows.filter((r) => r.prepa === "pret").length;
 
-  const newAt = (date) => setOpen({ date_livraison: date, prepa: "a_faire", champagne_debit: false });
+  const newAt = (date) => setOpen({ date_livraison: date, type_vehicule: typeFilter || "VN", prepa: "a_faire", champagne_debit: false });
   const onPatch = async (id, fields) => {
     try { await data.patch(id, fields); }
     catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
@@ -12562,6 +12580,11 @@ function LivraisonTab({ dark, droit, vendeursList, showToast }) {
           <button type="button" aria-label="Semaine suivante" onClick={() => setMonday(marketingAddDays(monday, 7))} className={`rounded-lg p-1.5 ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}><ChevronRight size={16} /></button>
         </div>
         <button type="button" onClick={() => setMonday(livMonday(today))} className={s.ghostBtn}>Aujourd'hui</button>
+        <div className={`flex items-center gap-1 rounded-xl border p-1 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`} role="group" aria-label="Filtrer par type">
+          {[["", "Tous"], ...LIV_TYPES.map((t) => [t, t])].map(([k, l]) => (
+            <button key={k || "all"} type="button" onClick={() => setTypeFilter(k)} className={`rounded-lg px-2.5 py-1 text-sm font-semibold ${typeFilter === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>{l}</button>
+          ))}
+        </div>
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher (client, n° commande, série…) dans tout l'historique" className={`${s.input} !w-full sm:!w-80`} aria-label="Rechercher une livraison" />
         {canEdit && <button type="button" onClick={() => newAt(today > weekDays[4] || today < monday ? monday : today)} className={`${s.primaryBtn} ml-auto`}>Nouvelle livraison</button>}
       </div>

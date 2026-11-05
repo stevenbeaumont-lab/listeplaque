@@ -17,6 +17,7 @@ alter table public.livraison_members enable row level security;
 create table if not exists public.livraisons (
   id uuid primary key default gen_random_uuid(),
   site text not null default 'Ford St-Lô' check (site = 'Ford St-Lô'),
+  type_vehicule text not null default 'VN' check (type_vehicule in ('VN', 'VO', 'VD')),
   date_livraison date not null,
   heure text,
   no_commande text,
@@ -40,6 +41,8 @@ create table if not exists public.livraisons (
   updated_at timestamptz not null default now(),
   updated_by uuid
 );
+-- Pour une table créée avant l'ajout du type :
+alter table public.livraisons add column if not exists type_vehicule text not null default 'VN' check (type_vehicule in ('VN', 'VO', 'VD'));
 create index if not exists livraisons_date_idx on public.livraisons (date_livraison);
 alter table public.livraisons enable row level security;
 
