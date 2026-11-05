@@ -837,7 +837,7 @@ function buildNavItems(permissions, dossierUnmatchedCount, canProspect, canMarke
     canProspect && { id: "prospection", label: "Prospection", group: "Commercial" },
     permissions.dossiers && { id: "dossiers", label: "Dossiers", count: dossierUnmatchedCount, group: "Commercial" },
     canMarketing && { id: "marketing", label: "Marketing", group: "Commercial" },
-    canLivraison && { id: "livraison", label: "En livraison", group: "Commercial", beta: true },
+    canLivraison && { id: "livraison", label: "En livraison", group: "Commercial" },
     rdvMe && { id: "rdv", label: rdvMe.role === "admin" ? "Rapports RDV" : "Mes RDV", group: "Commercial", beta: true, count: rdvOverdueCount },
     permissions.dashboard && { id: "dashboard", label: "Tableau de bord", group: "Pilotage" },
     permissions.vendeurs && { id: "reglages", label: "Réglages", group: "Administration" },
