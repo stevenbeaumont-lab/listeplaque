@@ -12383,9 +12383,9 @@ function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, o
             <div className="grid grid-cols-2 gap-3">
               <div><div className={s.label}>Date *</div><input type="date" className={s.input} value={p.date_livraison || ""} onChange={set("date_livraison")} /></div>
               {field("Heure", "heure", { input: { placeholder: "Ex. 10H30" } })}
-              {field("N° commande", "no_commande", { input: { inputMode: "numeric" } })}
+              {(p.type_vehicule || "VN") === "VN" && field("N° commande", "no_commande", { input: { inputMode: "numeric" } })}
               {field("Modèle", "modele", { input: { placeholder: "Ex. KUGA" } })}
-              {field("N° de série", "n_serie")}
+              {(p.type_vehicule || "VN") === "VN" && field("N° de série", "n_serie")}
               {(p.type_vehicule === "VD" || p.type_vehicule === "VO") && field("Immatriculation", "immat")}
               {field("Client", "client", { wide: true })}
               <div>
