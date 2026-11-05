@@ -12386,7 +12386,7 @@ function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, o
               {field("N° commande", "no_commande", { input: { inputMode: "numeric" } })}
               {field("Modèle", "modele", { input: { placeholder: "Ex. KUGA" } })}
               {field("N° de série", "n_serie")}
-              {field("Immatriculation", "immat")}
+              {(p.type_vehicule === "VD" || p.type_vehicule === "VO") && field("Immatriculation", "immat")}
               {field("Client", "client", { wide: true })}
               <div>
                 <div className={s.label}>Vendeur</div>
