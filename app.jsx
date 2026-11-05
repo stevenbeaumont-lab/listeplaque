@@ -12562,6 +12562,88 @@ function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
   );
 }
 
+function LivraisonCardPremium({ dark, l, today, canPrep, onOpen, onPatch }) {
+  const s = marketingStyles(dark);
+  const tomorrow = marketingAddDays(today, 1);
+  const type = l.type_vehicule || "VN";
+  const notReady = l.prepa !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
+  const accent = l.prepa === "pret" ? "bg-emerald-500" : l.prepa === "meca_ok" ? "bg-yellow-400" : dark ? "bg-zinc-700" : "bg-stone-300";
+  const surface = dark ? "border-zinc-800 bg-zinc-900/60 hover:border-zinc-700" : "border-stone-200 bg-white shadow-sm hover:shadow-md";
+  const fields = [
+    ["N° commande", l.no_commande], ["N° de série", l.n_serie], ["Immatriculation", l.immat], ["Kilométrage", l.kms && `${l.kms} km`],
+    ["Montage", l.montage], ["Accessoires", l.accessoires], ["Carburant", l.carburant], ["À sous-traiter", l.sous_traiter],
+  ].filter(([, v]) => v);
+  const stop = (e) => e.stopPropagation();
+  const act = (fields2) => onPatch(l.id, fields2);
+  const heure = livNormHeure(l.heure);
+  return (
+    <div onClick={() => onOpen(l)} className={`flex cursor-pointer overflow-hidden rounded-2xl border transition-all ${surface}`}>
+      <div className={`w-1.5 shrink-0 ${accent}`} aria-hidden="true" />
+      <div className="flex min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-start lg:gap-6">
+        <div className="flex shrink-0 items-center gap-3 lg:w-24 lg:flex-col lg:items-start lg:gap-2">
+          <div className={`text-2xl font-bold leading-none tabular-nums tracking-tight ${s.title}`}>{heure || "—"}</div>
+          <span className={`rounded-md px-2 py-0.5 text-xs font-bold ${livTypeTone(type, dark)}`}>{type}</span>
+        </div>
+
+        <div className="min-w-0 flex-1 space-y-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className={`text-lg font-semibold leading-6 ${s.title}`}>{l.modele || "Modèle à renseigner"}</span>
+              {notReady && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${dark ? "bg-rose-500/20 text-rose-300" : "bg-rose-100 text-rose-700"}`}>Non prête</span>}
+              {l.paiement && <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${livPaiementTone(l.paiement, dark)}`}>{l.paiement}</span>}
+            </div>
+            <div className={`mt-0.5 text-sm ${s.muted}`}>
+              {l.client || "Client à renseigner"}
+              {l.vendeur && <span className={s.sub}> · Vendeur {l.vendeur}</span>}
+            </div>
+          </div>
+          {fields.length > 0 && (
+            <dl className="grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 xl:grid-cols-4">
+              {fields.map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className={`text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>{label}</dt>
+                  <dd className={`break-words text-sm font-medium ${s.title}`}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {l.note && <div className={`rounded-lg px-3 py-2 text-sm ${dark ? "bg-zinc-800/70 text-zinc-300" : "bg-stone-50 text-stone-600"}`}>{l.note}</div>}
+        </div>
+
+        <div className="w-full shrink-0 space-y-3 lg:w-64" onClick={stop}>
+          <div>
+            <div className={`mb-1.5 text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>Préparation</div>
+            <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Prépa">
+              {LIV_PREPA.map(([k, lab]) => {
+                const active = l.prepa === k;
+                return (
+                  <button key={k} type="button" disabled={!canPrep} onClick={() => !active && act({ prepa: k })} className={`flex flex-col items-center justify-center gap-0.5 rounded-xl border px-1 py-2 text-[11px] font-semibold leading-tight disabled:cursor-default ${active ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>
+                    {active ? <Check size={14} /> : <span className="h-3.5" />}
+                    {lab}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+            <div>
+              <div className={`text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>Champagne</div>
+              {l.champagne_pris_le ? (
+                <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: null, champagne_debit: false })} title="Annuler" className={`text-sm font-medium ${s.title}`}>Pris le {marketingFrDate(l.champagne_pris_le)}</button>
+              ) : (
+                <button type="button" disabled={!canPrep} onClick={() => act({ champagne_pris_le: today })} className={`text-sm font-semibold disabled:opacity-50 ${dark ? "text-blue-300" : "text-blue-700"}`}>Marquer comme pris</button>
+              )}
+            </div>
+            <label className={`flex items-center gap-1.5 text-sm ${s.muted}`}>
+              <input type="checkbox" disabled={!canPrep} checked={!!l.champagne_debit} onChange={(e) => act({ champagne_debit: e.target.checked })} className="accent-blue-700" />Débité
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
   const s = marketingStyles(dark);
   const data = useLivraisons();
@@ -12570,6 +12652,8 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(null); // objet livraison (nouvelle ou existante)
   const [typeFilter, setTypeFilter] = useState("");
+  const [vue, setVue] = useState(() => (loadLocal("dsr:livraison-vue", "premium") === "compact" ? "compact" : "premium"));
+  useEffect(() => { saveLocal("dsr:livraison-vue", vue); }, [vue]);
   const canEdit = droit === "gestion";
   const canPrep = droit === "gestion" || droit === "preparateur";
 
@@ -12603,7 +12687,8 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
     try { await data.patch(id, fields); }
     catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
   };
-  const card = (l) => <LivraisonCard key={l.id} dark={dark} l={l} today={today} canPrep={canPrep} onOpen={setOpen} onPatch={onPatch} />;
+  const Card = vue === "premium" ? LivraisonCardPremium : LivraisonCard;
+  const card = (l) => <Card key={l.id} dark={dark} l={l} today={today} canPrep={canPrep} onOpen={setOpen} onPatch={onPatch} />;
   const dayLabel = (d) => new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
   if (data.error) {
@@ -12632,6 +12717,11 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
             <button key={k || "all"} type="button" onClick={() => setTypeFilter(k)} className={`rounded-lg px-2.5 py-1 text-sm font-semibold ${typeFilter === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>{l}</button>
           ))}
         </div>
+        <div className={`flex items-center gap-1 rounded-xl border p-1 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`} role="group" aria-label="Affichage">
+          {[["premium", "Premium"], ["compact", "Compact"]].map(([k, l2]) => (
+            <button key={k} type="button" onClick={() => setVue(k)} className={`rounded-lg px-2.5 py-1 text-sm font-semibold ${vue === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>{l2}</button>
+          ))}
+        </div>
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher (client, n° commande, série…) dans tout l'historique" className={`${s.input} !w-full sm:!w-80`} aria-label="Rechercher une livraison" />
         {canEdit && <button type="button" onClick={() => newAt(today > weekDays[4] || today < monday ? monday : today)} className={`${s.primaryBtn} ml-auto`}>Nouvelle livraison</button>}
       </div>
@@ -12651,18 +12741,38 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
         </div>
       ) : (
         <div className="space-y-5">
-          <div className={`text-xs ${s.sub}`}>{weekRows.length} livraison{weekRows.length > 1 ? "s" : ""} cette semaine · {ready} prête{ready > 1 ? "s" : ""}</div>
+          {vue === "premium" ? (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {[
+                ["Livraisons", weekRows.length, ""],
+                ["Prêtes", ready, ready > 0 ? (dark ? "text-emerald-300" : "text-emerald-600") : ""],
+                ["À préparer", weekRows.length - ready, weekRows.length - ready > 0 ? (dark ? "text-amber-300" : "text-amber-600") : ""],
+                ["Aujourd'hui", (byDay.get(today) || []).length, dark ? "text-blue-300" : "text-blue-700"],
+              ].map(([label, value, tone]) => (
+                <div key={label} className={`rounded-2xl border px-4 py-3 ${s.card}`}>
+                  <div className={`text-2xl font-bold tabular-nums ${tone || s.title}`}>{value}</div>
+                  <div className={`text-xs ${s.sub}`}>{label}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={`text-xs ${s.sub}`}>{weekRows.length} livraison{weekRows.length > 1 ? "s" : ""} cette semaine · {ready} prête{ready > 1 ? "s" : ""}</div>
+          )}
           {visibleDays.map((d) => {
             const list = byDay.get(d) || [];
             return (
               <section key={d}>
-                <div className="mb-2 flex items-center gap-2">
-                  <div className={`text-sm font-bold capitalize ${d === today ? (dark ? "text-blue-300" : "text-blue-700") : s.title}`}>{dayLabel(d)}</div>
+                <div className="mb-2.5 flex items-center gap-2">
+                  <div className={`${vue === "premium" ? "text-base" : "text-sm"} font-bold capitalize ${d === today ? (dark ? "text-blue-300" : "text-blue-700") : s.title}`}>{dayLabel(d)}</div>
                   {d === today && <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">Aujourd'hui</span>}
-                  <span className={`text-xs ${s.sub}`}>{list.length || ""}</span>
+                  {list.length > 0 && (
+                    <span className={`text-xs ${s.sub}`}>
+                      {list.length} livraison{list.length > 1 ? "s" : ""} · {list.filter((r) => r.prepa === "pret").length} prête{list.filter((r) => r.prepa === "pret").length > 1 ? "s" : ""}
+                    </span>
+                  )}
                   {canEdit && <button type="button" onClick={() => newAt(d)} className={`ml-auto text-xs font-semibold ${dark ? "text-blue-300" : "text-blue-700"}`}>+ Ajouter</button>}
                 </div>
-                {list.length === 0 ? <div className={`rounded-xl border border-dashed px-3 py-3 text-sm ${dark ? "border-zinc-800" : "border-stone-200"} ${s.sub}`}>Aucune livraison</div> : <div className="space-y-2">{list.map(card)}</div>}
+                {list.length === 0 ? <div className={`rounded-xl border border-dashed px-3 py-3 text-sm ${dark ? "border-zinc-800" : "border-stone-200"} ${s.sub}`}>Aucune livraison</div> : <div className={vue === "premium" ? "space-y-3" : "space-y-2"}>{list.map(card)}</div>}
               </section>
             );
           })}
