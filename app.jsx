@@ -12408,7 +12408,7 @@ function LivraisonFiche({ dark, initial, droit, vendeurNames, onClose, onSave, o
                 <input className={s.input} list="liv-carburant" value={p.carburant || ""} onChange={set("carburant")} placeholder="Ex. 30€" />
                 <datalist id="liv-carburant"><option value="30€" /><option value="A RECHARGER" /></datalist>
               </div>
-              {field("Kms pour VD", "kms", { input: { inputMode: "numeric" } })}
+              {(p.type_vehicule === "VD" || p.type_vehicule === "VO") && field(p.type_vehicule === "VO" ? "Kms (VO)" : "Kms pour VD", "kms", { input: { inputMode: "numeric" } })}
               {field("À sous-traiter", "sous_traiter", { wide: true })}
               <div className="col-span-2">
                 <div className={s.label}>Note</div>
