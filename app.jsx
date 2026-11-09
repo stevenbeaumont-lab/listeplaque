@@ -4099,15 +4099,24 @@ const PROSPECTION_OBJECTIF_SEMAINE = 25;
 
 // Aucun rôle ParcLive existant ne distingue les commerciaux B2B des autres vendeurs —
 // liste à éditer ici en attendant un éventuel champ dédié. Signalé dans le récapitulatif de livraison.
-const PROSPECTION_COMMERCIAUX = ["Anthony", "Thao", "Tom", "Julia"];
+const PROSPECTION_COMMERCIAUX_CAEN = ["Anthony", "Thao", "Tom", "Julia"];
+const PROSPECTION_COMMERCIAUX = [...PROSPECTION_COMMERCIAUX_CAEN, "Mathys"];
 // Binômes : Anthony + Thao (équipe A, zone est de Caen), Tom + Julia (équipe B, zone ouest de Caen).
 // Thao et Julia sont les alternants respectifs d'Anthony et Tom.
-const PROSPECTION_TEAMS = { Anthony: "A", Thao: "A", Tom: "B", Julia: "B" };
+const PROSPECTION_TEAMS = { Anthony: "A", Thao: "A", Tom: "B", Julia: "B", Mathys: "S" }; // S = Saint-Lô (commercial BtoB seul, pas de zones est/ouest)
 const PROSPECTION_TEAM_ZONE_LNG = -0.3707; // ligne de partage est/ouest : la longitude du centre de Caen (l'Orne)
 const PROSPECTION_TEAM_COLORS = {
   A: { main: "#1D4ED8", light: "#93C5FD" }, // Anthony (fonce) / Thao, alternante (clair)
   B: { main: "#047857", light: "#6EE7B7" }, // Tom (fonce) / Julia, alternante (clair)
+  S: { main: "#C2410C", light: "#FDBA74" }, // Mathys (Saint-Lô)
 };
+// Périmètres de prospection : chaque prospect appartient à un site ; la carte et les commerciaux suivent le site affiché.
+// campagnes : fichiers Datanéo et zones est/ouest (propres à Caen pour l'instant).
+const PROSPECTION_SITE_CFG = {
+  "Ford Caen": { center: PROSPECTION_CAEN_CENTER, centerLabel: "Centre de Caen", commerciaux: PROSPECTION_COMMERCIAUX_CAEN, campagnes: true },
+  "Ford St-Lô": { center: { lat: 49.1156, lng: -1.0912 }, centerLabel: "Centre de Saint-Lô", commerciaux: ["Mathys"], campagnes: false },
+};
+let prospectionGeoBias = PROSPECTION_CAEN_CENTER; // centre du site affiché, utilisé pour orienter le géocodage des adresses
 
 function prospectionTodayISO(d) {
   const base = d || new Date();
@@ -4290,8 +4299,8 @@ async function prospectionGeocode({ adresse, code_postal, commune }) {
   const q = [adresse, code_postal, commune].filter(Boolean).join(" ").trim();
   if (q.length < 3) return null;
   try {
-    // Biais sur Caen : « 12 rue de la Paix » sans commune ne doit pas tomber à Paris.
-    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=1&lat=${PROSPECTION_CAEN_CENTER.lat}&lon=${PROSPECTION_CAEN_CENTER.lng}`);
+    // Biais sur le site affiché : « 12 rue de la Paix » sans commune ne doit pas tomber à Paris.
+    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=1&lat=${prospectionGeoBias.lat}&lon=${prospectionGeoBias.lng}`);
     if (!r.ok) return null;
     const f = (await r.json()).features?.[0];
     if (!f) return null;
@@ -4357,7 +4366,7 @@ async function prospectionFindPlaceAt(lat, lng, radiusM) {
 async function prospectionSuggestAdresses(q) {
   if (!q || q.trim().length < 4) return [];
   try {
-    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=5&autocomplete=1&lat=49.18&lon=-0.37`);
+    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=5&autocomplete=1&lat=${prospectionGeoBias.lat}&lon=${prospectionGeoBias.lng}`);
     if (!r.ok) return [];
     return ((await r.json()).features || []).map((f) => ({
       label: f.properties.label,
@@ -4513,16 +4522,16 @@ function prospectsToCsv(prospects) {
 // { allowed, readOnly } : allowed = le compte est dans prospection_members ; readOnly = membre en lecture seule
 // (colonne lecture_seule, ex. marketing / direction). La vraie restriction est appliquée par la RLS côté base.
 function useProspectionAccess(userId) {
-  const [access, setAccess] = useState({ allowed: false, readOnly: false, canImport: false, isManager: false, equipe: "", commercial: "" });
+  const [access, setAccess] = useState({ allowed: false, readOnly: false, canImport: false, isManager: false, equipe: "", commercial: "", sites: [] });
   useEffect(() => {
     let alive = true;
-    if (!userId) { setAccess({ allowed: false, readOnly: false, canImport: false, isManager: false, equipe: "", commercial: "" }); return; }
+    if (!userId) { setAccess({ allowed: false, readOnly: false, canImport: false, isManager: false, equipe: "", commercial: "", sites: [] }); return; }
     supabase
       .from("prospection_members")
       .select("*")
       .eq("user_id", userId)
       .maybeSingle()
-      .then(({ data }) => { if (alive) setAccess({ allowed: !!data, readOnly: !!data?.lecture_seule, canImport: !!data?.peut_importer, isManager: !!(data?.peut_importer || data?.lecture_seule), equipe: data?.equipe || "", commercial: data?.commercial || "" }); });
+      .then(({ data }) => { if (alive) setAccess({ allowed: !!data, readOnly: !!data?.lecture_seule, canImport: !!data?.peut_importer, isManager: !!(data?.peut_importer || data?.lecture_seule), equipe: data?.equipe || "", commercial: data?.commercial || "", sites: Array.isArray(data?.sites) && data.sites.length ? data.sites : ["Ford Caen"] }); });
     return () => { alive = false; };
   }, [userId]);
   return access;
@@ -4592,7 +4601,7 @@ async function prospectionWithRetry(fn, attempts = 3) {
   throw lastThrown;
 }
 
-function useProspection() {
+function useProspection(site) {
   const [prospects, setProspects] = useState([]);
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4738,6 +4747,7 @@ function useProspection() {
     }
     const newId = p.id ? null : (globalThis.crypto?.randomUUID?.() || null);
     if (newId) row = { ...row, id: newId };
+    if (!p.id && site) row = { ...row, site };
     const send = async (r) => {
       const res = await prospectionWithRetry(() =>
         p.id ? supabase.from("prospects").update(r).eq("id", p.id).select().single() : supabase.from("prospects").insert(r).select().single()
@@ -4755,7 +4765,7 @@ function useProspection() {
     if (err) throw err;
     if (!mergeProspect(data)) await load();
     return criteresIgnores ? { ...data, _criteresIgnores: true } : data;
-  }, [load, mergeProspect]);
+  }, [load, mergeProspect, site]);
 
   const remove = useCallback(async (id) => {
     const { error: err } = await prospectionWithRetry(() => supabase.from("prospects").delete().eq("id", id));
@@ -4802,6 +4812,7 @@ function useProspection() {
     for (const r of rows) {
       const row = prospectionCleanRow({ ...r, ...extra });
       if (!row.societe) continue;
+      if (site) row.site = site;
       const g = await prospectionGeocode(row);
       if (g) { row.lat = g.lat; row.lng = g.lng; }
       row.id = globalThis.crypto?.randomUUID?.() || undefined;
@@ -4820,9 +4831,11 @@ function useProspection() {
     await load();
     if (failed.length) throw new Error(`${done} fiche(s) importée(s), ${failed.length} en échec : ${failed.slice(0, 3).join(" ; ")}${failed.length > 3 ? "…" : ""}`);
     return done;
-  }, [load]);
+  }, [load, site]);
 
-  return { prospects, actions, loading, error, syncError, save, remove, addAction, patch, geocodeMissing, bulkInsert, reload: load };
+  // Seuls les prospects du site affiché sont exposés (la base filtre déjà selon les sites autorisés du compte).
+  const siteProspects = useMemo(() => (site ? prospects.filter((x) => (x.site || "Ford Caen") === site) : prospects), [prospects, site]);
+  return { prospects: siteProspects, actions, loading, error, syncError, save, remove, addAction, patch, geocodeMissing, bulkInsert, reload: load };
 }
 
 function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
@@ -5537,7 +5550,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast }) {
+function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
@@ -5648,7 +5661,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [tourBase, setTourBase] = useState(null);
   const [tourBaseQ, setTourBaseQ] = useState("");
   const tourStart = tourStartMode === "client" && tourBase ? { lat: tourBase.lat, lng: tourBase.lng, label: tourBase.societe }
-    : tourStartMode === "position" && tourPos ? { lat: tourPos.lat, lng: tourPos.lng, label: "Ma position" } : { ...PROSPECTION_CAEN_CENTER, label: "Centre de Caen" };
+    : tourStartMode === "position" && tourPos ? { lat: tourPos.lat, lng: tourPos.lng, label: "Ma position" } : { ...center, label: centerLabel };
   const tourBaseResults = useMemo(() => {
     const n = prospectionNorm(tourBaseQ.trim());
     if (n.length < 2) return [];
@@ -5680,7 +5693,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const locateForTour = async (manual) => {
     const pos = await prospectionGetPosition();
     if (pos) { setTourPos(pos); setTourStartMode("position"); }
-    else { setTourStartMode("centre"); if (manual) showToast("Position indisponible : départ du centre de Caen", { type: "error" }); }
+    else { setTourStartMode("centre"); if (manual) showToast(`Position indisponible : départ du ${centerLabel.toLowerCase()}`, { type: "error" }); }
   };
   startTourFromRef.current = startTourFrom;
   const openTour = () => { setTourOpen(true); setTourExcluded(new Set()); locateForTour(true); };
@@ -5716,7 +5729,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const mobile = prospectionIsMobile();
-    const map = L.map(containerRef.current, { scrollWheelZoom: true, markerZoomAnimation: !mobile, fadeAnimation: !mobile }).setView([PROSPECTION_CAEN_CENTER.lat, PROSPECTION_CAEN_CENTER.lng], 11);
+    const map = L.map(containerRef.current, { scrollWheelZoom: true, markerZoomAnimation: !mobile, fadeAnimation: !mobile }).setView([center.lat, center.lng], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
@@ -5840,7 +5853,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     const map = mapRef.current;
     if (!map) return;
     if (teamZoneLayerRef.current) { map.removeLayer(teamZoneLayerRef.current); teamZoneLayerRef.current = null; }
-    if (!showTeamZones) return;
+    if (!showTeamZones || !teamZones) return;
     const lng = PROSPECTION_TEAM_ZONE_LNG;
     const span = 0.35;
     const south = PROSPECTION_CAEN_CENTER.lat - span;
@@ -5856,7 +5869,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng + span * 0.1], { icon: labelIcon(`Équipe A (est) — ${teamNames("A")}`, PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
     group.addTo(map);
     teamZoneLayerRef.current = group;
-  }, [showTeamZones, dark]);
+  }, [showTeamZones, teamZones, dark]);
 
   // Tournée : trajet en pointillés et étapes numérotées.
   useEffect(() => {
@@ -5949,7 +5962,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
 
   const searchIndustrialZones = async () => {
     setZonesLoading(true);
-    const zones = await prospectionSearchIndustrialZones(PROSPECTION_CAEN_CENTER, 50);
+    const zones = await prospectionSearchIndustrialZones(center, 50);
     setIndustrialZones(zones);
     setShowIndustrialZones(true);
     setZonesLoading(false);
@@ -6086,10 +6099,12 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                   <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
                   Découvrir les entreprises alentour (OSM)
                 </label>
-                <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
-                  <input type="checkbox" checked={showTeamZones} onChange={(e) => setShowTeamZones(e.target.checked)} className="accent-blue-700" />
-                  Afficher les zones des équipes
-                </label>
+                {teamZones && (
+                  <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                    <input type="checkbox" checked={showTeamZones} onChange={(e) => setShowTeamZones(e.target.checked)} className="accent-blue-700" />
+                    Afficher les zones des équipes
+                  </label>
+                )}
                 <div className={`border-t pt-3 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
                   <button
                     onClick={searchIndustrialZones}
@@ -6159,7 +6174,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
             <label className={`flex items-center gap-1.5 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Départ
               <select data-testid="tournee-depart" value={tourStartMode} onChange={(e) => { const v = e.target.value; setTourStartMode(v); if (v === "position" && !tourPos) locateForTour(true); }} className={`rounded-lg border px-2 py-1 text-sm ${dark ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-white border-stone-200 text-stone-700"}`}>
                 <option value="position">Ma position</option>
-                <option value="centre">Centre de Caen</option>
+                <option value="centre">{centerLabel}</option>
                 <option value="client">Un client…</option>
               </select>
             </label>
@@ -7028,7 +7043,7 @@ function CampagneOuvrirModal({ dark, groups, defaultNom, onClose, onConfirm }) {
   const [dateFin, setDateFin] = useState(() => campagneEndOfMonthISO());
   const [quota, setQuota] = useState("");
   const [mode, setMode] = useState("zone");
-  const [commercial, setCommercial] = useState(PROSPECTION_COMMERCIAUX[0]);
+  const [commercial, setCommercial] = useState(PROSPECTION_COMMERCIAUX_CAEN[0]);
   const [sansAdresse, setSansAdresse] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -7094,7 +7109,7 @@ function CampagneOuvrirModal({ dark, groups, defaultNom, onClose, onConfirm }) {
           </div>
           {mode === "commercial" && (
             <select data-testid="ouvrir-commercial" className={inputCls} value={commercial} onChange={(e) => setCommercial(e.target.value)}>
-              {PROSPECTION_COMMERCIAUX.map((n) => <option key={n} value={n}>{n} (équipe {PROSPECTION_TEAMS[n]})</option>)}
+              {PROSPECTION_COMMERCIAUX_CAEN.map((n) => <option key={n} value={n}>{n} (équipe {PROSPECTION_TEAMS[n]})</option>)}
             </select>
           )}
           {mode !== "commercial" && noAddr > 0 && (
@@ -7651,8 +7666,14 @@ function ProspectionCampagnes({ dark, camp, canImport, readOnly, isManager, myCo
   );
 }
 
-function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager, myCommercial, showToast }) {
-  const data = useProspection();
+function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager, myCommercial, sites, showToast }) {
+  const siteList = (sites || []).filter((x) => PROSPECTION_SITE_CFG[x]);
+  const siteChoices = siteList.length ? siteList : ["Ford Caen"];
+  const [site, setSite] = useState(() => { const v = loadLocal("dsr:prospection-site", ""); return siteChoices.includes(v) ? v : siteChoices[0]; });
+  useEffect(() => { saveLocal("dsr:prospection-site", site); }, [site]);
+  const cfg = PROSPECTION_SITE_CFG[site] || PROSPECTION_SITE_CFG["Ford Caen"];
+  prospectionGeoBias = cfg.center;
+  const data = useProspection(site);
   const { prospects, actions, loading, error, syncError } = data;
   // Les clients existants (importés du CRM) ne font jamais partie du pipeline commercial —
   // ils ne comptent dans aucune statistique et ne servent qu'à se repérer sur la carte.
@@ -7665,14 +7686,15 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
   const [scope, setScope] = useState(() => {
     const saved = loadLocal("dsr:prospection-scope", null);
     if (saved !== null) return saved;
-    const t = PROSPECTION_TEAMS[prospectionCommercialFor(currentUserName)];
-    return t ? `team:${t}` : "";
+    const c = prospectionCommercialFor(currentUserName);
+    const t = PROSPECTION_TEAMS[c];
+    return t === "S" ? c : t ? `team:${t}` : "";
   });
   useEffect(() => { saveLocal("dsr:prospection-scope", scope); }, [scope]);
   const [openId, setOpenId] = useState(null);
   const [newPrefill, setNewPrefill] = useState(null);
   // Campagnes Datanéo : chargées seulement quand on ouvre « Campagnes » ou « Carte ».
-  const camp = useCampagnes(vue === "campagnes" || vue === "carte");
+  const camp = useCampagnes(cfg.campagnes && (vue === "campagnes" || vue === "carte"));
   const [campSel, setCampSel] = useState(() => loadLocal("dsr:prospection-campagnes-sel", null)); // null = toutes les campagnes non archivées
   useEffect(() => { saveLocal("dsr:prospection-campagnes-sel", campSel); }, [campSel]);
   const nomsProspects = useMemo(() => new Set(prospects.map((p) => prospectionNorm(p.societe)).filter(Boolean)), [prospects]);
@@ -7745,7 +7767,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
   const [pendingImport, setPendingImport] = useState(null); // { rows } en attente de confirmation
   const fileRef = useRef(null);
 
-  const commerciaux = PROSPECTION_COMMERCIAUX;
+  const commerciaux = cfg.commerciaux;
   const team = useMemo(() => {
     const s = new Set(commerciaux);
     funnelProspects.forEach((p) => p.commercial && s.add(p.commercial));
@@ -7756,7 +7778,12 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
   const scopeTeam = scope.startsWith("team:") ? scope.slice(5) : "";
   const inScope = (nom) => !scope || (scopeTeam ? PROSPECTION_TEAMS[nom] === scopeTeam : nom === scope);
   const scoped = scope ? funnelProspects.filter((p) => inScope(p.commercial)) : funnelProspects;
-  const teamIds = [...new Set(Object.values(PROSPECTION_TEAMS))].sort();
+  const teamIds = cfg.campagnes ? [...new Set(commerciaux.map((n) => PROSPECTION_TEAMS[n]))].sort() : [];
+  // Changement de site : un filtre qui n'existe pas sur l'autre site est remis à « Toute l'équipe ».
+  useEffect(() => {
+    if (scope && !(scopeTeam ? teamIds.includes(scopeTeam) : team.includes(scope))) setScope("");
+    if (vue === "campagnes" && !cfg.campagnes) setVue("jour");
+  }, [site]); // eslint-disable-line react-hooks/exhaustive-deps
   const teamLabel = (t) => `Équipe ${t} (${Object.keys(PROSPECTION_TEAMS).filter((n) => PROSPECTION_TEAMS[n] === t).join(", ")})`;
 
   const autoCommercial = prospectionCommercialFor(currentUserName);
@@ -8077,7 +8104,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
       <div className="space-y-5">
         {teamOrder.map((t) => (
           <section key={t}>
-            {t !== "Autres" && (
+            {t !== "Autres" && cfg.campagnes && (
               <h3 className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
                 <i className="h-2.5 w-2.5 rounded-full" style={{ background: PROSPECTION_TEAM_COLORS[t]?.main }} />
                 Équipe {t}
@@ -8140,7 +8167,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     ["carte", "Carte"],
     ["campagnes", "Campagnes"],
     ["equipe", "Équipe"],
-  ];
+  ].filter(([k]) => k !== "campagnes" || cfg.campagnes);
 
   return (
     <div className="space-y-4">
@@ -8155,6 +8182,13 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
           Prospection B2B
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          {siteChoices.length > 1 ? (
+            <select value={site} onChange={(e) => setSite(e.target.value)} className={inputCls} aria-label="Site">
+              {siteChoices.map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          ) : (
+            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${dark ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-blue-300 bg-blue-50 text-blue-700"}`}>{site}</span>
+          )}
           <select value={scope} onChange={(e) => setScope(e.target.value)} className={inputCls}>
             <option value="">Toute l'équipe</option>
             <optgroup label="Par équipe">
@@ -8194,7 +8228,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
         {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} isManager={!!isManager} myCommercial={myCommercial || ""} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
-        {vue === "carte" && <ProspectMap dark={dark} prospects={scoped} clients={existingClients} cibles={campCiblesCarte} canSeeNonOpen={!!isManager && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
@@ -14056,7 +14090,7 @@ export default function App() {
             />
           ) : tab === "prospection" ? (
             canProspect ? (
-              <ProspectionTab dark={dark} currentUserName={vendorName} readOnly={prospectionAccess.readOnly} canImport={prospectionAccess.canImport} isManager={prospectionAccess.isManager} myCommercial={prospectionAccess.commercial} showToast={showToast} />
+              <ProspectionTab dark={dark} currentUserName={vendorName} readOnly={prospectionAccess.readOnly} canImport={prospectionAccess.canImport} isManager={prospectionAccess.isManager} myCommercial={prospectionAccess.commercial} sites={prospectionAccess.sites} showToast={showToast} />
             ) : null
           ) : tab === "rdv" ? (
             rdvMe ? (
