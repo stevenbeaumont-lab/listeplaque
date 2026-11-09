@@ -5861,21 +5861,18 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       const { a, b } = splitLine;
       const dLat = b.lat - a.lat;
       const dLng = b.lng - a.lng;
-      const p1 = [a.lat - dLat * 0.8, a.lng - dLng * 0.8];
-      const p2 = [b.lat + dLat * 0.8, b.lng + dLng * 0.8];
+      const p1 = [a.lat - dLat * 3, a.lng - dLng * 3];
+      const p2 = [b.lat + dLat * 3, b.lng + dLng * 3];
       const g = L.layerGroup();
       const west = "#047857";
       const east = "#1D4ED8";
-      L.polygon([p1, p2, [p2[0], a.lng - 1.3], [p1[0], a.lng - 1.3]], { stroke: false, fillColor: west, fillOpacity: 0.06, interactive: false }).addTo(g);
-      L.polygon([p1, p2, [p2[0], a.lng + 1.3], [p1[0], a.lng + 1.3]], { stroke: false, fillColor: east, fillOpacity: 0.06, interactive: false }).addTo(g);
-      L.polyline([p1, p2], { color: dark ? "#a1a1aa" : "#78716c", weight: 2, dashArray: "6 6", interactive: false }).addTo(g);
-      L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color: dark ? "#e4e4e7" : "#44403c", weight: 4, interactive: false }).addTo(g);
+      L.polygon([p1, p2, [p2[0], a.lng - 6], [p1[0], a.lng - 6]], { stroke: false, fillColor: west, fillOpacity: 0.06, interactive: false }).addTo(g);
+      L.polygon([p1, p2, [p2[0], a.lng + 6], [p1[0], a.lng + 6]], { stroke: false, fillColor: east, fillOpacity: 0.06, interactive: false }).addTo(g);
+      L.polyline([p1, p2], { color: dark ? "#a1a1aa" : "#57534e", weight: 2, dashArray: "6 6", interactive: false }).addTo(g);
       const tag = (text, color) =>
         L.divIcon({ html: `<div style="background:${color};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${text}</div>`, className: "", iconSize: [0, 0] });
-      [a, b].forEach((c) => L.circleMarker([c.lat, c.lng], { radius: 6, color: "#fff", weight: 2, fillColor: "#44403c", fillOpacity: 1, interactive: false }).addTo(g));
       L.marker([a.lat + 0.03, a.lng - 0.3], { icon: tag("Secteur ouest", west), interactive: false }).addTo(g);
       L.marker([a.lat + 0.03, a.lng + 0.12], { icon: tag("Secteur est", east), interactive: false }).addTo(g);
-      L.marker([b.lat - 0.04, b.lng + 0.04], { icon: tag(prospectionEscapeHtml(b.label), "#44403c"), interactive: false }).addTo(g);
       g.addTo(map);
       teamZoneLayerRef.current = g;
       return;
