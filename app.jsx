@@ -12493,59 +12493,6 @@ function LivraisonFiche({ dark, initial, droit, vehicles, vendeurNames, onClose,
   );
 }
 
-function LivraisonCard({ dark, l, today, canPrep, onOpen, onPatch }) {
-  const s = marketingStyles(dark);
-  const tomorrow = marketingAddDays(today, 1);
-  const notReady = l.etape !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
-  const tint = l.etape === "pret"
-    ? (dark ? "border-emerald-500/50 bg-emerald-500/10" : "border-emerald-300 bg-emerald-50")
-    : l.etape === "interieur_ok"
-    ? (dark ? "border-sky-500/50 bg-sky-500/10" : "border-sky-300 bg-sky-50")
-    : l.etape === "meca_ok"
-    ? (dark ? "border-yellow-500/50 bg-yellow-500/10" : "border-yellow-300 bg-yellow-50")
-    : s.card;
-  const chip = (txt, extra) => <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${extra || (dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600")}`}>{txt}</span>;
-  const stop = (e) => e.stopPropagation();
-  const act = (fields) => onPatch(l.id, fields);
-  return (
-    <div onClick={() => onOpen(l)} className={`cursor-pointer rounded-xl border p-3 text-sm transition-colors ${tint}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`text-base font-bold tabular-nums ${s.title}`}>{livNormHeure(l.heure) || "—"}</span>
-            <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${livTypeTone(l.type_vehicule || "VN", dark)}`}>{l.type_vehicule || "VN"}</span>
-            <span className={`font-semibold ${s.title}`}>{l.modele || "Modèle ?"}</span>
-            <span className={s.muted}>{l.client || "Client ?"}</span>
-            {l.vendeur && chip(l.vendeur)}
-            {notReady && chip("Non prête", dark ? "bg-rose-500/20 text-rose-300" : "bg-rose-100 text-rose-700")}
-          </div>
-          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${s.sub}`}>
-            {l.no_commande && <span>Cde {l.no_commande}</span>}
-            {l.n_serie && <span>Série {l.n_serie}</span>}
-            {l.immat && <span>{l.immat}</span>}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {l.paiement && chip(l.paiement, livPaiementTone(l.paiement, dark))}
-            {l.montage && chip(`Montage : ${l.montage}`)}
-            {l.accessoires && chip(l.accessoires, dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-800")}
-            {l.carburant && chip(`Carburant : ${l.carburant}`)}
-            {l.kms && chip(`${l.kms} km`)}
-            {l.sous_traiter && chip(`Sous-traiter : ${l.sous_traiter}`, dark ? "bg-violet-500/20 text-violet-300" : "bg-violet-100 text-violet-800")}
-          </div>
-          {l.note && <div className={`text-xs ${s.muted}`}>{l.note}</div>}
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-2" onClick={stop}>
-          <div className="flex gap-1" role="group" aria-label="Prépa">
-            {LIV_PREPA.map(([k, lab]) => (
-              <button key={k} type="button" disabled={!canPrep} onClick={() => l.etape !== k && act({ etape: k })} className={`rounded-lg border px-2 py-1 text-xs font-semibold disabled:cursor-default ${l.etape === k ? livPrepaTone(k, dark) : dark ? "border-zinc-800 text-zinc-600 hover:text-zinc-300" : "border-stone-200 text-stone-400 hover:text-stone-600"}`}>{lab}</button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function LivraisonCardPremium({ dark, l, today, canPrep, onOpen, onPatch }) {
   const s = marketingStyles(dark);
   const tomorrow = marketingAddDays(today, 1);
@@ -12615,18 +12562,175 @@ function LivraisonCardPremium({ dark, l, today, canPrep, onOpen, onPatch }) {
   );
 }
 
+// Jours fériés français (pour afficher « Férié » dans l'agenda).
+function livFerie(iso) {
+  const y = Number(iso.slice(0, 4));
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  const easter = `${y}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const names = {
+    [`${y}-01-01`]: "Jour de l'an", [`${y}-05-01`]: "Fête du travail", [`${y}-05-08`]: "Victoire 1945", [`${y}-07-14`]: "Fête nationale",
+    [`${y}-08-15`]: "Assomption", [`${y}-11-01`]: "Toussaint", [`${y}-11-11`]: "Armistice", [`${y}-12-25`]: "Noël",
+    [marketingAddDays(easter, 1)]: "Lundi de Pâques", [marketingAddDays(easter, 39)]: "Ascension", [marketingAddDays(easter, 50)]: "Lundi de Pentecôte",
+  };
+  return names[iso] || "";
+}
+const LIV_STEP_BAR = { a_faire: "bg-[#A8A29E]", meca_ok: "bg-[#CA8A04]", interieur_ok: "bg-[#0284C7]", pret: "bg-[#16A34A]" };
+function livStepText(key, dark) {
+  if (key === "pret") return dark ? "text-emerald-300" : "text-emerald-800";
+  if (key === "interieur_ok") return dark ? "text-sky-300" : "text-sky-800";
+  if (key === "meca_ok") return dark ? "text-yellow-300" : "text-yellow-800";
+  return dark ? "text-zinc-400" : "text-stone-500";
+}
+
+// Carte d'une livraison dans la colonne d'un jour (agenda de la semaine).
+function LivraisonCardColonne({ dark, l, today, onOpen }) {
+  const s = marketingStyles(dark);
+  const tomorrow = marketingAddDays(today, 1);
+  const type = l.type_vehicule || "VN";
+  const step = Math.max(0, LIV_PREPA.findIndex(([k]) => k === (l.etape || "a_faire")));
+  const notReady = l.etape !== "pret" && l.date_livraison >= today && l.date_livraison <= tomorrow;
+  const lines = [
+    l.accessoires,
+    l.montage && `Montage : ${l.montage}`,
+    (l.kms || l.immat) && [l.kms && `${l.kms} km`, l.immat].filter(Boolean).join(" · "),
+    l.carburant && `Carburant : ${l.carburant}`,
+    l.sous_traiter && `Sous-traiter : ${l.sous_traiter}`,
+  ].filter(Boolean);
+  return (
+    <button type="button" onClick={() => onOpen(l)} className={`flex w-full flex-col gap-1.5 rounded-2xl border p-3 text-left transition-shadow hover:shadow-md ${dark ? "border-zinc-800 bg-zinc-900/70 hover:border-zinc-700" : "border-stone-200 bg-white shadow-sm"}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`text-lg font-bold tabular-nums tracking-tight ${s.title}`}>{livNormHeure(l.heure) || "—"}</span>
+        <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${livTypeTone(type, dark)}`}>{type}</span>
+      </div>
+      <div className={`text-[15px] font-semibold leading-tight ${s.title}`}>{l.modele || "Modèle à renseigner"}</div>
+      <div className={`text-xs leading-snug ${s.muted}`}>{l.client || "Client à renseigner"}{l.vendeur ? ` · ${l.vendeur}` : ""}</div>
+      {lines.length > 0 && (
+        <div className={`space-y-0.5 text-xs leading-snug ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+          {lines.map((t, i) => <div key={i} className="break-words">{t}</div>)}
+        </div>
+      )}
+      {l.paiement && <div><span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${livPaiementTone(l.paiement, dark)}`}>{l.paiement}</span></div>}
+      <div className="mt-0.5 flex gap-1" aria-hidden="true">
+        {LIV_PREPA.map(([k], i) => <span key={k} className={`h-[5px] flex-1 rounded-full ${i <= step ? LIV_STEP_BAR[l.etape || "a_faire"] : dark ? "bg-zinc-800" : "bg-stone-200"}`} />)}
+      </div>
+      <div className={`flex items-center justify-between gap-2 text-[11px] font-bold ${livStepText(l.etape || "a_faire", dark)}`}>
+        <span>{LIV_PREPA[step][1]}</span>
+        {notReady && <span className={`rounded-full px-1.5 py-0.5 ${dark ? "bg-rose-500/20 text-rose-300" : "bg-rose-100 text-rose-700"}`}>Non prête</span>}
+      </div>
+    </button>
+  );
+}
+
+// Pop-up de consultation d'une livraison : préparation en un clic, détails, accès à la modification.
+function LivraisonPopup({ dark, l, droit, vehicles, onClose, onEdit, onPatch, onDelete, showToast }) {
+  const s = marketingStyles(dark);
+  const canEdit = droit === "gestion";
+  const canPrep = droit === "gestion" || droit === "preparateur";
+  const [confirmDel, setConfirmDel] = useState(false);
+  const type = l.type_vehicule || "VN";
+  const step = Math.max(0, LIV_PREPA.findIndex(([k]) => k === (l.etape || "a_faire")));
+  const orderKey = normalizeOrderNum(l.no_commande);
+  const stock = useMemo(() => (orderKey && type === "VN" ? (vehicles || []).find((v) => normalizeOrderNum(v.orderNumber) === orderKey) || null : null), [orderKey, type, vehicles]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const dateLabel = new Date(l.date_livraison + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const fields = [
+    ["N° commande", l.no_commande], ["N° de série", l.n_serie], ["Immatriculation", l.immat], ["Kilométrage", l.kms && `${l.kms} km`],
+    ["Montage", l.montage], ["Accessoires", l.accessoires], ["Carburant", l.carburant], ["À sous-traiter", l.sous_traiter],
+  ].filter(([, v]) => v);
+  const del = async () => {
+    if (!confirmDel) { setConfirmDel(true); return; }
+    try { await onDelete(l.id); showToast("Livraison supprimée"); onClose(); }
+    catch (e) { showToast(`Suppression impossible : ${e.message || e}`, { type: "error" }); }
+  };
+  return (
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/55 p-3 sm:items-center sm:p-6" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={`Livraison ${l.modele || ""}`} onClick={(e) => e.stopPropagation()} className={`w-full max-w-[800px] overflow-hidden rounded-2xl shadow-2xl ${dark ? "bg-zinc-900 text-zinc-100" : "bg-white text-stone-900"}`}>
+        <div className={`flex items-start gap-3 border-b px-5 py-5 sm:px-7 ${dark ? "border-zinc-800" : "border-stone-100"}`}>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className={`rounded-md px-2 py-0.5 text-xs font-bold ${livTypeTone(type, dark)}`}>{type}</span>
+              <span className="text-2xl font-bold tracking-tight">{l.modele || "Modèle à renseigner"}</span>
+            </div>
+            <div className={`mt-1.5 text-sm ${s.muted}`}>
+              <span className="capitalize">{dateLabel}</span>{l.heure ? ` · ${livNormHeure(l.heure)}` : ""} · {l.client || "Client à renseigner"}{l.vendeur ? ` · Vendeur ${l.vendeur}` : ""}
+            </div>
+          </div>
+          <button type="button" aria-label="Fermer" onClick={onClose} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-2xl leading-none ${dark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}>×</button>
+        </div>
+
+        <div className="space-y-5 px-5 py-5 sm:px-7">
+          <div>
+            <div className={`mb-2 text-[11px] font-bold uppercase tracking-widest ${s.sub}`}>Préparation{canPrep ? " (un clic pour changer d'étape)" : ""}</div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {LIV_PREPA.map(([k, lab], i) => {
+                const active = i === step;
+                return (
+                  <button key={k} type="button" disabled={!canPrep} onClick={() => !active && onPatch(l.id, { etape: k })} className={`rounded-xl border px-2 py-3 text-sm disabled:cursor-default ${active ? `${livPrepaTone(k, dark)} border-2 font-bold` : i < step ? `font-semibold ${dark ? "border-zinc-800 text-zinc-400" : "border-stone-200 text-stone-500"}` : `font-semibold ${dark ? "border-zinc-800 text-zinc-500" : "border-stone-200 text-stone-400"}`}`}>
+                    {active ? "● " : i < step ? "✓ " : ""}{lab}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {stock && (
+            <div className={`rounded-xl border px-3.5 py-3 text-[13px] leading-relaxed ${dark ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+              <b>Dans le stock ParcLive :</b> {[displayModel(stock), stock.trim, stock.color, stock.vin && `Série ${stock.vin}`].filter(Boolean).join(" · ")}
+            </div>
+          )}
+
+          {(fields.length > 0 || l.paiement) && (
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+              {fields.slice(0, 2).map(([label, value]) => (
+                <div key={label} className="min-w-0"><dt className={`text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>{label}</dt><dd className="break-words text-[15px] font-medium">{value}</dd></div>
+              ))}
+              {l.paiement && (
+                <div><dt className={`text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>Paiement</dt><dd className="mt-0.5"><span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${livPaiementTone(l.paiement, dark)}`}>{l.paiement}</span></dd></div>
+              )}
+              {fields.slice(2).map(([label, value]) => (
+                <div key={label} className="min-w-0"><dt className={`text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>{label}</dt><dd className="break-words text-[15px] font-medium">{value}</dd></div>
+              ))}
+            </dl>
+          )}
+
+          {l.note && (
+            <div className={`rounded-xl border px-3.5 py-3 text-sm ${dark ? "border-zinc-800 bg-zinc-800/50 text-zinc-300" : "border-stone-200 bg-stone-50 text-stone-700"}`}>
+              <div className={`mb-1 text-[10px] font-bold uppercase tracking-widest ${s.sub}`}>Note</div>
+              {l.note}
+            </div>
+          )}
+        </div>
+
+        <div className={`flex items-center gap-2 border-t px-5 py-4 sm:px-7 ${dark ? "border-zinc-800 bg-zinc-950/40" : "border-stone-100 bg-stone-50"}`}>
+          {canEdit && (
+            <button type="button" onClick={del} className={`rounded-lg px-3 py-2 text-sm font-semibold ${confirmDel ? "bg-rose-600 text-white" : dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-700 hover:bg-rose-50"}`}>{confirmDel ? "Confirmer la suppression" : "Supprimer"}</button>
+          )}
+          <div className="flex-1" />
+          <button type="button" onClick={onClose} className={s.ghostBtn}>Fermer</button>
+          {canEdit && <button type="button" onClick={onEdit} className={s.primaryBtn}>Modifier</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
   const s = marketingStyles(dark);
   const data = useLivraisons();
   const today = prospectionTodayISO();
   const [monday, setMonday] = useState(() => livMonday(today));
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(null); // objet livraison (nouvelle ou existante)
+  const [open, setOpen] = useState(null); // { id, mode: "view" | "edit", initial? }
   const [typeFilter, setTypeFilter] = useState("");
-  const [vue, setVue] = useState(() => (loadLocal("dsr:livraison-vue", "premium") === "compact" ? "compact" : "premium"));
-  useEffect(() => { saveLocal("dsr:livraison-vue", vue); }, [vue]);
   const canEdit = droit === "gestion";
-  const canPrep = droit === "gestion" || droit === "preparateur";
 
   const vendeurNames = useMemo(() => {
     const set = new Set((vendeursList || []).filter((v) => v.site === "Ford St-Lô" && !["Secrétariat", "Préparateur", "Marketing"].includes(v.role)).map((v) => v.nom));
@@ -12649,27 +12753,31 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
     typedRows.forEach((r) => { if (!m.has(r.date_livraison)) m.set(r.date_livraison, []); m.get(r.date_livraison).push(r); });
     return m;
   }, [typedRows]);
-  const visibleDays = weekDays.filter((d, i) => i < 5 || (byDay.get(d) || []).length > 0);
+  // Lundi → samedi toujours affichés ; le dimanche seulement s'il y a une livraison.
+  const visibleDays = weekDays.filter((d, i) => i < 6 || (byDay.get(d) || []).length > 0);
   const weekRows = weekDays.flatMap((d) => byDay.get(d) || []);
   const ready = weekRows.filter((r) => r.etape === "pret").length;
 
-  const newAt = (date) => setOpen({ date_livraison: date, type_vehicule: typeFilter || "VN", etape: "a_faire" });
+  const openRow = (l) => setOpen({ id: l.id, mode: "view" });
+  const newAt = (date) => setOpen({ mode: "edit", initial: { date_livraison: date, type_vehicule: typeFilter || "VN", etape: "a_faire" } });
   const onPatch = async (id, fields) => {
     try { await data.patch(id, fields); }
     catch (e) { showToast(`Action impossible : ${e.message || e}`, { type: "error" }); }
   };
-  const Card = vue === "premium" ? LivraisonCardPremium : LivraisonCard;
-  const card = (l) => <Card key={l.id} dark={dark} l={l} today={today} canPrep={canPrep} onOpen={setOpen} onPatch={onPatch} />;
+  const openedRow = open?.id ? data.rows.find((r) => r.id === open.id) : null;
   const dayLabel = (d) => new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const dayShort = (d) => new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short" });
 
   if (data.error) {
     return <EmptyState dark={dark} icon={AlertTriangle} title="Impossible de charger En livraison" subtitle={`${data.error} — vérifiez que le script livraisons.sql a bien été exécuté dans Supabase.`} />;
   }
+  const seg = (on) => `rounded-lg px-2.5 py-1 text-sm font-semibold ${on ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className={`text-[26px] font-semibold leading-8 tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>En livraison</h1>
         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${dark ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-blue-300 bg-blue-50 text-blue-700"}`}>Ford St-Lô</span>
+        {canEdit && <button type="button" onClick={() => newAt(today > weekDays[5] || today < monday ? monday : today)} className={`${s.primaryBtn} ml-auto`}>Nouvelle livraison</button>}
       </div>
       {droit === "lecture" && (
         <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
@@ -12679,22 +12787,23 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <div className={`flex items-center gap-1 rounded-xl border p-1 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
           <button type="button" aria-label="Semaine précédente" onClick={() => setMonday(marketingAddDays(monday, -7))} className={`rounded-lg p-1.5 ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}><ChevronLeft size={16} /></button>
-          <div className={`min-w-[170px] px-2 text-center font-semibold ${s.title}`}>Semaine {livWeekNumber(monday)} · {marketingFrDate(monday)} – {marketingFrDate(marketingAddDays(monday, 6))}</div>
+          <div className={`min-w-[170px] px-2 text-center font-semibold ${s.title}`}>Semaine {livWeekNumber(monday)} · {marketingFrDate(monday)} – {marketingFrDate(marketingAddDays(monday, 5))}</div>
           <button type="button" aria-label="Semaine suivante" onClick={() => setMonday(marketingAddDays(monday, 7))} className={`rounded-lg p-1.5 ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-100"}`}><ChevronRight size={16} /></button>
         </div>
         <button type="button" onClick={() => setMonday(livMonday(today))} className={s.ghostBtn}>Aujourd'hui</button>
         <div className={`flex items-center gap-1 rounded-xl border p-1 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`} role="group" aria-label="Filtrer par type">
           {[["", "Tous"], ...LIV_TYPES.map((t) => [t, t])].map(([k, l]) => (
-            <button key={k || "all"} type="button" onClick={() => setTypeFilter(k)} className={`rounded-lg px-2.5 py-1 text-sm font-semibold ${typeFilter === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>{l}</button>
+            <button key={k || "all"} type="button" onClick={() => setTypeFilter(k)} className={seg(typeFilter === k)}>{l}</button>
           ))}
         </div>
-        <div className={`flex items-center gap-1 rounded-xl border p-1 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`} role="group" aria-label="Affichage">
-          {[["premium", "Premium"], ["compact", "Compact"]].map(([k, l2]) => (
-            <button key={k} type="button" onClick={() => setVue(k)} className={`rounded-lg px-2.5 py-1 text-sm font-semibold ${vue === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>{l2}</button>
-          ))}
-        </div>
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher (client, n° commande, série…) dans tout l'historique" className={`${s.input} !w-full sm:!w-80`} aria-label="Rechercher une livraison" />
-        {canEdit && <button type="button" onClick={() => newAt(today > weekDays[4] || today < monday ? monday : today)} className={`${s.primaryBtn} ml-auto`}>Nouvelle livraison</button>}
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher dans tout l'historique (client, n° commande, série…)" className={`${s.input} !w-full sm:!w-80`} aria-label="Rechercher une livraison" />
+        {!found && (
+          <div className={`ml-auto flex flex-wrap gap-x-4 gap-y-1 text-[13px] ${s.muted}`}>
+            <span><b className={`text-base ${s.title}`}>{weekRows.length}</b> livraison{weekRows.length > 1 ? "s" : ""}</span>
+            <span><b className={`text-base ${dark ? "text-emerald-300" : "text-emerald-700"}`}>{ready}</b> prête{ready > 1 ? "s" : ""}</span>
+            <span><b className={`text-base ${dark ? "text-amber-300" : "text-amber-700"}`}>{weekRows.length - ready}</b> à préparer</span>
+          </div>
+        )}
       </div>
 
       {data.loading ? (
@@ -12706,60 +12815,66 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
           {found.map((l) => (
             <div key={l.id}>
               <div className={`mb-1 mt-2 text-xs font-semibold capitalize ${s.muted}`}>{dayLabel(l.date_livraison)}</div>
-              {card(l)}
+              <LivraisonCardPremium dark={dark} l={l} today={today} canPrep={droit === "gestion" || droit === "preparateur"} onOpen={openRow} onPatch={onPatch} />
             </div>
           ))}
         </div>
       ) : (
-        <div className="space-y-5">
-          {vue === "premium" ? (
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {[
-                ["Livraisons", weekRows.length, ""],
-                ["Prêtes", ready, ready > 0 ? (dark ? "text-emerald-300" : "text-emerald-600") : ""],
-                ["À préparer", weekRows.length - ready, weekRows.length - ready > 0 ? (dark ? "text-amber-300" : "text-amber-600") : ""],
-                ["Aujourd'hui", (byDay.get(today) || []).length, dark ? "text-blue-300" : "text-blue-700"],
-              ].map(([label, value, tone]) => (
-                <div key={label} className={`rounded-2xl border px-4 py-3 ${s.card}`}>
-                  <div className={`text-2xl font-bold tabular-nums ${tone || s.title}`}>{value}</div>
-                  <div className={`text-xs ${s.sub}`}>{label}</div>
+        <>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-[repeat(var(--n),minmax(0,1fr))]" style={{ "--n": visibleDays.length }}>
+            {visibleDays.map((d) => {
+              const list = byDay.get(d) || [];
+              const isToday = d === today;
+              const ferie = livFerie(d);
+              return (
+                <div key={d} className="flex min-w-0 flex-col gap-2.5">
+                  <div className={`flex items-baseline justify-between gap-2 rounded-xl border px-3 py-2.5 ${isToday ? "border-blue-700 bg-blue-700 text-white" : dark ? "border-zinc-800 bg-zinc-900/60 text-zinc-100" : "border-stone-200 bg-white text-stone-900"}`}>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[13px] font-semibold uppercase tracking-wider">{dayShort(d)}</span>
+                      <span className="text-2xl font-bold leading-none">{Number(d.slice(8))}</span>
+                    </div>
+                    <span className="text-xs font-medium opacity-90">{list.length ? `${list.length} livraison${list.length > 1 ? "s" : ""}` : ""}</span>
+                  </div>
+                  {ferie && <div className={`rounded-xl border border-dashed px-3 py-3 text-center text-[13px] ${dark ? "border-zinc-700 bg-zinc-900/40 text-zinc-400" : "border-stone-300 bg-stone-50 text-stone-600"}`}>{ferie} — férié</div>}
+                  {list.map((l) => <LivraisonCardColonne key={l.id} dark={dark} l={l} today={today} onOpen={openRow} />)}
+                  {!ferie && list.length === 0 && <div className={`rounded-xl border border-dashed px-3 py-4 text-center text-[13px] ${dark ? "border-zinc-800 text-zinc-600" : "border-stone-200 text-stone-400"}`}>Aucune livraison</div>}
+                  {canEdit && <button type="button" onClick={() => newAt(d)} className={`rounded-lg py-1 text-xs font-semibold ${dark ? "text-blue-300 hover:bg-blue-500/10" : "text-blue-700 hover:bg-blue-50"}`}>+ Ajouter</button>}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className={`text-xs ${s.sub}`}>{weekRows.length} livraison{weekRows.length > 1 ? "s" : ""} cette semaine · {ready} prête{ready > 1 ? "s" : ""}</div>
-          )}
-          {visibleDays.map((d) => {
-            const list = byDay.get(d) || [];
-            return (
-              <section key={d}>
-                <div className="mb-2.5 flex items-center gap-2">
-                  <div className={`${vue === "premium" ? "text-base" : "text-sm"} font-bold capitalize ${d === today ? (dark ? "text-blue-300" : "text-blue-700") : s.title}`}>{dayLabel(d)}</div>
-                  {d === today && <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">Aujourd'hui</span>}
-                  {list.length > 0 && (
-                    <span className={`text-xs ${s.sub}`}>
-                      {list.length} livraison{list.length > 1 ? "s" : ""} · {list.filter((r) => r.etape === "pret").length} prête{list.filter((r) => r.etape === "pret").length > 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {canEdit && <button type="button" onClick={() => newAt(d)} className={`ml-auto text-xs font-semibold ${dark ? "text-blue-300" : "text-blue-700"}`}>+ Ajouter</button>}
-                </div>
-                {list.length === 0 ? <div className={`rounded-xl border border-dashed px-3 py-3 text-sm ${dark ? "border-zinc-800" : "border-stone-200"} ${s.sub}`}>Aucune livraison</div> : <div className={vue === "premium" ? "space-y-3" : "space-y-2"}>{list.map(card)}</div>}
-              </section>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          <div className={`flex flex-wrap items-center gap-x-5 gap-y-1 text-xs ${s.muted}`}>
+            <span className="font-semibold">Préparation :</span>
+            {LIV_PREPA.map(([k, lab]) => <span key={k} className="flex items-center gap-1.5"><span className={`inline-block h-[5px] w-[18px] rounded-full ${LIV_STEP_BAR[k]}`} />{lab}</span>)}
+            <span className="sm:ml-auto">Cliquez sur une livraison pour l'ouvrir</span>
+          </div>
+        </>
       )}
 
-      {open && (
+      {open?.mode === "view" && openedRow && (
+        <LivraisonPopup
+          key={openedRow.id}
+          dark={dark}
+          l={openedRow}
+          droit={droit}
+          vehicles={vehicles}
+          onClose={() => setOpen(null)}
+          onEdit={() => setOpen({ id: openedRow.id, mode: "edit", initial: openedRow })}
+          onPatch={onPatch}
+          onDelete={data.remove}
+          showToast={showToast}
+        />
+      )}
+      {open?.mode === "edit" && (
         <LivraisonFiche
           key={open.id || "new"}
           dark={dark}
-          initial={open}
+          initial={open.initial}
           droit={droit}
           vehicles={vehicles}
           vendeurNames={vendeurNames}
           onClose={() => setOpen(null)}
-          onSave={droit === "preparateur" ? (p) => data.patch(p.id, { etape: p.etape }) : data.save}
+          onSave={data.save}
           onDelete={data.remove}
           showToast={showToast}
         />
