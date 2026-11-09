@@ -4114,7 +4114,9 @@ const PROSPECTION_TEAM_COLORS = {
 // campagnes : fichiers Datanéo et zones est/ouest (propres à Caen pour l'instant).
 const PROSPECTION_SITE_CFG = {
   "Ford Caen": { center: PROSPECTION_CAEN_CENTER, centerLabel: "Centre de Caen", commerciaux: PROSPECTION_COMMERCIAUX_CAEN, campagnes: true },
-  "Ford St-Lô": { center: { lat: 49.1156, lng: -1.0912 }, centerLabel: "Centre de Saint-Lô", commerciaux: ["Mathys"], campagnes: false },
+  "Ford St-Lô": { center: { lat: 49.1156, lng: -1.0912 }, centerLabel: "Centre de Saint-Lô", commerciaux: ["Mathys"], campagnes: false,
+    // Trait de séparation de la zone : de Saint-Lô à Avranches (secteur ouest / secteur est).
+    splitLine: { a: { lat: 49.1156, lng: -1.0912, label: "Saint-Lô" }, b: { lat: 48.6842, lng: -1.3586, label: "Avranches" } } },
 };
 let prospectionGeoBias = PROSPECTION_CAEN_CENTER; // centre du site affiché, utilisé pour orienter le géocodage des adresses
 
@@ -5550,7 +5552,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true }) {
+function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
@@ -5853,7 +5855,31 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     const map = mapRef.current;
     if (!map) return;
     if (teamZoneLayerRef.current) { map.removeLayer(teamZoneLayerRef.current); teamZoneLayerRef.current = null; }
-    if (!showTeamZones || !teamZones) return;
+    if (!showTeamZones || !(teamZones || splitLine)) return;
+    if (!teamZones && splitLine) {
+      // Droite passant par les deux villes, prolongée de part et d'autre ; deux secteurs teintés (ouest / est).
+      const { a, b } = splitLine;
+      const dLat = b.lat - a.lat;
+      const dLng = b.lng - a.lng;
+      const p1 = [a.lat - dLat * 0.8, a.lng - dLng * 0.8];
+      const p2 = [b.lat + dLat * 0.8, b.lng + dLng * 0.8];
+      const g = L.layerGroup();
+      const west = "#047857";
+      const east = "#1D4ED8";
+      L.polygon([p1, p2, [p2[0], a.lng - 1.3], [p1[0], a.lng - 1.3]], { stroke: false, fillColor: west, fillOpacity: 0.06, interactive: false }).addTo(g);
+      L.polygon([p1, p2, [p2[0], a.lng + 1.3], [p1[0], a.lng + 1.3]], { stroke: false, fillColor: east, fillOpacity: 0.06, interactive: false }).addTo(g);
+      L.polyline([p1, p2], { color: dark ? "#a1a1aa" : "#78716c", weight: 2, dashArray: "6 6", interactive: false }).addTo(g);
+      L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color: dark ? "#e4e4e7" : "#44403c", weight: 4, interactive: false }).addTo(g);
+      const tag = (text, color) =>
+        L.divIcon({ html: `<div style="background:${color};color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${text}</div>`, className: "", iconSize: [0, 0] });
+      [a, b].forEach((c) => L.circleMarker([c.lat, c.lng], { radius: 6, color: "#fff", weight: 2, fillColor: "#44403c", fillOpacity: 1, interactive: false }).addTo(g));
+      L.marker([a.lat + 0.03, a.lng - 0.3], { icon: tag("Secteur ouest", west), interactive: false }).addTo(g);
+      L.marker([a.lat + 0.03, a.lng + 0.12], { icon: tag("Secteur est", east), interactive: false }).addTo(g);
+      L.marker([b.lat - 0.04, b.lng + 0.04], { icon: tag(prospectionEscapeHtml(b.label), "#44403c"), interactive: false }).addTo(g);
+      g.addTo(map);
+      teamZoneLayerRef.current = g;
+      return;
+    }
     const lng = PROSPECTION_TEAM_ZONE_LNG;
     const span = 0.35;
     const south = PROSPECTION_CAEN_CENTER.lat - span;
@@ -5869,7 +5895,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     L.marker([PROSPECTION_CAEN_CENTER.lat + 0.04, lng + span * 0.1], { icon: labelIcon(`Équipe A (est) — ${teamNames("A")}`, PROSPECTION_TEAM_COLORS.A.main), interactive: false }).addTo(group);
     group.addTo(map);
     teamZoneLayerRef.current = group;
-  }, [showTeamZones, teamZones, dark]);
+  }, [showTeamZones, teamZones, splitLine, dark]);
 
   // Tournée : trajet en pointillés et étapes numérotées.
   useEffect(() => {
@@ -6099,10 +6125,10 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                   <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
                   Découvrir les entreprises alentour (OSM)
                 </label>
-                {teamZones && (
+                {(teamZones || splitLine) && (
                   <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
                     <input type="checkbox" checked={showTeamZones} onChange={(e) => setShowTeamZones(e.target.checked)} className="accent-blue-700" />
-                    Afficher les zones des équipes
+                    {teamZones ? "Afficher les zones des équipes" : "Afficher la séparation Saint-Lô – Avranches"}
                   </label>
                 )}
                 <div className={`border-t pt-3 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
@@ -8228,7 +8254,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
         {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} isManager={!!isManager} myCommercial={myCommercial || ""} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
-        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
