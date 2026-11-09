@@ -537,7 +537,7 @@ const ROLE_PERMISSIONS = {
   "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false },
   "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: false },
   "Préparateur": { reserve: false, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: true, livraisonGerer: false, marketingVoir: false },
-  // livraison* / marketingVoir : relus par la base (livraison_droit, is_marketing_viewer) ; les accès livraison ne valent que pour Ford St-Lô, marketingVoir que pour Caen et St-Lô.
+  // livraison* / marketingVoir : relus par la base (livraison_droit, is_marketing_viewer) ; les accès livraison ne valent que pour Ford St-Lô, marketingVoir pour toutes les plaques.
   // Statut Marketing : consultation du stock et du tableau de bord ; l'onglet Marketing est géré par marketing_members.
   "Marketing": { reserve: false, reserveForOthers: false, dashboard: true, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false },
 };
@@ -3042,7 +3042,7 @@ const PERMISSION_LABELS = {
   livraisonVoir: "En livraison : voir l'onglet (Ford St-Lô)",
   livraisonPrepa: "En livraison : cocher les étapes de préparation (préparateur)",
   livraisonGerer: "En livraison : créer, modifier, supprimer (secrétariat / direction)",
-  marketingVoir: "Marketing : consulter en lecture seule (Caen + St-Lô)",
+  marketingVoir: "Marketing : consulter en lecture seule (toutes les plaques)",
 };
 
 function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail }) {
@@ -8509,7 +8509,7 @@ function marketingCleanTask(t) {
   return row;
 }
 const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie", "budget", "site"];
-const MARKETING_SITES = ["Ford Caen", "Ford St-Lô"];
+const MARKETING_SITES = FORD_SITES; // toutes les plaques Ford (+ « Multi site » pour les actions communes)
 function marketingCleanProject(p) {
   const row = {};
   for (const k of MARKETING_PROJECT_FIELDS) {
@@ -10038,7 +10038,7 @@ function MarketingTab({ dark, me, readOnly = false, showToast }) {
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
           <select value={site} onChange={(e) => setSite(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par site">
-            <option value="">Caen + St-Lô</option>
+            <option value="">Toutes les plaques</option>
             {MARKETING_SITES.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
           <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par personne">
@@ -10056,7 +10056,7 @@ function MarketingTab({ dark, me, readOnly = false, showToast }) {
 
       {readOnly && (
         <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
-          Lecture seule — vous consultez le Marketing de Ford Caen et Ford St-Lô. La gestion est assurée par l'équipe Marketing.
+          Lecture seule — vous consultez le Marketing de toutes les plaques Ford. La gestion est assurée par l'équipe Marketing.
         </div>
       )}
       <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : {!readOnly && <><b>N</b> nouvelle tâche · <b>P</b> nouveau projet · </>}<b>1–5</b> changer de vue</div>
