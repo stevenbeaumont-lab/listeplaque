@@ -12670,7 +12670,12 @@ function LivraisonCardColonne({ dark, l, today, onOpen }) {
           {lines.map((t, i) => <div key={i} className="break-words">{t}</div>)}
         </div>
       )}
-      {l.paiement && <div><span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${livPaiementTone(l.paiement, dark)}`}>{l.paiement}</span></div>}
+      {(l.paiement || (type === "VN" && l.champagne_pris_le)) && (
+        <div className="flex flex-wrap items-center gap-1">
+          {l.paiement && <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${livPaiementTone(l.paiement, dark)}`}>{l.paiement}</span>}
+          {type === "VN" && l.champagne_pris_le && <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>Champagne{l.champagne_debit ? " débité" : " pris"}</span>}
+        </div>
+      )}
       <div className="mt-0.5 flex gap-1" aria-hidden="true">
         {LIV_PREPA.map(([k], i) => <span key={k} className={`h-[5px] flex-1 rounded-full ${i <= step ? LIV_STEP_BAR[l.etape || "a_faire"] : dark ? "bg-zinc-800" : "bg-stone-200"}`} />)}
       </div>
@@ -12683,13 +12688,17 @@ function LivraisonCardColonne({ dark, l, today, onOpen }) {
 }
 
 // Pop-up de consultation d'une livraison : préparation en un clic, détails, accès à la modification.
-function LivraisonPopup({ dark, l, droit, vehicles, onClose, onEdit, onPatch, onDelete, showToast }) {
+function LivraisonPopup({ dark, l, droit, vehicles, canUndoChampagne, onClose, onEdit, onPatch, onDelete, showToast }) {
   const s = marketingStyles(dark);
   const canEdit = droit === "gestion";
   const canPrep = droit === "gestion" || droit === "preparateur";
   const [confirmDel, setConfirmDel] = useState(false);
   const type = l.type_vehicule || "VN";
   const step = Math.max(0, LIV_PREPA.findIndex(([k]) => k === (l.etape || "a_faire")));
+  // Champagne (VN uniquement) : le préparateur coche ; une fois coché, seul Steven peut décocher (verrou aussi côté base).
+  const champPris = !!l.champagne_pris_le;
+  const champDebit = !!l.champagne_debit;
+  const champBtn = (on, locked) => `rounded-xl border px-3 py-3 text-left text-sm font-semibold disabled:cursor-default ${on ? (dark ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200" : "border-emerald-300 bg-emerald-50 text-emerald-800") : (dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-200 text-stone-700 hover:bg-stone-50")} ${locked ? "opacity-90" : ""}`;
   const orderKey = normalizeOrderNum(l.no_commande);
   const stock = useMemo(() => (orderKey && type === "VN" ? (vehicles || []).find((v) => normalizeOrderNum(v.orderNumber) === orderKey) || null : null), [orderKey, type, vehicles]);
   useEffect(() => {
@@ -12738,6 +12747,30 @@ function LivraisonPopup({ dark, l, droit, vehicles, onClose, onEdit, onPatch, on
             </div>
           </div>
 
+          {type === "VN" && (
+            <div>
+              <div className={`mb-2 text-[11px] font-bold uppercase tracking-widest ${s.sub}`}>Champagne{champPris && !canUndoChampagne ? " (coché : seul Steven peut décocher)" : ""}</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={!canPrep || (champPris && !canUndoChampagne)}
+                  onClick={() => onPatch(l.id, champPris ? { champagne_pris_le: null, champagne_debit: false } : { champagne_pris_le: prospectionTodayISO() })}
+                  className={champBtn(champPris, champPris && !canUndoChampagne)}
+                >
+                  {champPris ? `✓ Champagne pris le ${marketingFrDate(l.champagne_pris_le)}` : "Champagne à prendre"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canPrep || !champPris || (champDebit && !canUndoChampagne)}
+                  onClick={() => onPatch(l.id, { champagne_debit: !champDebit })}
+                  className={champBtn(champDebit, champDebit && !canUndoChampagne)}
+                >
+                  {champDebit ? "✓ Débité" : "Débit à faire"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {stock && (
             <div className={`rounded-xl border px-3.5 py-3 text-[13px] leading-relaxed ${dark ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
               <b>Dans le stock ParcLive :</b> {[displayModel(stock), stock.trim, stock.color, stock.vin && `Série ${stock.vin}`].filter(Boolean).join(" · ")}
@@ -12779,7 +12812,7 @@ function LivraisonPopup({ dark, l, droit, vehicles, onClose, onEdit, onPatch, on
   );
 }
 
-function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
+function LivraisonTab({ dark, droit, vehicles, vendeursList, canUndoChampagne, showToast }) {
   const s = marketingStyles(dark);
   const data = useLivraisons();
   const today = prospectionTodayISO();
@@ -12915,6 +12948,7 @@ function LivraisonTab({ dark, droit, vehicles, vendeursList, showToast }) {
           l={openedRow}
           droit={droit}
           vehicles={vehicles}
+          canUndoChampagne={canUndoChampagne}
           onClose={() => setOpen(null)}
           onEdit={() => setOpen({ id: openedRow.id, mode: "edit", initial: openedRow })}
           onPatch={onPatch}
@@ -14121,7 +14155,7 @@ export default function App() {
             ) : null
           ) : tab === "livraison" ? (
             livraisonDroit ? (
-              <LivraisonTab dark={dark} droit={livraisonDroit} vehicles={vehicles} vendeursList={vendeursList} showToast={showToast} />
+              <LivraisonTab dark={dark} droit={livraisonDroit} vehicles={vehicles} vendeursList={vendeursList} canUndoChampagne={isSuperAdmin(vendorName)} showToast={showToast} />
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (

@@ -124,3 +124,6 @@ on conflict (user_id) do nothing;
 -- Pour ajouter un préparateur :
 -- insert into public.livraison_members (user_id, nom, droit)
 -- select id, 'Prénom', 'preparateur' from auth.users where lower(email) = 'prenom.nom@groupe-legrand.fr';
+
+-- Champagne (VN) : une fois pris / débité, seul Steven peut décocher ou modifier la date.
+-- (Le trigger livraisons_before_update ci-dessus est remplacé par la version avec ce verrou ; voir la migration livraisons_champagne_verrou.)
