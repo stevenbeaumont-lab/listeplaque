@@ -12673,7 +12673,7 @@ function LivraisonCardColonne({ dark, l, today, onOpen }) {
       {(l.paiement || (type === "VN" && l.champagne_pris_le)) && (
         <div className="flex flex-wrap items-center gap-1">
           {l.paiement && <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${livPaiementTone(l.paiement, dark)}`}>{l.paiement}</span>}
-          {type === "VN" && l.champagne_pris_le && <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>Champagne{l.champagne_debit ? " débité" : " pris"}</span>}
+          {type === "VN" && l.champagne_pris_le && <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>Champagne pris</span>}
         </div>
       )}
       <div className="mt-0.5 flex gap-1" aria-hidden="true">
@@ -12697,7 +12697,6 @@ function LivraisonPopup({ dark, l, droit, vehicles, canUndoChampagne, onClose, o
   const step = Math.max(0, LIV_PREPA.findIndex(([k]) => k === (l.etape || "a_faire")));
   // Champagne (VN uniquement) : le préparateur coche ; une fois coché, seul Steven peut décocher (verrou aussi côté base).
   const champPris = !!l.champagne_pris_le;
-  const champDebit = !!l.champagne_debit;
   const champBtn = (on, locked) => `rounded-xl border px-3 py-3 text-left text-sm font-semibold disabled:cursor-default ${on ? (dark ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200" : "border-emerald-300 bg-emerald-50 text-emerald-800") : (dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-stone-200 text-stone-700 hover:bg-stone-50")} ${locked ? "opacity-90" : ""}`;
   const orderKey = normalizeOrderNum(l.no_commande);
   const stock = useMemo(() => (orderKey && type === "VN" ? (vehicles || []).find((v) => normalizeOrderNum(v.orderNumber) === orderKey) || null : null), [orderKey, type, vehicles]);
@@ -12750,24 +12749,14 @@ function LivraisonPopup({ dark, l, droit, vehicles, canUndoChampagne, onClose, o
           {type === "VN" && (
             <div>
               <div className={`mb-2 text-[11px] font-bold uppercase tracking-widest ${s.sub}`}>Champagne{champPris && !canUndoChampagne ? " (coché : seul Steven peut décocher)" : ""}</div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  disabled={!canPrep || (champPris && !canUndoChampagne)}
-                  onClick={() => onPatch(l.id, champPris ? { champagne_pris_le: null, champagne_debit: false } : { champagne_pris_le: prospectionTodayISO() })}
-                  className={champBtn(champPris, champPris && !canUndoChampagne)}
-                >
-                  {champPris ? `✓ Champagne pris le ${marketingFrDate(l.champagne_pris_le)}` : "Champagne à prendre"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!canPrep || !champPris || (champDebit && !canUndoChampagne)}
-                  onClick={() => onPatch(l.id, { champagne_debit: !champDebit })}
-                  className={champBtn(champDebit, champDebit && !canUndoChampagne)}
-                >
-                  {champDebit ? "✓ Débité" : "Débit à faire"}
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={!canPrep || (champPris && !canUndoChampagne)}
+                onClick={() => onPatch(l.id, champPris ? { champagne_pris_le: null, champagne_debit: false } : { champagne_pris_le: prospectionTodayISO() })}
+                className={`w-full sm:w-1/2 ${champBtn(champPris, champPris && !canUndoChampagne)}`}
+              >
+                {champPris ? `✓ Champagne pris le ${marketingFrDate(l.champagne_pris_le)}` : "Champagne à prendre"}
+              </button>
             </div>
           )}
 
