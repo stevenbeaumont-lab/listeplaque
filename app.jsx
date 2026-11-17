@@ -10148,9 +10148,9 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
   const weekEnd = marketingAddDays(today, 7);
 
   const premium = true; // mode Premium permanent
-  const [vue, setVue] = useState(() => loadLocal("dsr:marketing-vue", "jour"));
+  const [vue, setVue] = useState(() => loadLocal("dsr:marketing-vue", "projets"));
   useEffect(() => { saveLocal("dsr:marketing-vue", vue); }, [vue]);
-  const vueEff = !premium && vue === "tableau" ? "jour" : vue;
+  const vueEff = ["projets", "tableau", "calendrier", "budget", "bilan"].includes(vue) && !(!premium && vue === "tableau") ? vue : "projets";
   const [scope, setScope] = useState(() => loadLocal("dsr:marketing-scope", ""));
   useEffect(() => { saveLocal("dsr:marketing-scope", scope); }, [scope]);
   const [openProject, setOpenProject] = useState(null);
@@ -10237,7 +10237,7 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
   // ── Premium : raccourcis clavier ──
   useEffect(() => {
     if (!premium) return;
-    const VUE_KEYS = { 1: "jour", 2: "projets", 3: "taches", 4: "tableau", 5: "calendrier", 6: "budget", 7: "bilan" };
+    const VUE_KEYS = { 1: "projets", 2: "tableau", 3: "calendrier", 4: "budget", 5: "bilan" };
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = document.activeElement;
@@ -10323,63 +10323,6 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
     );
   };
 
-  const vueJour = () => {
-    const section = (title, tone, items) =>
-      items.length === 0 ? null : (
-        <section key={title}>
-          <div className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest ${tone}`}>{title}<span className="rounded-full bg-black/10 px-1.5 text-[10px]">{items.length}</span></div>
-          <div className="space-y-2">{items.map((t) => row(t))}</div>
-        </section>
-      );
-    const kpi = (label, value, tone) => (
-      <div className={`rounded-xl border px-4 py-3 ${s.card}`}>
-        <div className={`text-2xl font-bold ${tone || s.title}`}>{value}</div>
-        <div className={`text-xs ${s.sub}`}>{label}</div>
-      </div>
-    );
-    const relancesDues = scoped.filter((t) => t.statut !== "Fait" && t.relance && t.relance <= today).length;
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {kpi("En retard", buckets.late.length, buckets.late.length ? "text-rose-500" : "")}
-          {kpi("À traiter aujourd'hui", buckets.today.length)}
-          {kpi("Relances à faire", relancesDues, relancesDues ? (dark ? "text-amber-300" : "text-amber-700") : "")}
-          {kpi("Projets actifs", projects.filter((p) => p.statut !== "Terminé").length)}
-        </div>
-        {budgetStrip()}
-        {atRisk.length > 0 && (
-          <div role="alert" className={`rounded-2xl border p-3 ${dark ? "border-rose-500/40 bg-rose-500/10" : "border-rose-300 bg-rose-50"}`}>
-            <div className={`mb-2 flex items-center gap-2 text-sm font-bold ${dark ? "text-rose-200" : "text-rose-800"}`}>
-              <AlertTriangle size={16} />{atRisk.length} projet{atRisk.length > 1 ? "s" : ""} en danger
-            </div>
-            <ul className="space-y-1.5">
-              {atRisk.map((p) => (
-                <li key={p.id}>
-                  <button type="button" onClick={() => setOpenProject(p.id)} className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${dark ? "text-rose-100 hover:bg-rose-500/10" : "text-rose-900 hover:bg-rose-100"}`}>
-                    <span className="font-semibold">{p.titre}</span>
-                    <span className="opacity-80"> — {riskByProject.get(p.id).reasons.join(" · ")}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {dueCount + buckets.week.length === 0 && (
-          <EmptyState dark={dark} icon={CheckCircle2} title="Rien d'urgent cette semaine" subtitle="Les tâches et relances des 7 prochains jours apparaissent ici." />
-        )}
-        {section("En retard", dark ? "text-rose-400" : "text-rose-600", buckets.late)}
-        {section("Aujourd'hui", dark ? "text-blue-400" : "text-blue-800", buckets.today)}
-        {section("Cette semaine", s.sub, buckets.week)}
-        {watchedProjects.length > 0 && (
-          <section>
-            <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Deadlines de projets à 3 semaines</div>
-            <div className="grid gap-2 sm:grid-cols-2">{watchedProjects.map((p) => projectCard(p))}</div>
-          </section>
-        )}
-      </div>
-    );
-  };
-
   // ───────────── Vue "Projets" ─────────────
   function projectCard(p) {
     const prog = marketingProjectProgress(p, tasks);
@@ -10436,6 +10379,26 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
       </button>
     );
   }
+  const riskAlert = () => (
+    atRisk.length > 0 && (
+          <div role="alert" className={`rounded-2xl border p-3 ${dark ? "border-rose-500/40 bg-rose-500/10" : "border-rose-300 bg-rose-50"}`}>
+            <div className={`mb-2 flex items-center gap-2 text-sm font-bold ${dark ? "text-rose-200" : "text-rose-800"}`}>
+              <AlertTriangle size={16} />{atRisk.length} projet{atRisk.length > 1 ? "s" : ""} en danger
+            </div>
+            <ul className="space-y-1.5">
+              {atRisk.map((p) => (
+                <li key={p.id}>
+                  <button type="button" onClick={() => setOpenProject(p.id)} className={`w-full rounded-lg px-2 py-1.5 text-left text-sm ${dark ? "text-rose-100 hover:bg-rose-500/10" : "text-rose-900 hover:bg-rose-100"}`}>
+                    <span className="font-semibold">{p.titre}</span>
+                    <span className="opacity-80"> — {riskByProject.get(p.id).reasons.join(" · ")}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+    )
+  );
+
   const vueProjets = () => {
     const q = projQuery.trim().toLowerCase();
     const sorters = {
@@ -10457,6 +10420,8 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
     const chip = (active) => `pl-interactive rounded-lg px-3 py-1.5 text-sm font-medium ${active ? (dark ? "bg-zinc-800 text-zinc-100" : "bg-stone-200 text-stone-900") : s.muted}`;
     return (
       <div className="space-y-4">
+        {budgetStrip()}
+        {riskAlert()}
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1.5">
             {[["actifs", "En cours"], ["termines", "Terminés"], ["tous", "Tous"]].map(([k, l]) => (
@@ -10511,39 +10476,6 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
           <option value="__none">Personne</option>
         </select>
         <button type="button" className={`ml-auto text-xs font-semibold underline ${s.muted}`} onClick={() => setSelected([])}>Annuler</button>
-      </div>
-    );
-  };
-
-  const vueTaches = () => {
-    const q = taskFilter.q.trim().toLowerCase();
-    const list = scoped
-      .filter((t) => (taskFilter.statut === "ouvertes" ? t.statut !== "Fait" : taskFilter.statut === "faites" ? t.statut === "Fait" : true))
-      .filter((t) => !taskFilter.project || (taskFilter.project === "__none" ? !t.project_id : t.project_id === taskFilter.project))
-      .filter((t) => !q || t.titre.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q))
-      .sort((a, b) => (marketingUrgencyDate(a) || "9999").localeCompare(marketingUrgencyDate(b) || "9999"));
-    return (
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <input className={`${s.input} !w-56`} placeholder="Rechercher une tâche…" value={taskFilter.q} onChange={(e) => setTaskFilter((f) => ({ ...f, q: e.target.value }))} />
-          <select className={`${s.input} !w-auto`} value={taskFilter.statut} onChange={(e) => setTaskFilter((f) => ({ ...f, statut: e.target.value }))}>
-            <option value="ouvertes">Ouvertes</option>
-            <option value="faites">Terminées</option>
-            <option value="toutes">Toutes</option>
-          </select>
-          <select className={`${s.input} !w-auto`} value={taskFilter.project} onChange={(e) => setTaskFilter((f) => ({ ...f, project: e.target.value }))}>
-            <option value="">Tous les projets</option>
-            <option value="__none">Sans projet</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.titre}</option>)}
-          </select>
-        </div>
-        {premium && selected.length > 0 && bulkBar(list)}
-        {list.length === 0 ? (
-          <EmptyState dark={dark} icon={List} title="Aucune tâche" subtitle="Ajustez les filtres ou créez une tâche." />
-        ) : (
-          <div className="space-y-2">{list.slice(0, 300).map((t) => row(t, premium ? { selectable: true, selected: selected.includes(t.id), onSelect: toggleSelect } : {}))}</div>
-        )}
-        {list.length > 300 && <div className={`text-xs ${s.sub}`}>300 premières tâches affichées — affinez avec les filtres.</div>}
       </div>
     );
   };
@@ -10704,7 +10636,7 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
     );
   };
 
-  const VUES = [["jour", "Aujourd'hui", Sun], ["projets", "Projets", FolderOpen], ["taches", "Tâches", List], ...(premium ? [["tableau", "Tableau", LayoutGrid]] : []), ["calendrier", "Calendrier", CalendarClock], ["budget", "Budget", TrendingUp], ["bilan", "Bilan", Target]];
+  const VUES = [["projets", "Projets", FolderOpen], ...(premium ? [["tableau", "Tableau", LayoutGrid]] : []), ["calendrier", "Calendrier", CalendarClock], ["budget", "Budget", TrendingUp], ["bilan", "Bilan", Target]];
   const isWorkView = !["budget", "bilan"].includes(vueEff);
 
   if (error) {
@@ -10761,9 +10693,6 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
               >
                 <Icon size={15} aria-hidden="true" />
                 {l}
-                {k === "jour" && dueCount > 0 && (
-                  <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{dueCount}</span>
-                )}
               </button>
             </Fragment>
           ))}
@@ -10775,9 +10704,7 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
         <div className="flex h-40 items-center justify-center"><RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={20} /></div>
       ) : (
         <div key={vueEff} className="pl-fade-in">
-          {vueEff === "jour" && vueJour()}
           {vueEff === "projets" && vueProjets()}
-          {vueEff === "taches" && vueTaches()}
           {vueEff === "tableau" && vueTableau()}
           {vueEff === "calendrier" && vueCalendrier()}
           {vueEff === "budget" && <MarketingBudgetView dark={dark} data={data} siteList={site && site !== "Multi site" ? [site] : plateList} canEditBudget={canEditBudget} me={me} showToast={showToast} onOpenProject={setOpenProject} />}
