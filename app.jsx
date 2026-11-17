@@ -8554,6 +8554,24 @@ function marketingBilanTotals(projects, resultsByProject, expenses) {
   t.costs = marketingCosts(t.depense, t);
   return t;
 }
+function marketingCsvNum(n) { return n == null || !Number.isFinite(n) ? "" : (Math.round(n * 100) / 100).toString().replace(".", ","); }
+// Export CSV (séparateur « ; » et BOM pour une ouverture directe dans Excel).
+function marketingDownloadCsv(name, rows) {
+  const esc = (v) => { const t = v == null ? "" : String(v); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const csv = "\uFEFF" + rows.map((r) => r.map(esc).join(";")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+// Coût comparé à la référence (groupe) : vert si au moins 15 % moins cher, rouge si 15 % plus cher.
+function marketingCostTone(cost, ref, dark) {
+  if (cost == null || ref == null || !(ref > 0)) return "";
+  if (cost <= ref * 0.85) return dark ? "text-emerald-400" : "text-emerald-700";
+  if (cost >= ref * 1.15) return dark ? "text-rose-400" : "text-rose-600";
+  return "";
+}
 function marketingRate(num, den) { return den > 0 ? `${Math.round((num / den) * 100)} %` : "—"; }
 function marketingEuroOrDash(n) { return n == null ? "—" : marketingEuro(n); }
 
@@ -8714,7 +8732,7 @@ function marketingRedateDraft(draft, deadline) {
 }
 
 // Texte prêt à coller (mail, WhatsApp, point d'équipe).
-function marketingDigest({ tasks, projects, today, scopeLabel, risks }) {
+function marketingDigest({ tasks, projects, today, scopeLabel, risks, siteLabel }) {
   const todayDay = new Date(today + "T12:00:00").getDay();
   const monday = marketingAddDays(today, -((todayDay + 6) % 7));
   const weekEnd = marketingAddDays(today, 7);
@@ -8726,7 +8744,7 @@ function marketingDigest({ tasks, projects, today, scopeLabel, risks }) {
   const relances = open.filter((t) => t.relance && t.relance <= today);
   const upcoming = open.filter((t) => t.echeance && t.echeance >= today && t.echeance <= weekEnd).sort((a, b) => a.echeance.localeCompare(b.echeance));
   const activeProjects = projects.filter((p) => p.statut !== "Terminé").sort((a, b) => (a.deadline || "9999").localeCompare(b.deadline || "9999"));
-  const out = [`Point marketing Ford Caen — ${marketingFrDate(today, true)}${scopeLabel ? " · " + scopeLabel : ""}`, ""];
+  const out = [`Point marketing ${siteLabel || "toutes plaques"} — ${marketingFrDate(today, true)}${scopeLabel ? " · " + scopeLabel : ""}`, ""];
   const block = (title, items, fmt) => { out.push(`${title} (${items.length})`); if (items.length) items.forEach((t) => out.push(fmt(t))); else out.push("  —"); out.push(""); };
   block("Terminé cette semaine", doneWeek, (t) => line(t));
   block("En retard", late, (t) => line(t, `échéance ${marketingFrDate(t.echeance)}`));
@@ -9103,6 +9121,45 @@ async function marketingCopy(txt, showToast, okMsg) {
     document.body.removeChild(ta);
     showToast(ok ? okMsg : "Copie impossible", { type: ok ? "success" : "error" });
   } catch (e2) { showToast("Copie impossible", { type: "error" }); }
+}
+
+function MarketingResultsSection({ dark, project, result, depense, canEdit, onSave, showToast }) {
+  const s = marketingStyles(dark);
+  const init = () => Object.fromEntries(MARKETING_RESULT_FIELDS.map((k) => [k, result?.[k] != null ? String(result[k]) : ""]));
+  const [vals, setVals] = useState(init);
+  const sig = MARKETING_RESULT_FIELDS.map((k) => result?.[k] ?? "").join("|");
+  useEffect(() => { setVals(init()); }, [sig, project.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [busy, setBusy] = useState(false);
+  const commit = async () => {
+    const changed = MARKETING_RESULT_FIELDS.some((k) => (marketingParseCount(vals[k]) ?? "") !== (result?.[k] ?? ""));
+    if (!changed) return;
+    setBusy(true);
+    try { await onSave(vals); }
+    catch (e) { showToast(`Enregistrement impossible : ${e.message || e}`, { type: "error" }); setVals(init()); }
+    finally { setBusy(false); }
+  };
+  const live = Object.fromEntries(MARKETING_RESULT_FIELDS.map((k) => [k, marketingParseCount(vals[k])]));
+  const costs = marketingCosts(depense, live);
+  if (!canEdit && !result) return null;
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <div className={`text-xs font-bold uppercase tracking-widest ${s.sub}`}>Résultats de l'opération</div>
+        <div className={`text-xs ${s.sub}`}>Dépensé : <b className={s.title}>{marketingEuro(depense)}</b></div>
+      </div>
+      <div className={`grid grid-cols-2 gap-2 sm:grid-cols-4 ${busy ? "opacity-60" : ""}`}>
+        {MARKETING_RESULT_FIELDS.map((k) => (
+          <div key={k} className={`rounded-xl border p-2.5 ${s.card}`}>
+            <div className={`text-[11px] font-semibold ${s.sub}`}>{MARKETING_RESULT_LABELS[k]}</div>
+            {canEdit ? (
+              <input className={`${s.input} mt-1 !py-1.5`} inputMode="numeric" aria-label={MARKETING_RESULT_LABELS[k]} value={vals[k]} onChange={(e) => setVals((v) => ({ ...v, [k]: e.target.value }))} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+            ) : <div className={`mt-1 text-lg font-bold ${s.title}`}>{result?.[k] ?? "—"}</div>}
+            <div className={`mt-1 text-[11px] ${s.sub}`}>{MARKETING_COST_LABELS[k]} : <b className={s.title}>{marketingEuroOrDash(costs[k])}</b></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function MarketingLinksSection({ dark, links, onAdd, onRemove, showToast }) {
@@ -9680,6 +9737,7 @@ function MarketingProjectFiche({ dark, defaultSite, projectId, duplicateOf, prem
         {!isNew && v2 && (
           <>
             <MarketingBudgetSection dark={dark} project={live} expenses={ext.expenses} onAdd={(l, m) => ext.addExpense(projectId, l, m)} onRemove={ext.removeExpense} showToast={showToast} />
+            <MarketingResultsSection dark={dark} project={live} result={ext.results.find((r) => r.project_id === projectId)} depense={ext.expenses.filter((x) => x.project_id === projectId).reduce((a, x) => a + Number(x.montant || 0), 0)} canEdit={!ext.readOnly} onSave={(vals) => ext.saveResult(projectId, vals)} showToast={showToast} />
             <MarketingLinksSection dark={dark} links={ext.links.filter((l) => l.project_id === projectId)} onAdd={(x) => ext.addLink({ ...x, project_id: projectId })} onRemove={ext.removeLink} showToast={showToast} />
           </>
         )}
@@ -9837,6 +9895,14 @@ function MarketingBudgetView({ dark, data, siteList, canEditBudget, me, showToas
     const bySvc = MARKETING_SERVICES.map((sv) => [sv, stats.reduce((a, [, st]) => a + st.services[sv].budget, 0), stats.reduce((a, [, st]) => a + st.services[sv].depense, 0)]);
     return { budget, depense, withBudget, multi, depBudgeted, pct, bySvc };
   }, [stats, data.projects, data.expenses, year]);
+  const exportCsv = () => {
+    const rows = [["Site", "Année", "Service", "Budget", "Consommé", "Reste", "% consommé"]];
+    stats.forEach(([site, st]) => {
+      rows.push([site, year, "Total", marketingCsvNum(st.budget), marketingCsvNum(st.depense), marketingCsvNum(st.reste), st.budget != null ? st.rawPct : ""]);
+      MARKETING_SERVICES.forEach((sv) => { const x = st.services[sv]; rows.push([site, year, sv, marketingCsvNum(x.budget), marketingCsvNum(x.depense), marketingCsvNum(x.reste), x.budget != null ? x.rawPct : ""]); });
+    });
+    marketingDownloadCsv(`budget-marketing-${year}.csv`, rows);
+  };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -9844,6 +9910,7 @@ function MarketingBudgetView({ dark, data, siteList, canEditBudget, me, showToas
           {years.map((y) => <option key={y} value={y}>Budget {y}</option>)}
         </select>
         <div className={`text-xs ${s.sub}`}>Consommé = dépenses saisies dans les projets du site, datées de l'année.</div>
+        <button type="button" onClick={exportCsv} className={`${s.ghostBtn} ml-auto flex items-center gap-1.5`}><Download size={14} />Exporter CSV</button>
       </div>
       {siteList.length > 1 && (
         <div className={`rounded-2xl border p-4 ${s.card}`}>
@@ -9874,7 +9941,7 @@ function MarketingBudgetView({ dark, data, siteList, canEditBudget, me, showToas
 }
 
 // ───────────── Bilan des opérations (coûts par lead / RDV / proposition / vente) ─────────────
-function MarketingBilanRow({ dark, project, result, depense, canEdit, onSave, onOpenProject, showToast }) {
+function MarketingBilanRow({ dark, refCosts, project, result, depense, canEdit, onSave, onOpenProject, showToast }) {
   const s = marketingStyles(dark);
   const init = () => Object.fromEntries(MARKETING_RESULT_FIELDS.map((k) => [k, result?.[k] != null ? String(result[k]) : ""]));
   const [vals, setVals] = useState(init);
@@ -9896,7 +9963,7 @@ function MarketingBilanRow({ dark, project, result, depense, canEdit, onSave, on
     <tr className={`border-t ${dark ? "border-zinc-800" : "border-stone-100"} ${busy ? "opacity-60" : ""}`}>
       <td className="px-2 py-2 text-left">
         <button type="button" onClick={() => onOpenProject(project.id)} className={`block max-w-[220px] truncate text-left text-sm font-semibold hover:underline ${s.title}`}>{project.titre}</button>
-        <div className={`text-[11px] ${s.sub}`}>{project.site} · {project.statut} · {marketingProjectYear(project)}</div>
+        <div className={`text-[11px] ${s.sub}`}>{project.site}{project.service ? ` · ${project.service}` : ""} · {project.statut} · {marketingProjectYear(project)}</div>
       </td>
       <td className={cell}>{marketingEuro(depense)}</td>
       {MARKETING_RESULT_FIELDS.map((k) => (
@@ -9914,7 +9981,7 @@ function MarketingBilanRow({ dark, project, result, depense, canEdit, onSave, on
           ) : <span className={`text-sm ${s.title}`}>{result?.[k] ?? "—"}</span>}
         </td>
       ))}
-      {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`${cell} ${dark ? "bg-zinc-900/40" : "bg-stone-50/70"}`}>{marketingEuroOrDash(costs[k])}</td>)}
+      {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 text-right text-sm whitespace-nowrap font-semibold ${dark ? "bg-zinc-900/40" : "bg-stone-50/70"} ${marketingCostTone(costs[k], refCosts?.[k], dark) || s.title}`}>{marketingEuroOrDash(costs[k])}</td>)}
     </tr>
   );
 }
@@ -9924,10 +9991,11 @@ function MarketingBilanView({ dark, data, readOnly, siteList, siteFilter, me, sh
   const [year, setYear] = useState(() => loadLocal("dsr:marketing-bilan-year", "tout"));
   useEffect(() => { saveLocal("dsr:marketing-bilan-year", year); }, [year]);
   const [onlyTodo, setOnlyTodo] = useState(false);
+  const [service, setService] = useState("");
   const resultsByProject = useMemo(() => new Map(data.results.map((r) => [r.project_id, r])), [data.results]);
   const depByProject = useMemo(() => { const m = new Map(); data.expenses.forEach((x) => m.set(x.project_id, (m.get(x.project_id) || 0) + Number(x.montant || 0))); return m; }, [data.expenses]);
   const years = useMemo(() => [...new Set(data.projects.map(marketingProjectYear))].sort((a, b) => b - a), [data.projects]);
-  const visible = useMemo(() => data.projects.filter((p) => year === "tout" || marketingProjectYear(p) === Number(year)), [data.projects, year]);
+  const visible = useMemo(() => data.projects.filter((p) => (year === "tout" || marketingProjectYear(p) === Number(year)) && (!service || p.service === service)), [data.projects, year, service]);
   const hasMulti = visible.some((p) => p.site === "Multi site");
   const rows = useMemo(
     () => [...siteList, ...(hasMulti ? ["Multi site"] : [])].map((site) => [site, marketingBilanTotals(visible.filter((p) => (p.site || "Ford Caen") === site), resultsByProject, data.expenses)]),
@@ -9939,6 +10007,17 @@ function MarketingBilanView({ dark, data, readOnly, siteList, siteFilter, me, sh
     .filter((p) => !onlyTodo || !resultsByProject.has(p.id))
     .sort((a, b) => (b.deadline || b.created_at || "").localeCompare(a.deadline || a.created_at || "")), [visible, siteFilter, onlyTodo, resultsByProject]);
   const th = `px-2 py-2 text-[10px] font-bold uppercase tracking-widest ${s.sub}`;
+  const exportCsv = () => {
+    const head = ["Opération", "Site", "Service", "Statut", "Année", "Dépensé", ...MARKETING_RESULT_FIELDS.map((k) => MARKETING_RESULT_LABELS[k]), ...MARKETING_RESULT_FIELDS.map((k) => MARKETING_COST_LABELS[k])];
+    const out = [head];
+    ops.forEach((p) => {
+      const r = resultsByProject.get(p.id); const dep = depByProject.get(p.id) || 0; const c = marketingCosts(dep, r);
+      out.push([p.titre, p.site, p.service || "", p.statut, marketingProjectYear(p), marketingCsvNum(dep), ...MARKETING_RESULT_FIELDS.map((k) => r?.[k] ?? ""), ...MARKETING_RESULT_FIELDS.map((k) => marketingCsvNum(c[k]))]);
+    });
+    out.push([]);
+    [...rows.map(([site, t]) => [`TOTAL ${site}`, t]), [`TOTAL ${groupLabel}`, group]].forEach(([label, t]) => out.push([label, "", "", "", "", marketingCsvNum(t.depenseTotal), ...MARKETING_RESULT_FIELDS.map((k) => (t.saisies ? t[k] : "")), ...MARKETING_RESULT_FIELDS.map((k) => marketingCsvNum(t.costs[k]))]));
+    marketingDownloadCsv(`bilan-marketing-${year === "tout" ? "toutes-annees" : year}.csv`, out);
+  };
   const groupLabel = readOnly ? "Total" : "Groupe";
   const kpi = (k) => (
     <div key={k} className={`rounded-xl border px-4 py-3 ${s.card}`}>
@@ -9953,7 +10032,12 @@ function MarketingBilanView({ dark, data, readOnly, siteList, siteFilter, me, sh
           <option value="tout">Toutes les années</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
-        <div className={`text-xs ${s.sub}`}>Coût = dépenses du projet ÷ résultat. Seules les opérations dont les résultats sont saisis entrent dans les coûts.</div>
+        <select value={service} onChange={(e) => setService(e.target.value)} className={`${s.input} !w-auto`} aria-label="Service">
+          <option value="">Tous les services</option>
+          {MARKETING_SERVICES.map((x) => <option key={x} value={x}>{x}</option>)}
+        </select>
+        <div className={`min-w-[200px] flex-1 text-xs ${s.sub}`}>Coût = dépenses du projet ÷ résultat. Seules les opérations dont les résultats sont saisis entrent dans les coûts. <span className={dark ? "text-emerald-400" : "text-emerald-700"}>Vert</span> / <span className={dark ? "text-rose-400" : "text-rose-600"}>rouge</span> : au moins 15 % sous / au-dessus du coût moyen.</div>
+        <button type="button" onClick={exportCsv} className={`${s.ghostBtn} flex items-center gap-1.5`}><Download size={14} />Exporter CSV</button>
       </div>
 
       <section>
@@ -9989,7 +10073,7 @@ function MarketingBilanView({ dark, data, readOnly, siteList, siteFilter, me, sh
                   <td className={`px-2 py-2 ${s.muted}`}>{t.saisies}/{t.ops}</td>
                   <td className={`px-2 py-2 ${s.title}`}>{marketingEuro(t.depenseTotal)}</td>
                   {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 ${s.title}`}>{t.saisies ? t[k] : "—"}</td>)}
-                  {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 font-semibold ${s.title}`}>{marketingEuroOrDash(t.costs[k])}</td>)}
+                  {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 font-semibold ${marketingCostTone(t.costs[k], group.costs[k], dark) || s.title}`}>{marketingEuroOrDash(t.costs[k])}</td>)}
                 </tr>
               ))}
               <tr className={`border-t-2 text-right font-bold ${dark ? "border-zinc-700 bg-zinc-900/60" : "border-stone-300 bg-stone-50"}`}>
@@ -10025,7 +10109,7 @@ function MarketingBilanView({ dark, data, readOnly, siteList, siteFilter, me, sh
               </thead>
               <tbody>
                 {ops.map((p) => (
-                  <MarketingBilanRow key={p.id} dark={dark} project={p} result={resultsByProject.get(p.id)} depense={depByProject.get(p.id) || 0} canEdit={!readOnly} onSave={(id, vals) => data.saveResult(id, vals, me)} onOpenProject={onOpenProject} showToast={showToast} />
+                  <MarketingBilanRow key={p.id} dark={dark} refCosts={group.costs} project={p} result={resultsByProject.get(p.id)} depense={depByProject.get(p.id) || 0} canEdit={!readOnly} onSave={(id, vals) => data.saveResult(id, vals, me)} onOpenProject={onOpenProject} showToast={showToast} />
                 ))}
               </tbody>
             </table>
@@ -10081,6 +10165,12 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
   const [dragId, setDragId] = useState(null);
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const depByProject = useMemo(() => { const m = new Map(); data.expenses.forEach((x) => m.set(x.project_id, (m.get(x.project_id) || 0) + Number(x.montant || 0))); return m; }, [data.expenses]);
+  const resultByProject = useMemo(() => new Map(data.results.map((r) => [r.project_id, r])), [data.results]);
+  const [projQuery, setProjQuery] = useState("");
+  const [projSort, setProjSort] = useState(() => loadLocal("dsr:marketing-proj-sort", "deadline"));
+  useEffect(() => { saveLocal("dsr:marketing-proj-sort", projSort); }, [projSort]);
+  const [projService, setProjService] = useState("");
   const scoped = useMemo(
     () => tasks.filter((t) => !scope || (scope === "__none" ? !t.assignee : t.assignee === scope)),
     [tasks, scope]
@@ -10094,7 +10184,7 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
     return m;
   }, [projects, tasks, today, data.expenses, data.v2]);
   const atRisk = useMemo(() => projects.filter((p) => riskByProject.get(p.id)?.level), [projects, riskByProject]);
-  const ext = { v2: data.v2, comments: data.comments, links: data.links, expenses: data.expenses, addComment: data.addComment, removeComment: data.removeComment, addLink: data.addLink, removeLink: data.removeLink, addExpense: data.addExpense, removeExpense: data.removeExpense };
+  const ext = { v2: data.v2, comments: data.comments, links: data.links, expenses: data.expenses, addComment: data.addComment, removeComment: data.removeComment, addLink: data.addLink, removeLink: data.removeLink, addExpense: data.addExpense, removeExpense: data.removeExpense, results: data.results, readOnly, saveResult: (id, vals) => data.saveResult(id, vals, me) };
 
   const closeTask = useCallback(() => { setOpenTask(null); setTaskPrefill(null); }, []);
   const closeProject = useCallback(() => { setOpenProject(null); setDupSource(null); }, []);
@@ -10140,7 +10230,7 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
   // ── Premium : point de la semaine ──
   const copyDigest = () => {
     const risks = projects.filter((p) => riskByProject.get(p.id)?.level).map((p) => ({ titre: p.titre, reasons: riskByProject.get(p.id).reasons }));
-    const txt = marketingDigest({ tasks: scoped, projects, today, scopeLabel: scope && scope !== "__none" ? scope : "", risks });
+    const txt = marketingDigest({ tasks: scoped, projects, today, scopeLabel: scope && scope !== "__none" ? scope : "", risks, siteLabel: site || (readOnly ? plateList.join(", ") : "") });
     return marketingCopy(txt, showToast, "Point de la semaine copié — prêt à coller");
   };
 
@@ -10206,6 +10296,33 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
     [projects, today]
   );
 
+  // Bandeau pilotage : budget de l'année en cours (site filtré ou toutes les plaques visibles) + alertes à 85 %.
+  const budgetStrip = () => {
+    const year = new Date().getFullYear();
+    const list = site && site !== "Multi site" ? [site] : plateList;
+    const stats = list.map((st) => [st, marketingSiteBudget(st, year, data.budgets, data.projects, data.expenses)]).filter(([, st]) => st.budget != null);
+    if (!stats.length) return null;
+    const budget = stats.reduce((a, [, st]) => a + st.budget, 0);
+    const depense = stats.reduce((a, [, st]) => a + st.depense, 0);
+    const pct = Math.round((depense / budget) * 100);
+    const hot = stats.filter(([, st]) => st.rawPct >= 85);
+    return (
+      <button type="button" onClick={() => changeVue("budget")} className={`pl-interactive w-full rounded-2xl border p-4 text-left ${s.card} ${dark ? "hover:border-zinc-700" : "hover:border-stone-300"}`}>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className={`text-xs font-bold uppercase tracking-widest ${s.sub}`}>Budget marketing {year}{list.length === 1 ? ` · ${list[0]}` : ""}</div>
+          <div className={`text-sm font-semibold ${pct > 100 ? "text-rose-500" : s.title}`}>{marketingEuro(depense)} / {marketingEuro(budget)} · {pct} %</div>
+        </div>
+        <div className="mt-2"><MarketingProgressBar dark={dark} pct={Math.min(100, pct)} over={pct > 100} /></div>
+        {hot.length > 0 && (
+          <div className={`mt-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold ${hot.some(([, st]) => st.over) ? "text-rose-500" : dark ? "text-amber-300" : "text-amber-700"}`}>
+            <AlertTriangle size={13} />
+            {hot.map(([st, x]) => `${st.replace("Ford ", "")} ${x.rawPct} %`).join(" · ")} du budget consommé
+          </div>
+        )}
+      </button>
+    );
+  };
+
   const vueJour = () => {
     const section = (title, tone, items) =>
       items.length === 0 ? null : (
@@ -10229,6 +10346,7 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
           {kpi("Relances à faire", relancesDues, relancesDues ? (dark ? "text-amber-300" : "text-amber-700") : "")}
           {kpi("Projets actifs", projects.filter((p) => p.statut !== "Terminé").length)}
         </div>
+        {budgetStrip()}
         {atRisk.length > 0 && (
           <div role="alert" className={`rounded-2xl border p-3 ${dark ? "border-rose-500/40 bg-rose-500/10" : "border-rose-300 bg-rose-50"}`}>
             <div className={`mb-2 flex items-center gap-2 text-sm font-bold ${dark ? "text-rose-200" : "text-rose-800"}`}>
@@ -10279,7 +10397,9 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
           <div className={`min-w-0 break-words text-sm font-bold ${s.title}`}>{p.titre}</div>
           <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" style={{ background: MARKETING_PROJECT_COLORS[p.statut] }}>{p.statut}</span>
         </div>
-        <div className={`mt-1 flex flex-wrap items-center gap-x-2 text-xs ${s.sub}`}>
+        <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ${s.sub}`}>
+          {!site && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${dark ? "bg-blue-500/15 text-blue-300" : "bg-blue-50 text-blue-700"}`}>{(p.site || "Ford Caen").replace("Ford ", "")}</span>}
+          {p.service && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>{p.service}</span>}
           {p.categorie && <span>{p.categorie}</span>}
           {p.responsable && <span>· {p.responsable}</span>}
         </div>
@@ -10303,24 +10423,60 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
             Budget {marketingEuro(bud.depense)} / {marketingEuro(bud.prevu)}{bud.over ? " · dépassé" : ""}
           </div>
         )}
+        {(() => {
+          const r = resultByProject.get(p.id);
+          if (!r || MARKETING_RESULT_FIELDS.every((k) => r[k] == null)) return null;
+          const c = marketingCosts(depByProject.get(p.id) || 0, r);
+          return (
+            <div className={`mt-1 text-[11px] ${s.sub}`}>
+              {r.leads ?? 0} leads · {r.rdv ?? 0} RDV · {r.ventes ?? 0} vente{(r.ventes || 0) > 1 ? "s" : ""}{c.leads != null ? ` · ${marketingEuro(c.leads)}/lead` : ""}
+            </div>
+          );
+        })()}
       </button>
     );
   }
   const vueProjets = () => {
+    const q = projQuery.trim().toLowerCase();
+    const sorters = {
+      deadline: (x, y) => (x.deadline || "9999").localeCompare(y.deadline || "9999"),
+      recent: (x, y) => (y.created_at || "").localeCompare(x.created_at || ""),
+      depense: (x, y) => (depByProject.get(y.id) || 0) - (depByProject.get(x.id) || 0),
+      nom: (x, y) => x.titre.localeCompare(y.titre, "fr"),
+    };
     const list = projects
       .filter((p) => (projFilter === "actifs" ? p.statut !== "Terminé" : projFilter === "termines" ? p.statut === "Terminé" : true))
+      .filter((p) => !projService || p.service === projService)
+      .filter((p) => !q || `${p.titre} ${p.description || ""} ${p.categorie || ""} ${p.responsable || ""}`.toLowerCase().includes(q))
       .filter((p) => {
         if (!scope) return true;
         if (scope === "__none") return !p.responsable;
         return p.responsable === scope || tasks.some((t) => t.project_id === p.id && t.assignee === scope);
       })
-      .sort((a, b) => (a.deadline || "9999").localeCompare(b.deadline || "9999"));
+      .sort(sorters[projSort] || sorters.deadline);
+    const chip = (active) => `pl-interactive rounded-lg px-3 py-1.5 text-sm font-medium ${active ? (dark ? "bg-zinc-800 text-zinc-100" : "bg-stone-200 text-stone-900") : s.muted}`;
     return (
       <div className="space-y-4">
-        <div className="flex gap-1.5">
-          {[["actifs", "En cours"], ["termines", "Terminés"], ["tous", "Tous"]].map(([k, l]) => (
-            <button key={k} onClick={() => setProjFilter(k)} className={`pl-interactive rounded-lg px-3 py-1.5 text-sm font-medium ${projFilter === k ? (dark ? "bg-zinc-800 text-zinc-100" : "bg-stone-200 text-stone-900") : s.muted}`}>{l}</button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1.5">
+            {[["actifs", "En cours"], ["termines", "Terminés"], ["tous", "Tous"]].map(([k, l]) => (
+              <button key={k} onClick={() => setProjFilter(k)} className={chip(projFilter === k)}>{l}</button>
+            ))}
+          </div>
+          <span className={`hidden h-5 w-px sm:block ${dark ? "bg-zinc-800" : "bg-stone-200"}`} />
+          <div className="flex gap-1.5">
+            {["", ...MARKETING_SERVICES].map((sv) => (
+              <button key={sv || "all"} onClick={() => setProjService(sv)} className={chip(projService === sv)}>{sv || "Tous services"}</button>
+            ))}
+          </div>
+          <input className={`${s.input} !w-52`} placeholder="Rechercher un projet…" value={projQuery} onChange={(e) => setProjQuery(e.target.value)} aria-label="Rechercher un projet" />
+          <select className={`${s.input} !w-auto`} value={projSort} onChange={(e) => setProjSort(e.target.value)} aria-label="Trier les projets">
+            <option value="deadline">Tri : deadline</option>
+            <option value="recent">Tri : plus récents</option>
+            <option value="depense">Tri : dépenses</option>
+            <option value="nom">Tri : nom</option>
+          </select>
+          <span className={`ml-auto text-xs ${s.sub}`}>{list.length} projet{list.length > 1 ? "s" : ""}</span>
         </div>
         {list.length === 0 ? (
           <EmptyState dark={dark} icon={Megaphone} title="Aucun projet ici" subtitle="Créez un projet vide ou partez d'un modèle (opération commerciale, portes ouvertes…)." />
@@ -10548,7 +10704,8 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
     );
   };
 
-  const VUES = [["jour", "Aujourd'hui"], ["projets", "Projets"], ["taches", "Tâches"], ...(premium ? [["tableau", "Tableau"]] : []), ["calendrier", "Calendrier"], ["budget", "Budget"], ["bilan", "Bilan"]];
+  const VUES = [["jour", "Aujourd'hui", Sun], ["projets", "Projets", FolderOpen], ["taches", "Tâches", List], ...(premium ? [["tableau", "Tableau", LayoutGrid]] : []), ["calendrier", "Calendrier", CalendarClock], ["budget", "Budget", TrendingUp], ["bilan", "Bilan", Target]];
+  const isWorkView = !["budget", "bilan"].includes(vueEff);
 
   if (error) {
     return (
@@ -10561,25 +10718,27 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className={`text-[26px] font-semibold leading-8 tracking-tight ${dark ? "text-zinc-50" : "text-stone-900"}`}>Marketing</h1>
-          <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${dark ? "border-amber-400/40 bg-amber-400/10 text-amber-300" : "border-amber-400/60 bg-amber-50 text-amber-800"}`}>
-            <Sparkles size={12} />Premium
-          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
+            {isWorkView && <button onClick={copyDigest} className={s.ghostBtn}>Copier le point de la semaine</button>}
+            {!readOnly && isWorkView && <button onClick={() => newTask()} className={s.ghostBtn}>Nouvelle tâche</button>}
+            {!readOnly && <button onClick={newProject} className={s.primaryBtn}>Nouveau projet</button>}
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
           <select value={site} onChange={(e) => setSite(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par site">
             <option value="">{readOnly && sites ? "Ma concession + multi-sites" : "Toutes les plaques"}</option>
             {siteOptions.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
-          <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par personne">
-            <option value="">Toute l'équipe</option>
-            {members.map((m) => <option key={m}>{m}</option>)}
-            <option value="__none">Non attribuées</option>
-          </select>
-          <div className="ml-auto flex flex-wrap gap-2">
-            {premium && <button onClick={copyDigest} className={s.ghostBtn}>Copier le point de la semaine</button>}
-            {!readOnly && <button onClick={() => newTask()} className={s.ghostBtn}>Nouvelle tâche</button>}
-            {!readOnly && <button onClick={newProject} className={s.primaryBtn}>Nouveau projet</button>}
-          </div>
+          {isWorkView && (
+            <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par personne">
+              <option value="">Toute l'équipe</option>
+              {members.map((m) => <option key={m}>{m}</option>)}
+              <option value="__none">Non attribuées</option>
+            </select>
+          )}
+          {(site || (scope && isWorkView)) && (
+            <button type="button" onClick={() => { setSite(""); setScope(""); }} className={`text-xs font-semibold underline ${s.muted}`}>Réinitialiser les filtres</button>
+          )}
         </div>
       </div>
 
@@ -10588,22 +10747,29 @@ function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = 
           Lecture seule — vous consultez les projets, budgets et bilans de {plateList.join(", ") || "votre concession"} (et des actions multi-sites). {plateList.some(canEditBudget) ? "Vous pouvez renseigner le budget annuel dans l'onglet Budget. " : ""}La gestion des projets est assurée par l'équipe Marketing.
         </div>
       )}
-      <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : {!readOnly && <><b>N</b> nouvelle tâche · <b>P</b> nouveau projet · </>}<b>1–7</b> changer de vue</div>
 
-      <div className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
-        {VUES.map(([k, l]) => (
-          <button
-            key={k}
-            onClick={() => changeVue(k)}
-            className={`pl-interactive flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium ${vueEff === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
-          >
-            {l}
-            {k === "jour" && dueCount > 0 && (
-              <span className={`flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${vueEff === k ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>{dueCount}</span>
-            )}
-          </button>
-        ))}
+      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className={`inline-flex min-w-max items-center gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`} role="tablist" aria-label="Vues Marketing">
+          {VUES.map(([k, l, Icon]) => (
+            <Fragment key={k}>
+              {k === "budget" && <span className={`mx-1 h-5 w-px ${dark ? "bg-zinc-700" : "bg-stone-200"}`} aria-hidden="true" />}
+              <button
+                role="tab"
+                aria-selected={vueEff === k}
+                onClick={() => changeVue(k)}
+                className={`pl-interactive flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${vueEff === k ? (dark ? "bg-blue-500/10 text-blue-300" : "bg-blue-50 text-blue-700") : dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}
+              >
+                <Icon size={15} aria-hidden="true" />
+                {l}
+                {k === "jour" && dueCount > 0 && (
+                  <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{dueCount}</span>
+                )}
+              </button>
+            </Fragment>
+          ))}
+        </div>
       </div>
+      <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : {!readOnly && <><b>N</b> nouvelle tâche · <b>P</b> nouveau projet · </>}<b>1–{VUES.length}</b> changer de vue</div>
 
       {loading ? (
         <div className="flex h-40 items-center justify-center"><RefreshCw className={`animate-spin ${dark ? "text-zinc-600" : "text-stone-300"}`} size={20} /></div>
