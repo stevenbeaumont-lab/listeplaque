@@ -4115,9 +4115,13 @@ const PROSPECTION_TEAM_COLORS = {
 const PROSPECTION_SITE_CFG = {
   "Ford Caen": { center: PROSPECTION_CAEN_CENTER, centerLabel: "Centre de Caen", commerciaux: PROSPECTION_COMMERCIAUX_CAEN, campagnes: true },
   "Ford St-Lô": { center: { lat: 49.1156, lng: -1.0912 }, centerLabel: "Centre de Saint-Lô", commerciaux: ["Mathys"], campagnes: false,
+    chalandise: PROSPECTION_STLO_CHALANDISE,
     // Trait de séparation de la zone : de Saint-Lô à Avranches (secteur ouest / secteur est).
     splitLine: { a: { lat: 49.1156, lng: -1.0912, label: "Saint-Lô" }, b: { lat: 48.6842, lng: -1.3586, label: "Avranches" } } },
 };
+// Zone de chalandise de Ford Saint-Lô : contour relevé sur la carte du 4 nov. 2026 (partie visible, précision ≈ 500 m ;
+// le haut (Carentan) et le bas (Mortain / Avranches) de la zone étaient coupés sur la capture).
+const PROSPECTION_STLO_CHALANDISE = [[49.4017,-0.9633],[49.4017,-1.0238],[49.3954,-1.0265],[49.3909,-1.0348],[49.3892,-1.0815],[49.382,-1.098],[49.3623,-1.1254],[49.3605,-1.1351],[49.3704,-1.1639],[49.3713,-1.1886],[49.3811,-1.2134],[49.3775,-1.2326],[49.3793,-1.2464],[49.3677,-1.2615],[49.3668,-1.3206],[49.3587,-1.3233],[49.3516,-1.3315],[49.3301,-1.3783],[49.322,-1.381],[49.3122,-1.3934],[49.2996,-1.3893],[49.2907,-1.4002],[49.2781,-1.4044],[49.2728,-1.414],[49.2701,-1.4483],[49.2754,-1.458],[49.2853,-1.4621],[49.2898,-1.4703],[49.2898,-1.4772],[49.2817,-1.4923],[49.2781,-1.5074],[49.2674,-1.5115],[49.2629,-1.5198],[49.2629,-1.5363],[49.2701,-1.5555],[49.2656,-1.5693],[49.2656,-1.5871],[49.2728,-1.5967],[49.2772,-1.6173],[49.2602,-1.6668],[49.2414,-1.6613],[49.2198,-1.6476],[49.2046,-1.6173],[49.1929,-1.6119],[49.1354,-1.6009],[49.1057,-1.616],[49.0814,-1.6173],[49.0238,-1.6022],[49.0166,-1.6105],[49.013,-1.6325],[49.0184,-1.6613],[49.0139,-1.6874],[49.0139,-1.7204],[49.0175,-1.741],[49.0139,-1.7699],[49.0184,-1.7877],[49.0184,-1.8042],[48.9859,-1.807],[48.985,-1.7616],[48.9904,-1.7438],[48.985,-1.7204],[48.9859,-1.6957],[48.9814,-1.6682],[48.9859,-1.6462],[48.9959,-1.6448],[49.004,-1.6338],[49.004,-1.5789],[48.9986,-1.5638],[48.9886,-1.561],[48.9769,-1.5693],[48.9652,-1.5706],[48.9571,-1.561],[48.9065,-1.5761],[48.8622,-1.5844],[48.8523,-1.5912],[48.8369,-1.6201],[48.8324,-1.6201],[48.8288,-1.6022],[48.8116,-1.5802],[48.8007,-1.5761],[48.7609,-1.5789],[48.7419,-1.572],[48.731,-1.5596],[48.7292,-1.5418],[48.7247,-1.5335],[48.7092,-1.5212],[48.6966,-1.5212],[48.6902,-1.5129],[48.6839,-1.4951],[48.6829,-1.4813],[48.673,-1.4717],[48.6675,-1.4566],[48.653,-1.4525],[48.6476,-1.4428],[48.6385,-1.4401],[48.6249,-1.4566],[48.6221,-1.4703],[48.6249,-1.5006],[48.6403,-1.5143],[48.6294,-1.5294],[48.633,-1.5583],[48.6285,-1.5789],[48.6149,-1.5734],[48.5985,-1.5473],[48.5803,-1.5486],[48.5785,-1.5404],[48.5712,-1.5322],[48.5531,-1.539],[48.544,-1.5486],[48.5412,-1.572],[48.5449,-1.594],[48.5412,-1.6201],[48.5449,-1.6435],[48.5412,-1.6627],[48.5458,-1.6806],[48.5421,-1.6943],[48.5458,-1.7094],[48.5421,-1.7231],[48.5449,-1.7493],[48.5321,-1.752],[48.5321,-1.5775],[48.5276,-1.5624],[48.5321,-1.539],[48.5312,-1.5294],[48.5249,-1.517],[48.5121,-1.5061],[48.4893,-1.4964],[48.4821,-1.4552],[48.462,-1.4401],[48.462,-1.3563],[48.4802,-1.3439],[48.4857,-1.3302],[48.4948,-1.3219],[48.4975,-1.3054],[48.5076,-1.278],[48.5212,-1.2656],[48.5312,-1.2628],[48.5358,-1.2546],[48.5376,-1.2354],[48.5367,-1.212],[48.5276,-1.1996],[48.5267,-1.1749],[48.5157,-1.1515],[48.5194,-1.1268],[48.5094,-1.098],[48.5066,-1.076],[48.5094,-1.0595],[48.5076,-1.0499],[48.4966,-1.0265],[48.4884,-1.0169],[48.483,-1.0169],[48.4757,-1.0251],[48.462,-1.0224],[48.462,-0.8067],[48.4757,-0.8067],[48.4757,-0.8424],[48.4802,-0.8506],[48.4893,-0.8534],[48.4985,-0.8424],[48.5221,-0.841],[48.5485,-0.8053],[48.5512,-0.7888],[48.564,-0.7723],[48.5831,-0.7723],[48.6003,-0.7517],[48.6121,-0.7503],[48.6203,-0.7393],[48.6303,-0.7421],[48.6376,-0.7627],[48.6557,-0.7682],[48.6693,-0.7572],[48.6766,-0.7462],[48.6784,-0.7366],[48.6884,-0.7366],[48.6975,-0.7696],[48.7192,-0.8025],[48.7265,-0.8053],[48.7373,-0.8245],[48.7464,-0.8273],[48.7854,-0.7764],[48.7899,-0.7435],[48.7989,-0.716],[48.8216,-0.6816],[48.8288,-0.6816],[48.836,-0.6734],[48.8378,-0.6486],[48.8487,-0.6267],[48.8632,-0.617],[48.8785,-0.5992],[48.893,-0.6129],[48.8993,-0.628],[48.8948,-0.6377],[48.8957,-0.6541],[48.9029,-0.6624],[48.9083,-0.6624],[48.9165,-0.6514],[48.9165,-0.6377],[48.9128,-0.628],[48.9174,-0.6184],[48.9183,-0.6047],[48.9264,-0.6019],[48.9291,-0.6061],[48.9291,-0.683],[48.9381,-0.6967],[48.9562,-0.6967],[48.9625,-0.6926],[48.967,-0.6954],[48.9733,-0.7105],[48.9688,-0.7256],[48.9688,-0.7421],[48.985,-0.7668],[48.9859,-0.7915],[48.9904,-0.7998],[48.9995,-0.8025],[49.0094,-0.797],[49.0166,-0.7888],[49.0202,-0.7778],[49.0283,-0.7833],[49.0445,-0.7778],[49.0418,-0.8135],[49.0355,-0.8355],[49.0382,-0.863],[49.0472,-0.8754],[49.0751,-0.8685],[49.0859,-0.8767],[49.0967,-0.874],[49.1021,-0.8589],[49.0913,-0.8314],[49.0922,-0.8273],[49.103,-0.8245],[49.1102,-0.8163],[49.1318,-0.7654],[49.1435,-0.7654],[49.1543,-0.7723],[49.157,-0.7778],[49.1588,-0.8122],[49.148,-0.8314],[49.1516,-0.8671],[49.139,-0.8809],[49.1372,-0.9015],[49.1435,-0.918],[49.1543,-0.9317],[49.1651,-0.929],[49.1884,-0.907],[49.1965,-0.8946],[49.2064,-0.8973],[49.2118,-0.9083],[49.2252,-0.9207],[49.2333,-0.9207],[49.2342,-0.9276],[49.2297,-0.9358],[49.2216,-0.9399],[49.2001,-0.9647],[49.1974,-0.9867],[49.2073,-1.021],[49.2243,-1.0361],[49.2297,-1.0609],[49.2369,-1.0691],[49.2441,-1.0691],[49.2557,-1.0554],[49.2566,-1.0279],[49.2647,-1.0155],[49.2683,-0.9839],[49.2871,-0.9757],[49.2925,-1.0045],[49.3014,-1.0141],[49.3077,-1.0141],[49.3167,-1.0032],[49.3185,-0.9935],[49.3176,-0.9825],[49.3104,-0.9674],[49.3113,-0.9619],[49.3256,-0.9551],[49.3355,-0.9427],[49.3382,-0.9331],[49.3489,-0.9344],[49.3668,-0.9606]];
 let prospectionGeoBias = PROSPECTION_CAEN_CENTER; // centre du site affiché, utilisé pour orienter le géocodage des adresses
 
 function prospectionTodayISO(d) {
@@ -5552,7 +5556,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null }) {
+function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null, chalandise = null }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
@@ -5580,6 +5584,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [mapZoom, setMapZoom] = useState(11);
   const [showOsm, setShowOsm] = useState(true);
   const [showTeamZones, setShowTeamZones] = useState(true);
+  const [showChalandise, setShowChalandise] = useState(true);
   const [industrialZones, setIndustrialZones] = useState([]);
   const [zonesLoading, setZonesLoading] = useState(false);
   const [showIndustrialZones, setShowIndustrialZones] = useState(true);
@@ -5894,6 +5899,16 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     teamZoneLayerRef.current = group;
   }, [showTeamZones, teamZones, splitLine, dark]);
 
+  // Zone de chalandise (contour du site), en arrière-plan : les points restent cliquables.
+  const chalandiseLayerRef = useRef(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (chalandiseLayerRef.current) { map.removeLayer(chalandiseLayerRef.current); chalandiseLayerRef.current = null; }
+    if (!showChalandise || !chalandise || chalandise.length < 3) return;
+    chalandiseLayerRef.current = L.polygon(chalandise, { color: dark ? "#a5b4fc" : "#4338ca", weight: 2, opacity: 0.85, fillColor: "#6366f1", fillOpacity: dark ? 0.12 : 0.1, interactive: false }).addTo(map);
+  }, [showChalandise, chalandise, dark]);
+
   // Tournée : trajet en pointillés et étapes numérotées.
   useEffect(() => {
     const map = mapRef.current;
@@ -6122,6 +6137,12 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                   <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} className="accent-blue-700" />
                   Découvrir les entreprises alentour (OSM)
                 </label>
+                {chalandise && (
+                  <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                    <input type="checkbox" checked={showChalandise} onChange={(e) => setShowChalandise(e.target.checked)} className="accent-blue-700" />
+                    Afficher la zone de chalandise
+                  </label>
+                )}
                 {(teamZones || splitLine) && (
                   <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
                     <input type="checkbox" checked={showTeamZones} onChange={(e) => setShowTeamZones(e.target.checked)} className="accent-blue-700" />
@@ -8251,7 +8272,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
         {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} isManager={!!isManager} myCommercial={myCommercial || ""} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
-        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
