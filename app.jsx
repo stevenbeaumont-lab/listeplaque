@@ -8493,6 +8493,7 @@ function marketingBudgetState(project, expenses) {
 const MARKETING_RESULT_FIELDS = ["leads", "rdv", "propositions", "ventes"];
 const MARKETING_RESULT_LABELS = { leads: "Leads", rdv: "Rendez-vous", propositions: "Propositions", ventes: "Ventes" };
 const MARKETING_COST_LABELS = { leads: "Coût / lead", rdv: "Coût / RDV", propositions: "Coût / proposition", ventes: "Coût / vente" };
+const MARKETING_SERVICES = ["VN", "VO", "APV"];
 const MARKETING_PLATES = FORD_SITES.filter((x) => x !== "Multi site");
 function marketingParseCount(v) {
   if (v === null || v === undefined || String(v).trim() === "") return null;
@@ -8507,13 +8508,28 @@ function marketingProjectYear(p) {
 function marketingExpenseSum(expenses, pred) {
   return expenses.reduce((a, x) => (pred(x) ? a + Number(x.montant || 0) : a), 0);
 }
-// Budget annuel d'un site : consommé = dépenses datées de l'année sur les projets du site.
-function marketingSiteBudget(site, year, budgets, projects, expenses) {
-  const row = budgets.find((b) => b.site === site && Number(b.annee) === year);
-  const ids = new Set(projects.filter((p) => (p.site || "Ford Caen") === site).map((p) => p.id));
-  const depense = marketingExpenseSum(expenses, (x) => ids.has(x.project_id) && String(x.date_depense || "").slice(0, 4) === String(year));
-  const budget = row && Number(row.montant) > 0 ? Number(row.montant) : null;
+// Budget annuel d'un site, réparti par service (VN / VO / APV) : consommé = dépenses datées de l'année sur les projets
+// du site (et du service). Budget du site = somme des budgets des services, à défaut le budget « Global » saisi.
+function marketingBudgetStat(budget, depense, row) {
   return { budget, depense, reste: budget != null ? budget - depense : null, pct: budget ? Math.min(100, Math.round((depense / budget) * 100)) : 0, rawPct: budget ? Math.round((depense / budget) * 100) : 0, over: budget != null && depense > budget, row };
+}
+function marketingSiteBudget(site, year, budgets, projects, expenses) {
+  const yearStr = String(year);
+  const rowOf = (service) => budgets.find((b) => b.site === site && Number(b.annee) === year && (b.service || "Global") === service);
+  const amount = (row) => (row && Number(row.montant) > 0 ? Number(row.montant) : null);
+  const siteProjects = projects.filter((p) => (p.site || "Ford Caen") === site);
+  const depOf = (pred) => {
+    const ids = new Set(siteProjects.filter(pred).map((p) => p.id));
+    return marketingExpenseSum(expenses, (x) => ids.has(x.project_id) && String(x.date_depense || "").slice(0, 4) === yearStr);
+  };
+  const services = {};
+  MARKETING_SERVICES.forEach((sv) => { const row = rowOf(sv); services[sv] = marketingBudgetStat(amount(row), depOf((p) => p.service === sv), row); });
+  const globalRow = rowOf("Global");
+  const sumServices = MARKETING_SERVICES.reduce((a, sv) => a + (services[sv].budget || 0), 0);
+  const fromServices = sumServices > 0;
+  const budget = fromServices ? sumServices : amount(globalRow);
+  const total = marketingBudgetStat(budget, depOf(() => true), globalRow);
+  return { ...total, services, globalRow, globalBudget: amount(globalRow), fromServices, nonAffecte: depOf((p) => !MARKETING_SERVICES.includes(p.service)) };
 }
 // Coûts unitaires : dépenses ÷ résultat (null si aucun résultat).
 function marketingCosts(depense, r) {
@@ -8636,7 +8652,7 @@ function marketingCleanTask(t) {
   if (!MARKETING_SITES.includes(row.site)) row.site = "Ford Caen";
   return row;
 }
-const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie", "budget", "site"];
+const MARKETING_PROJECT_FIELDS = ["titre", "description", "statut", "deadline", "responsable", "categorie", "budget", "site", "service"];
 const MARKETING_SITES = FORD_SITES; // toutes les plaques Ford (+ « Multi site » pour les actions communes)
 function marketingCleanProject(p) {
   const row = {};
@@ -8648,6 +8664,7 @@ function marketingCleanProject(p) {
   }
   if (!row.statut) row.statut = "En cours";
   if (!MARKETING_SITES.includes(row.site)) row.site = "Ford Caen";
+  if (!MARKETING_SERVICES.includes(row.service)) row.service = null;
   row.budget = marketingParseAmount(row.budget);
   return row;
 }
@@ -8791,7 +8808,7 @@ function useMarketing() {
     const maxC = (rows) => rows.reduce((a, r) => (r.created_at > a ? r.created_at : a), "");
     const sumX = xRows.reduce((a, r) => a + Number(r.montant || 0), 0);
     const buRows = bu.error ? [] : bu.data, reRows = re.error ? [] : re.data; // tables absentes tant que marketing-budgets-bilan.sql n'est pas appliqué
-    const sigB = `${buRows.map((r) => `${r.site}${r.annee}${r.montant}`).join(",")}|${reRows.length}:${maxU(reRows)}`;
+    const sigB = `${buRows.map((r) => `${r.site}${r.annee}${r.service}${r.montant}`).join(",")}|${reRows.length}:${maxU(reRows)}`;
     const sig = `${p.data.length}:${maxU(p.data)}:${p.data.map((r) => r.budget ?? "").join(",")}|${t.data.length}:${maxU(t.data)}|${m.data.map((r) => r.nom).join(",")}|${hasV2}:${cRows.length}:${maxC(cRows)}|${lRows.length}:${maxC(lRows)}|${xRows.length}:${sumX}|${sigB}`;
     if (sig !== lastSig.current) {
       lastSig.current = sig;
@@ -8915,10 +8932,10 @@ function useMarketing() {
   }, [refresh]);
 
   // Budget annuel d'un site : autorisé aux directeurs / responsables de CE site (RLS) et à l'équipe Marketing.
-  const saveBudget = useCallback(async (site, annee, montant, who) => {
+  const saveBudget = useCallback(async (site, annee, montant, who, service = "Global") => {
     const m = marketingParseAmount(montant);
     if (m === null) throw new Error("Montant invalide");
-    await marketingExec(() => supabase.from("marketing_budgets_annuels").upsert({ site, annee, montant: m, updated_by: who || null, updated_at: new Date().toISOString() }, { onConflict: "site,annee" }), 3, true);
+    await marketingExec(() => supabase.from("marketing_budgets_annuels").upsert({ site, annee, service, montant: m, updated_by: who || null, updated_at: new Date().toISOString() }, { onConflict: "site,annee,service" }), 3, true);
     await refresh();
   }, [refresh]);
   // Résultats d'une opération (équipe Marketing) : champ vide = non renseigné.
@@ -9397,8 +9414,8 @@ function MarketingProjectFiche({ dark, defaultSite, projectId, duplicateOf, prem
   const source = isNew && duplicateOf ? projects.find((x) => x.id === duplicateOf) : null;
   const [p, setP] = useState(() => {
     if (!isNew) return live;
-    if (source) return { titre: `${source.titre} (copie)`, description: source.description || "", categorie: source.categorie || "", responsable: source.responsable || me || "", statut: "À lancer", deadline: "", site: source.site || defaultSite };
-    return { titre: "", statut: "À lancer", responsable: me || "", deadline: "", categorie: "", description: "", site: defaultSite };
+    if (source) return { titre: `${source.titre} (copie)`, description: source.description || "", categorie: source.categorie || "", responsable: source.responsable || me || "", statut: "À lancer", deadline: "", site: source.site || defaultSite, service: source.service || "" };
+    return { titre: "", statut: "À lancer", responsable: me || "", deadline: "", categorie: "", description: "", site: defaultSite, service: "" };
   });
   const [draft, setDraft] = useState(() => (source ? marketingDraftFromProject(source, tasks) : []));
   const [tplId, setTplId] = useState("");
@@ -9575,6 +9592,13 @@ function MarketingProjectFiche({ dark, defaultSite, projectId, duplicateOf, prem
             </select>
           </div>
           <div>
+            <div className={s.label}>Service (budget)</div>
+            <select className={s.input} value={p.service || ""} onChange={set("service")}>
+              <option value="">— non rattaché —</option>
+              {MARKETING_SERVICES.map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </div>
+          <div>
             <div className={s.label}>Catégorie (libre)</div>
             <input className={s.input} list="marketing-categories" value={p.categorie || ""} onChange={set("categorie")} placeholder="Choisir ou écrire…" />
             <datalist id="marketing-categories">{MARKETING_CATEGORIES.map((x) => <option key={x} value={x} />)}</datalist>
@@ -9685,30 +9709,46 @@ function MarketingProgressBar({ dark, pct, over }) {
   );
 }
 
-function MarketingBudgetSiteCard({ dark, site, year, stat, projects, expenses, canEdit, onSave, onOpenProject, showToast }) {
+function MarketingBudgetInput({ dark, label, year, current, canEdit, onSave, showToast, compact }) {
   const s = marketingStyles(dark);
-  const [val, setVal] = useState(stat.budget != null ? String(stat.budget) : "");
+  const [val, setVal] = useState(current != null ? String(current) : "");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setVal(stat.budget != null ? String(stat.budget) : ""); }, [stat.budget, year]);
-  const dirty = (marketingParseAmount(val) ?? null) !== stat.budget && !(val.trim() === "" && stat.budget == null);
+  useEffect(() => { setVal(current != null ? String(current) : ""); }, [current, year]);
+  const parsed = marketingParseAmount(val);
+  const dirty = val.trim() === "" ? current != null : parsed !== null && parsed !== current;
   const save = async () => {
     setBusy(true);
-    try { await onSave(site, year, val); showToast(`Budget ${year} enregistré — ${site}`); }
+    try { await onSave(val.trim() === "" ? "0" : val); showToast("Budget enregistré"); }
     catch (e) { showToast(`Enregistrement impossible : ${e.message || e}`, { type: "error" }); }
     finally { setBusy(false); }
   };
+  if (!canEdit) return null;
+  return (
+    <div className="mt-2 flex items-end gap-2">
+      <label className="min-w-0 flex-1">
+        <div className={s.label}>{label}</div>
+        <input className={`${s.input} ${compact ? "!py-1.5" : ""}`} inputMode="decimal" placeholder="€" value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dirty && !busy && save()} />
+      </label>
+      <button type="button" onClick={save} disabled={busy || !dirty || (val.trim() !== "" && parsed === null)} className={`${s.primaryBtn} !px-3 !py-1.5 disabled:opacity-40`}>OK</button>
+    </div>
+  );
+}
+
+function MarketingBudgetSiteCard({ dark, site, year, stat, projects, expenses, canEdit, onSave, onOpenProject, showToast }) {
+  const s = marketingStyles(dark);
   const yearStr = String(year);
   const lines = projects
     .filter((p) => (p.site || "Ford Caen") === site)
     .map((p) => ({ p, dep: marketingExpenseSum(expenses, (x) => x.project_id === p.id && String(x.date_depense || "").slice(0, 4) === yearStr) }))
     .filter((l) => l.dep > 0)
     .sort((a, b) => b.dep - a.dep);
-  const tone = stat.over ? "text-rose-500" : stat.rawPct >= 85 ? (dark ? "text-amber-300" : "text-amber-700") : s.title;
+  const tone = (st) => (st.over ? "text-rose-500" : st.rawPct >= 85 ? (dark ? "text-amber-300" : "text-amber-700") : s.title);
+  const showGlobal = canEdit && (stat.globalBudget != null || !stat.fromServices);
   return (
     <div className={`rounded-2xl border p-4 ${s.card}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className={`text-sm font-bold ${s.title}`}>{site}</div>
-        <div className={`text-sm font-semibold ${tone}`}>
+        <div className={`text-sm font-semibold ${tone(stat)}`}>
           {marketingEuro(stat.depense)}{stat.budget != null ? ` / ${marketingEuro(stat.budget)}` : ""}
         </div>
       </div>
@@ -9716,24 +9756,43 @@ function MarketingBudgetSiteCard({ dark, site, year, stat, projects, expenses, c
         <>
           <div className="mt-2"><MarketingProgressBar dark={dark} pct={stat.pct} over={stat.over} /></div>
           <div className={`mt-1 flex justify-between text-xs ${stat.over ? "font-semibold text-rose-500" : s.sub}`}>
-            <span>{stat.rawPct} % consommé</span>
+            <span>{stat.rawPct} % consommé{stat.fromServices ? " · total des services" : " · budget global"}</span>
             <span>{stat.over ? `Dépassement de ${marketingEuro(-stat.reste)}` : `Reste ${marketingEuro(stat.reste)}`}</span>
           </div>
         </>
       ) : (
         <div className={`mt-2 text-xs ${s.sub}`}>Aucun budget annuel renseigné pour {year}.</div>
       )}
-      {canEdit ? (
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="min-w-[160px] flex-1">
-            <div className={s.label}>Budget annuel {year} (€)</div>
-            <input className={s.input} inputMode="decimal" placeholder="ex. 25000" value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dirty && !busy && save()} />
-          </label>
-          <button type="button" onClick={save} disabled={busy || !dirty || marketingParseAmount(val) === null} className={`${s.primaryBtn} disabled:opacity-40`}>Enregistrer</button>
-        </div>
-      ) : (
-        stat.row?.updated_by && <div className={`mt-2 text-[11px] ${s.sub}`}>Renseigné par {stat.row.updated_by}</div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {MARKETING_SERVICES.map((sv) => {
+          const st = stat.services[sv];
+          return (
+            <div key={sv} className={`rounded-xl border p-2.5 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+              <div className="flex items-baseline justify-between gap-1">
+                <span className={`text-xs font-bold ${s.title}`}>{sv}</span>
+                <span className={`text-xs font-semibold ${tone(st)}`}>{marketingEuro(st.depense)}{st.budget != null ? ` / ${marketingEuro(st.budget)}` : ""}</span>
+              </div>
+              {st.budget != null ? (
+                <>
+                  <div className="mt-1.5"><MarketingProgressBar dark={dark} pct={st.pct} over={st.over} /></div>
+                  <div className={`mt-0.5 text-[11px] ${st.over ? "font-semibold text-rose-500" : s.sub}`}>{st.over ? `Dépassé de ${marketingEuro(-st.reste)}` : `${st.rawPct} % · reste ${marketingEuro(st.reste)}`}</div>
+                </>
+              ) : <div className={`mt-1 text-[11px] ${s.sub}`}>Pas de budget {sv}</div>}
+              <MarketingBudgetInput dark={dark} label={`Budget ${sv} ${year}`} year={year} current={st.budget} canEdit={canEdit} compact showToast={showToast} onSave={(v) => onSave(site, year, v, sv)} />
+            </div>
+          );
+        })}
+      </div>
+      {stat.nonAffecte > 0 && (
+        <div className={`mt-2 text-xs ${s.sub}`}>Dépenses non rattachées à un service : <b className={s.title}>{marketingEuro(stat.nonAffecte)}</b> (choisissez VN / VO / APV dans la fiche du projet).</div>
       )}
+      {showGlobal && (
+        <div className="mt-1">
+          <MarketingBudgetInput dark={dark} label={`Budget global ${year} (utilisé tant que VN / VO / APV ne sont pas renseignés)`} year={year} current={stat.globalBudget} canEdit={canEdit} compact showToast={showToast} onSave={(v) => onSave(site, year, v, "Global")} />
+        </div>
+      )}
+      {!canEdit && stat.row?.updated_by && <div className={`mt-2 text-[11px] ${s.sub}`}>Renseigné par {stat.row.updated_by}</div>}
       {lines.length > 0 && (
         <div className="mt-3">
           <div className={`mb-1 text-[11px] font-bold uppercase tracking-widest ${s.sub}`}>Dépenses {year} par projet</div>
@@ -9742,6 +9801,7 @@ function MarketingBudgetSiteCard({ dark, site, year, stat, projects, expenses, c
               <li key={p.id}>
                 <button type="button" onClick={() => onOpenProject(p.id)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-50"}`}>
                   <span className={`min-w-0 flex-1 truncate ${s.title}`}>{p.titre}</span>
+                  {p.service && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>{p.service}</span>}
                   <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: MARKETING_PROJECT_COLORS[p.statut] }}>{p.statut}</span>
                   <span className={`shrink-0 font-semibold ${s.title}`}>{marketingEuro(dep)}{p.budget != null ? <span className={`font-normal ${s.sub}`}> / {marketingEuro(p.budget)}</span> : null}</span>
                 </button>
@@ -9774,7 +9834,8 @@ function MarketingBudgetView({ dark, data, siteList, canEditBudget, me, showToas
     const multi = marketingExpenseSum(data.expenses, (x) => multiIds.has(x.project_id) && String(x.date_depense || "").slice(0, 4) === String(year));
     const depBudgeted = stats.reduce((a, [, st]) => a + (st.budget != null ? st.depense : 0), 0);
     const pct = budget > 0 ? Math.round((depBudgeted / budget) * 100) : 0;
-    return { budget, depense, withBudget, multi, depBudgeted, pct };
+    const bySvc = MARKETING_SERVICES.map((sv) => [sv, stats.reduce((a, [, st]) => a + st.services[sv].budget, 0), stats.reduce((a, [, st]) => a + st.services[sv].depense, 0)]);
+    return { budget, depense, withBudget, multi, depBudgeted, pct, bySvc };
   }, [stats, data.projects, data.expenses, year]);
   return (
     <div className="space-y-4">
@@ -9796,12 +9857,15 @@ function MarketingBudgetView({ dark, data, siteList, canEditBudget, me, showToas
               <div className={`mt-1 text-xs ${s.sub}`}>{total.pct} % du budget cumulé des {total.withBudget} plaque{total.withBudget > 1 ? "s" : ""} renseignée{total.withBudget > 1 ? "s" : ""}{total.withBudget < stats.length ? ` · ${stats.length - total.withBudget} sans budget` : ""}</div>
             </>
           ) : <div className={`mt-2 text-xs ${s.sub}`}>Aucun budget annuel renseigné pour {year}.</div>}
+          {total.bySvc.some(([, b, d]) => b > 0 || d > 0) && (
+            <div className={`mt-1 flex flex-wrap gap-x-4 text-xs ${s.sub}`}>{total.bySvc.map(([sv, b, d]) => <span key={sv}>{sv} : <b className={s.title}>{marketingEuro(d)}</b>{b > 0 ? ` / ${marketingEuro(b)}` : ""}</span>)}</div>
+          )}
           {total.multi > 0 && <div className={`mt-1 text-xs ${s.sub}`}>Actions multi-sites (non imputées à une plaque) : {marketingEuro(total.multi)}</div>}
         </div>
       )}
       <div className="grid gap-3 lg:grid-cols-2">
         {stats.map(([site, st]) => (
-          <MarketingBudgetSiteCard key={site} dark={dark} site={site} year={year} stat={st} projects={data.projects} expenses={data.expenses} canEdit={canEditBudget(site)} onSave={(si, y, v) => data.saveBudget(si, y, v, me)} onOpenProject={onOpenProject} showToast={showToast} />
+          <MarketingBudgetSiteCard key={site} dark={dark} site={site} year={year} stat={st} projects={data.projects} expenses={data.expenses} canEdit={canEditBudget(site)} onSave={(si, y, v, sv) => data.saveBudget(si, y, v, me, sv)} onOpenProject={onOpenProject} showToast={showToast} />
         ))}
       </div>
       {stats.length === 0 && <EmptyState dark={dark} icon={Megaphone} title="Aucune plaque à afficher" subtitle="Votre profil n'est rattaché à aucune plaque." />}

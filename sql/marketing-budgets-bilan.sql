@@ -138,3 +138,15 @@ begin
   begin alter publication supabase_realtime add table public.marketing_budgets_annuels; exception when others then null; end;
   begin alter publication supabase_realtime add table public.marketing_results; exception when others then null; end;
 end $$;
+
+-- Budget par service (VN / VO / APV) : service du projet + budget annuel par site et par service.
+-- Les budgets saisis avant cette évolution (sans service) deviennent le « Global » du site.
+alter table public.marketing_projects add column if not exists service text;
+alter table public.marketing_projects drop constraint if exists marketing_projects_service_check;
+alter table public.marketing_projects add constraint marketing_projects_service_check check (service is null or service in ('VN','VO','APV'));
+
+alter table public.marketing_budgets_annuels add column if not exists service text not null default 'Global';
+alter table public.marketing_budgets_annuels drop constraint if exists marketing_budgets_annuels_service_check;
+alter table public.marketing_budgets_annuels add constraint marketing_budgets_annuels_service_check check (service in ('Global','VN','VO','APV'));
+alter table public.marketing_budgets_annuels drop constraint if exists marketing_budgets_annuels_pkey;
+alter table public.marketing_budgets_annuels add primary key (site, annee, service);
