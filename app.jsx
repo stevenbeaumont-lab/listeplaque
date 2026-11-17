@@ -9972,12 +9972,19 @@ function MarketingBilanView({ dark, data, readOnly, siteList, siteFilter, me, sh
   );
 }
 
-function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = null, showToast }) {
+function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = null, extraPeople = [], showToast }) {
   const s = marketingStyles(dark);
   marketingReadOnly = readOnly;
   useEffect(() => { marketingReadOnly = readOnly; return () => { marketingReadOnly = false; }; }, [readOnly]);
   const data = useMarketing();
-  const { members, loading, error } = data;
+  const { loading, error } = data;
+  // Responsables / assignés possibles : équipe Marketing + directeurs, responsables de site et chefs des ventes.
+  const members = useMemo(() => {
+    const base = data.members;
+    const low = base.map((m) => m.toLowerCase());
+    const extra = extraPeople.filter((n) => n && !base.includes(n) && !low.some((m) => n.toLowerCase().includes(m)));
+    return [...base, ...extra.sort((a, b) => a.localeCompare(b, "fr"))];
+  }, [data.members, extraPeople]);
   // Site affiché : un site ou les deux ("" = les deux). Les nouveaux éléments prennent le site affiché (Caen par défaut).
   // Consultants (directeur / responsable de site) : uniquement leur concession + les actions « Multi site ».
   const siteOptions = useMemo(() => (readOnly && sites ? MARKETING_SITES.filter((x) => sites.includes(x) || x === "Multi site") : MARKETING_SITES), [readOnly, sites]);
@@ -14308,6 +14315,7 @@ export default function App() {
   const marketingAccess = useMarketingAccess(authUserId);
   const marketingMe = marketingAccess.nom;
   const marketingReadOnly_ = marketingAccess.readOnly;
+  const marketingExtraPeople = useMemo(() => (vendeursList || []).filter((v) => ["Directeur de plaque", "Responsable de site", "Chef des ventes"].includes(v.role)).map((v) => v.nom), [vendeursList]);
   const canMarketing = !!(marketingAccess.nom || marketingAccess.readOnly);
   const rdvMe = useRdvAccess(authUserId);
   const livraisonDroit = useLivraisonAccess(authUserId);
@@ -14551,7 +14559,7 @@ export default function App() {
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (
-              <MarketingTab dark={dark} me={marketingMe || vendorName} readOnly={marketingReadOnly_} sites={marketingAccess.sites} budgetSites={marketingAccess.budgetSites} showToast={showToast} />
+              <MarketingTab dark={dark} me={marketingMe || vendorName} readOnly={marketingReadOnly_} sites={marketingAccess.sites} budgetSites={marketingAccess.budgetSites} extraPeople={marketingExtraPeople} showToast={showToast} />
             ) : null
           ) : tab === "challenge" ? (
             <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} challengeConfig={challengeConfig} challengeEntries={challengeEntries} onOpenVehicle={openInVehicules} />
