@@ -529,17 +529,17 @@ async function exportFullBackup(vehicles, dossiers, vendeursList) {
   XLSX.writeFile(wb, `parclive-sauvegarde-complete-${stamp}.xlsx`);
 }
 const ROLES = ["Directeur de plaque", "Chef des ventes", "Responsable de site", "Vendeur", "Secrétariat", "Préparateur", "Marketing"];
-const PERMISSION_KEYS = ["reserve", "reserveForOthers", "dashboard", "import", "dossiers", "accidentes", "vendeurs", "reset", "livraisonVoir", "livraisonPrepa", "livraisonGerer", "marketingVoir"];
+const PERMISSION_KEYS = ["reserve", "reserveForOthers", "dashboard", "import", "dossiers", "accidentes", "vendeurs", "reset", "livraisonVoir", "livraisonPrepa", "livraisonGerer", "marketingVoir", "marketingBudget"];
 const ROLE_PERMISSIONS = {
-  "Directeur de plaque": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: false },
-  "Chef des ventes": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: true },
-  "Responsable de site": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: true },
-  "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false },
-  "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: false },
-  "Préparateur": { reserve: false, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: true, livraisonGerer: false, marketingVoir: false },
-  // livraison* / marketingVoir : relus par la base (livraison_droit, is_marketing_viewer) ; les accès livraison ne valent que pour Ford St-Lô, marketingVoir pour toutes les plaques.
+  "Directeur de plaque": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: true, marketingBudget: true },
+  "Chef des ventes": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: true, reset: true, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: true, marketingBudget: false },
+  "Responsable de site": { reserve: true, reserveForOthers: true, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: true, marketingBudget: true },
+  "Vendeur": { reserve: true, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false, marketingBudget: false },
+  "Secrétariat": { reserve: false, reserveForOthers: false, dashboard: true, import: true, dossiers: true, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: true, marketingVoir: false, marketingBudget: false },
+  "Préparateur": { reserve: false, reserveForOthers: false, dashboard: false, import: false, dossiers: false, accidentes: true, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: true, livraisonGerer: false, marketingVoir: false, marketingBudget: false },
+  // livraison* / marketingVoir : relus par la base (livraison_droit, is_marketing_viewer) ; les accès livraison ne valent que pour Ford St-Lô, marketingVoir / marketingBudget limités au site du vendeur.
   // Statut Marketing : consultation du stock et du tableau de bord ; l'onglet Marketing est géré par marketing_members.
-  "Marketing": { reserve: false, reserveForOthers: false, dashboard: true, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false },
+  "Marketing": { reserve: false, reserveForOthers: false, dashboard: true, import: false, dossiers: false, accidentes: false, vendeurs: false, reset: false, livraisonVoir: true, livraisonPrepa: false, livraisonGerer: false, marketingVoir: false, marketingBudget: false },
 };
 const DEFAULT_PERMISSIONS = ROLE_PERMISSIONS["Vendeur"];
 function isSuperAdmin(name) {
@@ -3042,7 +3042,8 @@ const PERMISSION_LABELS = {
   livraisonVoir: "En livraison : voir l'onglet (Ford St-Lô)",
   livraisonPrepa: "En livraison : cocher les étapes de préparation (préparateur)",
   livraisonGerer: "En livraison : créer, modifier, supprimer (secrétariat / direction)",
-  marketingVoir: "Marketing : consulter en lecture seule (toutes les plaques)",
+  marketingVoir: "Marketing : consulter les projets, budgets et bilans de son site (lecture seule)",
+  marketingBudget: "Marketing : renseigner le budget annuel de son site",
 };
 
 function VendeursManager({ dark, vendeurs, vehicles, dossiers, sitesList, onAdd, onRemove, onUpdateSite, onUpdateRole, onUpdatePermission, onRename, onUpdateEmail }) {
@@ -8488,6 +8489,58 @@ function marketingBudgetState(project, expenses) {
   const depense = expenses.filter((x) => x.project_id === project.id).reduce((a, x) => a + Number(x.montant || 0), 0);
   return { prevu, depense, reste: prevu != null ? prevu - depense : null, pct: prevu ? Math.min(100, Math.round((depense / prevu) * 100)) : 0, over: prevu != null && depense > prevu };
 }
+// ── Budget annuel par site et bilan des opérations ──
+const MARKETING_RESULT_FIELDS = ["leads", "rdv", "propositions", "ventes"];
+const MARKETING_RESULT_LABELS = { leads: "Leads", rdv: "Rendez-vous", propositions: "Propositions", ventes: "Ventes" };
+const MARKETING_COST_LABELS = { leads: "Coût / lead", rdv: "Coût / RDV", propositions: "Coût / proposition", ventes: "Coût / vente" };
+const MARKETING_PLATES = FORD_SITES.filter((x) => x !== "Multi site");
+function marketingParseCount(v) {
+  if (v === null || v === undefined || String(v).trim() === "") return null;
+  const n = parseInt(String(v).replace(/[\s\u00a0]/g, ""), 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+// Année d'une opération : deadline, à défaut date de création.
+function marketingProjectYear(p) {
+  const y = parseInt(String(p.deadline || p.created_at || "").slice(0, 4), 10);
+  return Number.isFinite(y) ? y : new Date().getFullYear();
+}
+function marketingExpenseSum(expenses, pred) {
+  return expenses.reduce((a, x) => (pred(x) ? a + Number(x.montant || 0) : a), 0);
+}
+// Budget annuel d'un site : consommé = dépenses datées de l'année sur les projets du site.
+function marketingSiteBudget(site, year, budgets, projects, expenses) {
+  const row = budgets.find((b) => b.site === site && Number(b.annee) === year);
+  const ids = new Set(projects.filter((p) => (p.site || "Ford Caen") === site).map((p) => p.id));
+  const depense = marketingExpenseSum(expenses, (x) => ids.has(x.project_id) && String(x.date_depense || "").slice(0, 4) === String(year));
+  const budget = row && Number(row.montant) > 0 ? Number(row.montant) : null;
+  return { budget, depense, reste: budget != null ? budget - depense : null, pct: budget ? Math.min(100, Math.round((depense / budget) * 100)) : 0, rawPct: budget ? Math.round((depense / budget) * 100) : 0, over: budget != null && depense > budget, row };
+}
+// Coûts unitaires : dépenses ÷ résultat (null si aucun résultat).
+function marketingCosts(depense, r) {
+  const out = {};
+  for (const k of MARKETING_RESULT_FIELDS) out[k] = r && r[k] > 0 ? depense / r[k] : null;
+  return out;
+}
+// Agrège des opérations : les coûts ne portent que sur les opérations dont les résultats sont saisis.
+function marketingBilanTotals(projects, resultsByProject, expenses) {
+  const depByProject = new Map();
+  expenses.forEach((x) => depByProject.set(x.project_id, (depByProject.get(x.project_id) || 0) + Number(x.montant || 0)));
+  const t = { depenseTotal: 0, depense: 0, ops: projects.length, saisies: 0, leads: 0, rdv: 0, propositions: 0, ventes: 0 };
+  projects.forEach((p) => {
+    const dep = depByProject.get(p.id) || 0;
+    t.depenseTotal += dep;
+    const r = resultsByProject.get(p.id);
+    if (!r || MARKETING_RESULT_FIELDS.every((k) => r[k] == null)) return;
+    t.saisies++;
+    t.depense += dep;
+    MARKETING_RESULT_FIELDS.forEach((k) => { t[k] += Number(r[k] || 0); });
+  });
+  t.costs = marketingCosts(t.depense, t);
+  return t;
+}
+function marketingRate(num, den) { return den > 0 ? `${Math.round((num / den) * 100)} %` : "—"; }
+function marketingEuroOrDash(n) { return n == null ? "—" : marketingEuro(n); }
+
 // Un projet est « en danger » si sa deadline approche sans avancement suffisant, si des tâches sont en retard
 // ou prévues après la deadline, ou si le budget est dépassé. level : "" | "risk" | "late".
 function marketingProjectRisk(project, tasks, today, expenses) {
@@ -8601,8 +8654,8 @@ function marketingCleanProject(p) {
 // Exécute une requête Supabase ; ne retente que les vraies coupures réseau (pas les refus RLS/contraintes).
 let marketingReadOnly = false; // consultation seule (managers) : aucune écriture n'est envoyée
 const MarketingReadOnlyContext = React.createContext(false);
-async function marketingExec(fn, attempts = 3) {
-  if (marketingReadOnly) throw new Error("Lecture seule : seuls les membres Marketing peuvent modifier");
+async function marketingExec(fn, attempts = 3, allowReadOnly = false) {
+  if (marketingReadOnly && !allowReadOnly) throw new Error("Lecture seule : seuls les membres Marketing peuvent modifier");
   for (let i = 0; ; i++) {
     let res;
     try { res = await fn(); } catch (e) { res = { error: e }; }
@@ -8677,20 +8730,25 @@ function marketingDigest({ tasks, projects, today, scopeLabel, risks }) {
 }
 
 
-// Accès au module : { nom, readOnly }. nom = membre Marketing (gestion) ; readOnly = chef des ventes / responsable
-// de site de Caen ou St-Lô (consultation). RLS applique la vraie restriction côté base.
+// Accès au module : { nom, readOnly, sites, budgetSites }. nom = membre Marketing (gestion, tous les sites) ;
+// readOnly = directeur / chef des ventes / responsable de site (consultation de SON site : sites) ; budgetSites = sites dont
+// il peut renseigner le budget annuel. RLS applique la vraie restriction côté base.
 function useMarketingAccess(userId) {
-  const [acc, setAcc] = useState({ nom: "", readOnly: false });
+  const [acc, setAcc] = useState({ nom: "", readOnly: false, sites: null, budgetSites: null });
   useEffect(() => {
     let alive = true;
-    if (!userId) { setAcc({ nom: "", readOnly: false }); return; }
+    if (!userId) { setAcc({ nom: "", readOnly: false, sites: null, budgetSites: null }); return; }
     (async () => {
       const { data } = await supabase.from("marketing_members").select("nom").eq("user_id", userId).maybeSingle();
       if (!alive) return;
-      if (data?.nom) { setAcc({ nom: data.nom, readOnly: false }); return; }
-      let level = "";
+      if (data?.nom) { setAcc({ nom: data.nom, readOnly: false, sites: null, budgetSites: null }); return; }
+      let level = "", sites = [], budgetSites = [];
       try { const r = await supabase.rpc("marketing_access"); level = r.data || ""; } catch (e) { level = ""; }
-      if (alive) setAcc({ nom: "", readOnly: level === "viewer" });
+      if (level === "viewer") {
+        try { const r = await supabase.rpc("marketing_viewer_sites"); sites = Array.isArray(r.data) ? r.data : []; } catch (e) { sites = []; }
+        try { const r = await supabase.rpc("marketing_budget_sites"); budgetSites = Array.isArray(r.data) ? r.data : []; } catch (e) { budgetSites = []; }
+      }
+      if (alive) setAcc({ nom: "", readOnly: level === "viewer", sites: level === "viewer" ? sites : null, budgetSites: level === "viewer" ? budgetSites : null });
     })();
     return () => { alive = false; };
   }, [userId]);
@@ -8704,6 +8762,8 @@ function useMarketing() {
   const [comments, setComments] = useState([]);
   const [links, setLinks] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [budgets, setBudgets] = useState([]);
+  const [results, setResults] = useState([]);
   const [v2, setV2] = useState(true); // false tant que marketing_v2.sql n'est pas appliqué : on masque alors commentaires/liens/budget
   const v2Ref = useRef(true);
   const [loading, setLoading] = useState(true);
@@ -8712,13 +8772,15 @@ function useMarketing() {
   const lastSig = useRef("");
 
   const load = useCallback(async () => {
-    const [p, t, m, c, l, x] = await Promise.all([
+    const [p, t, m, c, l, x, bu, re] = await Promise.all([
       supabase.from("marketing_projects").select("*").order("deadline", { ascending: true, nullsFirst: false }),
       supabase.from("marketing_tasks").select("*").order("echeance", { ascending: true, nullsFirst: false }).limit(5000),
       supabase.from("marketing_members").select("nom").order("nom"),
       supabase.from("marketing_comments").select("*").order("created_at", { ascending: true }).limit(5000),
       supabase.from("marketing_links").select("*").order("created_at", { ascending: true }).limit(5000),
       supabase.from("marketing_expenses").select("*").order("date_depense", { ascending: true }).limit(5000),
+      supabase.from("marketing_budgets_annuels").select("*").limit(500),
+      supabase.from("marketing_results").select("*").limit(5000),
     ]);
     const err = p.error || t.error || m.error;
     if (err) { setError(err.message); setLoading(false); return; }
@@ -8728,13 +8790,16 @@ function useMarketing() {
     const maxU = (rows) => rows.reduce((a, r) => (r.updated_at > a ? r.updated_at : a), "");
     const maxC = (rows) => rows.reduce((a, r) => (r.created_at > a ? r.created_at : a), "");
     const sumX = xRows.reduce((a, r) => a + Number(r.montant || 0), 0);
-    const sig = `${p.data.length}:${maxU(p.data)}:${p.data.map((r) => r.budget ?? "").join(",")}|${t.data.length}:${maxU(t.data)}|${m.data.map((r) => r.nom).join(",")}|${hasV2}:${cRows.length}:${maxC(cRows)}|${lRows.length}:${maxC(lRows)}|${xRows.length}:${sumX}`;
+    const buRows = bu.error ? [] : bu.data, reRows = re.error ? [] : re.data; // tables absentes tant que marketing-budgets-bilan.sql n'est pas appliqué
+    const sigB = `${buRows.map((r) => `${r.site}${r.annee}${r.montant}`).join(",")}|${reRows.length}:${maxU(reRows)}`;
+    const sig = `${p.data.length}:${maxU(p.data)}:${p.data.map((r) => r.budget ?? "").join(",")}|${t.data.length}:${maxU(t.data)}|${m.data.map((r) => r.nom).join(",")}|${hasV2}:${cRows.length}:${maxC(cRows)}|${lRows.length}:${maxC(lRows)}|${xRows.length}:${sumX}|${sigB}`;
     if (sig !== lastSig.current) {
       lastSig.current = sig;
       setProjects(p.data);
       setTasks(t.data);
       setMembers(m.data.map((r) => r.nom));
       setComments(cRows); setLinks(lRows); setExpenses(xRows); setV2(hasV2);
+      setBudgets(buRows); setResults(reRows);
     }
     setError(null);
     setLoading(false);
@@ -8754,6 +8819,8 @@ function useMarketing() {
       .on("postgres_changes", { event: "*", schema: "public", table: "marketing_comments" }, scheduleLoad)
       .on("postgres_changes", { event: "*", schema: "public", table: "marketing_links" }, scheduleLoad)
       .on("postgres_changes", { event: "*", schema: "public", table: "marketing_expenses" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_budgets_annuels" }, scheduleLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "marketing_results" }, scheduleLoad)
       .subscribe();
     return () => { clearTimeout(timer.current); supabase.removeChannel(ch); };
   }, [load, scheduleLoad]);
@@ -8847,6 +8914,21 @@ function useMarketing() {
     await refresh();
   }, [refresh]);
 
+  // Budget annuel d'un site : autorisé aux directeurs / responsables de CE site (RLS) et à l'équipe Marketing.
+  const saveBudget = useCallback(async (site, annee, montant, who) => {
+    const m = marketingParseAmount(montant);
+    if (m === null) throw new Error("Montant invalide");
+    await marketingExec(() => supabase.from("marketing_budgets_annuels").upsert({ site, annee, montant: m, updated_by: who || null, updated_at: new Date().toISOString() }, { onConflict: "site,annee" }), 3, true);
+    await refresh();
+  }, [refresh]);
+  // Résultats d'une opération (équipe Marketing) : champ vide = non renseigné.
+  const saveResult = useCallback(async (project_id, vals, who) => {
+    const row = { project_id, updated_by: who || null, updated_at: new Date().toISOString() };
+    for (const k of MARKETING_RESULT_FIELDS) row[k] = marketingParseCount(vals[k]);
+    await marketingExec(() => supabase.from("marketing_results").upsert(row, { onConflict: "project_id" }));
+    await refresh();
+  }, [refresh]);
+
   const patchTask = useCallback(async (id, fields) => {
     await marketingExec(() => supabase.from("marketing_tasks").update(fields).eq("id", id));
     await refresh();
@@ -8857,7 +8939,7 @@ function useMarketing() {
     await refresh();
   }, [refresh]);
 
-  return { projects, tasks, members, comments, links, expenses, v2, loading, error, addComment, removeComment, addLink, removeLink, addExpense, removeExpense, saveProject, removeProject, saveTask, toggleDone, bulkUpdate, patchTask, removeTask, reload: refresh };
+  return { projects, tasks, members, comments, links, expenses, budgets, results, v2, loading, saveBudget, saveResult, error, addComment, removeComment, addLink, removeLink, addExpense, removeExpense, saveProject, removeProject, saveTask, toggleDone, bulkUpdate, patchTask, removeTask, reload: refresh };
 }
 
 
@@ -9594,18 +9676,319 @@ function MarketingProjectFiche({ dark, defaultSite, projectId, duplicateOf, prem
 }
 
 
-function MarketingTab({ dark, me, readOnly = false, showToast }) {
+// ───────────── Budget annuel par site ─────────────
+function MarketingProgressBar({ dark, pct, over }) {
+  return (
+    <div className={`h-2.5 overflow-hidden rounded-full ${dark ? "bg-zinc-800" : "bg-stone-100"}`} role="progressbar" aria-valuenow={Math.min(100, pct)} aria-valuemin={0} aria-valuemax={100}>
+      <div className={`h-full rounded-full transition-all ${over ? "bg-rose-500" : pct >= 85 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, pct)}%` }} />
+    </div>
+  );
+}
+
+function MarketingBudgetSiteCard({ dark, site, year, stat, projects, expenses, canEdit, onSave, onOpenProject, showToast }) {
+  const s = marketingStyles(dark);
+  const [val, setVal] = useState(stat.budget != null ? String(stat.budget) : "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setVal(stat.budget != null ? String(stat.budget) : ""); }, [stat.budget, year]);
+  const dirty = (marketingParseAmount(val) ?? null) !== stat.budget && !(val.trim() === "" && stat.budget == null);
+  const save = async () => {
+    setBusy(true);
+    try { await onSave(site, year, val); showToast(`Budget ${year} enregistré — ${site}`); }
+    catch (e) { showToast(`Enregistrement impossible : ${e.message || e}`, { type: "error" }); }
+    finally { setBusy(false); }
+  };
+  const yearStr = String(year);
+  const lines = projects
+    .filter((p) => (p.site || "Ford Caen") === site)
+    .map((p) => ({ p, dep: marketingExpenseSum(expenses, (x) => x.project_id === p.id && String(x.date_depense || "").slice(0, 4) === yearStr) }))
+    .filter((l) => l.dep > 0)
+    .sort((a, b) => b.dep - a.dep);
+  const tone = stat.over ? "text-rose-500" : stat.rawPct >= 85 ? (dark ? "text-amber-300" : "text-amber-700") : s.title;
+  return (
+    <div className={`rounded-2xl border p-4 ${s.card}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className={`text-sm font-bold ${s.title}`}>{site}</div>
+        <div className={`text-sm font-semibold ${tone}`}>
+          {marketingEuro(stat.depense)}{stat.budget != null ? ` / ${marketingEuro(stat.budget)}` : ""}
+        </div>
+      </div>
+      {stat.budget != null ? (
+        <>
+          <div className="mt-2"><MarketingProgressBar dark={dark} pct={stat.pct} over={stat.over} /></div>
+          <div className={`mt-1 flex justify-between text-xs ${stat.over ? "font-semibold text-rose-500" : s.sub}`}>
+            <span>{stat.rawPct} % consommé</span>
+            <span>{stat.over ? `Dépassement de ${marketingEuro(-stat.reste)}` : `Reste ${marketingEuro(stat.reste)}`}</span>
+          </div>
+        </>
+      ) : (
+        <div className={`mt-2 text-xs ${s.sub}`}>Aucun budget annuel renseigné pour {year}.</div>
+      )}
+      {canEdit ? (
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="min-w-[160px] flex-1">
+            <div className={s.label}>Budget annuel {year} (€)</div>
+            <input className={s.input} inputMode="decimal" placeholder="ex. 25000" value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dirty && !busy && save()} />
+          </label>
+          <button type="button" onClick={save} disabled={busy || !dirty || marketingParseAmount(val) === null} className={`${s.primaryBtn} disabled:opacity-40`}>Enregistrer</button>
+        </div>
+      ) : (
+        stat.row?.updated_by && <div className={`mt-2 text-[11px] ${s.sub}`}>Renseigné par {stat.row.updated_by}</div>
+      )}
+      {lines.length > 0 && (
+        <div className="mt-3">
+          <div className={`mb-1 text-[11px] font-bold uppercase tracking-widest ${s.sub}`}>Dépenses {year} par projet</div>
+          <ul className="space-y-1">
+            {lines.map(({ p, dep }) => (
+              <li key={p.id}>
+                <button type="button" onClick={() => onOpenProject(p.id)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm ${dark ? "hover:bg-zinc-800" : "hover:bg-stone-50"}`}>
+                  <span className={`min-w-0 flex-1 truncate ${s.title}`}>{p.titre}</span>
+                  <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: MARKETING_PROJECT_COLORS[p.statut] }}>{p.statut}</span>
+                  <span className={`shrink-0 font-semibold ${s.title}`}>{marketingEuro(dep)}{p.budget != null ? <span className={`font-normal ${s.sub}`}> / {marketingEuro(p.budget)}</span> : null}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarketingBudgetView({ dark, data, siteList, canEditBudget, me, showToast, onOpenProject }) {
+  const s = marketingStyles(dark);
+  const thisYear = new Date().getFullYear();
+  const [year, setYear] = useState(() => { const v = Number(loadLocal("dsr:marketing-budget-year", thisYear)); return Number.isFinite(v) ? v : thisYear; });
+  useEffect(() => { saveLocal("dsr:marketing-budget-year", year); }, [year]);
+  const years = useMemo(() => {
+    const set = new Set([thisYear - 1, thisYear, thisYear + 1, year]);
+    data.budgets.forEach((b) => set.add(Number(b.annee)));
+    data.expenses.forEach((x) => { const y = parseInt(String(x.date_depense || "").slice(0, 4), 10); if (y) set.add(y); });
+    return [...set].sort((a, b) => b - a);
+  }, [data.budgets, data.expenses, thisYear, year]);
+  const stats = useMemo(() => siteList.map((site) => [site, marketingSiteBudget(site, year, data.budgets, data.projects, data.expenses)]), [siteList, year, data.budgets, data.projects, data.expenses]);
+  const total = useMemo(() => {
+    const budget = stats.reduce((a, [, st]) => a + (st.budget || 0), 0);
+    const depense = stats.reduce((a, [, st]) => a + st.depense, 0);
+    const withBudget = stats.filter(([, st]) => st.budget != null).length;
+    const multiIds = new Set(data.projects.filter((p) => p.site === "Multi site").map((p) => p.id));
+    const multi = marketingExpenseSum(data.expenses, (x) => multiIds.has(x.project_id) && String(x.date_depense || "").slice(0, 4) === String(year));
+    const depBudgeted = stats.reduce((a, [, st]) => a + (st.budget != null ? st.depense : 0), 0);
+    const pct = budget > 0 ? Math.round((depBudgeted / budget) * 100) : 0;
+    return { budget, depense, withBudget, multi, depBudgeted, pct };
+  }, [stats, data.projects, data.expenses, year]);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={`${s.input} !w-auto`} aria-label="Année du budget">
+          {years.map((y) => <option key={y} value={y}>Budget {y}</option>)}
+        </select>
+        <div className={`text-xs ${s.sub}`}>Consommé = dépenses saisies dans les projets du site, datées de l'année.</div>
+      </div>
+      {siteList.length > 1 && (
+        <div className={`rounded-2xl border p-4 ${s.card}`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className={`text-sm font-bold ${s.title}`}>Total plaques · {year}</div>
+            <div className={`text-sm font-semibold ${s.title}`}>{marketingEuro(total.depense)}{total.budget > 0 ? ` / ${marketingEuro(total.budget)}` : ""}</div>
+          </div>
+          {total.budget > 0 ? (
+            <>
+              <div className="mt-2"><MarketingProgressBar dark={dark} pct={total.pct} over={total.depBudgeted > total.budget} /></div>
+              <div className={`mt-1 text-xs ${s.sub}`}>{total.pct} % du budget cumulé des {total.withBudget} plaque{total.withBudget > 1 ? "s" : ""} renseignée{total.withBudget > 1 ? "s" : ""}{total.withBudget < stats.length ? ` · ${stats.length - total.withBudget} sans budget` : ""}</div>
+            </>
+          ) : <div className={`mt-2 text-xs ${s.sub}`}>Aucun budget annuel renseigné pour {year}.</div>}
+          {total.multi > 0 && <div className={`mt-1 text-xs ${s.sub}`}>Actions multi-sites (non imputées à une plaque) : {marketingEuro(total.multi)}</div>}
+        </div>
+      )}
+      <div className="grid gap-3 lg:grid-cols-2">
+        {stats.map(([site, st]) => (
+          <MarketingBudgetSiteCard key={site} dark={dark} site={site} year={year} stat={st} projects={data.projects} expenses={data.expenses} canEdit={canEditBudget(site)} onSave={(si, y, v) => data.saveBudget(si, y, v, me)} onOpenProject={onOpenProject} showToast={showToast} />
+        ))}
+      </div>
+      {stats.length === 0 && <EmptyState dark={dark} icon={Megaphone} title="Aucune plaque à afficher" subtitle="Votre profil n'est rattaché à aucune plaque." />}
+    </div>
+  );
+}
+
+// ───────────── Bilan des opérations (coûts par lead / RDV / proposition / vente) ─────────────
+function MarketingBilanRow({ dark, project, result, depense, canEdit, onSave, onOpenProject, showToast }) {
+  const s = marketingStyles(dark);
+  const init = () => Object.fromEntries(MARKETING_RESULT_FIELDS.map((k) => [k, result?.[k] != null ? String(result[k]) : ""]));
+  const [vals, setVals] = useState(init);
+  const sig = MARKETING_RESULT_FIELDS.map((k) => result?.[k] ?? "").join("|");
+  useEffect(() => { setVals(init()); }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [busy, setBusy] = useState(false);
+  const commit = async (next) => {
+    const changed = MARKETING_RESULT_FIELDS.some((k) => (marketingParseCount(next[k]) ?? "") !== (result?.[k] ?? ""));
+    if (!changed) return;
+    setBusy(true);
+    try { await onSave(project.id, next); }
+    catch (e) { showToast(`Enregistrement impossible : ${e.message || e}`, { type: "error" }); setVals(init()); }
+    finally { setBusy(false); }
+  };
+  const live = Object.fromEntries(MARKETING_RESULT_FIELDS.map((k) => [k, marketingParseCount(vals[k])]));
+  const costs = marketingCosts(depense, live);
+  const cell = `px-2 py-2 text-right text-sm whitespace-nowrap ${s.title}`;
+  return (
+    <tr className={`border-t ${dark ? "border-zinc-800" : "border-stone-100"} ${busy ? "opacity-60" : ""}`}>
+      <td className="px-2 py-2 text-left">
+        <button type="button" onClick={() => onOpenProject(project.id)} className={`block max-w-[220px] truncate text-left text-sm font-semibold hover:underline ${s.title}`}>{project.titre}</button>
+        <div className={`text-[11px] ${s.sub}`}>{project.site} · {project.statut} · {marketingProjectYear(project)}</div>
+      </td>
+      <td className={cell}>{marketingEuro(depense)}</td>
+      {MARKETING_RESULT_FIELDS.map((k) => (
+        <td key={k} className="px-1 py-1.5 text-right">
+          {canEdit ? (
+            <input
+              className={`${s.input} !w-[72px] !px-2 !py-1.5 text-right`}
+              inputMode="numeric"
+              aria-label={`${MARKETING_RESULT_LABELS[k]} — ${project.titre}`}
+              value={vals[k]}
+              onChange={(e) => setVals((v) => ({ ...v, [k]: e.target.value }))}
+              onBlur={() => commit(vals)}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            />
+          ) : <span className={`text-sm ${s.title}`}>{result?.[k] ?? "—"}</span>}
+        </td>
+      ))}
+      {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`${cell} ${dark ? "bg-zinc-900/40" : "bg-stone-50/70"}`}>{marketingEuroOrDash(costs[k])}</td>)}
+    </tr>
+  );
+}
+
+function MarketingBilanView({ dark, data, readOnly, siteList, siteFilter, me, showToast, onOpenProject }) {
+  const s = marketingStyles(dark);
+  const [year, setYear] = useState(() => loadLocal("dsr:marketing-bilan-year", "tout"));
+  useEffect(() => { saveLocal("dsr:marketing-bilan-year", year); }, [year]);
+  const [onlyTodo, setOnlyTodo] = useState(false);
+  const resultsByProject = useMemo(() => new Map(data.results.map((r) => [r.project_id, r])), [data.results]);
+  const depByProject = useMemo(() => { const m = new Map(); data.expenses.forEach((x) => m.set(x.project_id, (m.get(x.project_id) || 0) + Number(x.montant || 0))); return m; }, [data.expenses]);
+  const years = useMemo(() => [...new Set(data.projects.map(marketingProjectYear))].sort((a, b) => b - a), [data.projects]);
+  const visible = useMemo(() => data.projects.filter((p) => year === "tout" || marketingProjectYear(p) === Number(year)), [data.projects, year]);
+  const hasMulti = visible.some((p) => p.site === "Multi site");
+  const rows = useMemo(
+    () => [...siteList, ...(hasMulti ? ["Multi site"] : [])].map((site) => [site, marketingBilanTotals(visible.filter((p) => (p.site || "Ford Caen") === site), resultsByProject, data.expenses)]),
+    [siteList, hasMulti, visible, resultsByProject, data.expenses]
+  );
+  const group = useMemo(() => marketingBilanTotals(visible, resultsByProject, data.expenses), [visible, resultsByProject, data.expenses]);
+  const ops = useMemo(() => visible
+    .filter((p) => !siteFilter || (p.site || "Ford Caen") === siteFilter)
+    .filter((p) => !onlyTodo || !resultsByProject.has(p.id))
+    .sort((a, b) => (b.deadline || b.created_at || "").localeCompare(a.deadline || a.created_at || "")), [visible, siteFilter, onlyTodo, resultsByProject]);
+  const th = `px-2 py-2 text-[10px] font-bold uppercase tracking-widest ${s.sub}`;
+  const groupLabel = readOnly ? "Total" : "Groupe";
+  const kpi = (k) => (
+    <div key={k} className={`rounded-xl border px-4 py-3 ${s.card}`}>
+      <div className={`text-2xl font-bold ${s.title}`}>{marketingEuroOrDash(group.costs[k])}</div>
+      <div className={`text-xs ${s.sub}`}>{MARKETING_COST_LABELS[k]} · {group[k]} {MARKETING_RESULT_LABELS[k].toLowerCase()}</div>
+    </div>
+  );
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <select value={year} onChange={(e) => setYear(e.target.value)} className={`${s.input} !w-auto`} aria-label="Année des opérations">
+          <option value="tout">Toutes les années</option>
+          {years.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <div className={`text-xs ${s.sub}`}>Coût = dépenses du projet ÷ résultat. Seules les opérations dont les résultats sont saisis entrent dans les coûts.</div>
+      </div>
+
+      <section>
+        <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>{groupLabel} · {year === "tout" ? "toutes années" : year}</div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{MARKETING_RESULT_FIELDS.map(kpi)}</div>
+        <div className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs ${s.sub}`}>
+          <span>Dépensé (opérations saisies) : <b className={s.title}>{marketingEuro(group.depense)}</b></span>
+          <span>Lead → RDV : <b className={s.title}>{marketingRate(group.rdv, group.leads)}</b></span>
+          <span>RDV → proposition : <b className={s.title}>{marketingRate(group.propositions, group.rdv)}</b></span>
+          <span>Proposition → vente : <b className={s.title}>{marketingRate(group.ventes, group.propositions)}</b></span>
+          <span>Lead → vente : <b className={s.title}>{marketingRate(group.ventes, group.leads)}</b></span>
+          <span>Opérations saisies : <b className={s.title}>{group.saisies}/{group.ops}</b></span>
+        </div>
+      </section>
+
+      <section>
+        <div className={`mb-2 text-xs font-bold uppercase tracking-widest ${s.sub}`}>Performance par site</div>
+        <div className={`overflow-x-auto rounded-2xl border ${s.card}`}>
+          <table className="w-full min-w-[820px] text-sm">
+            <thead>
+              <tr className="text-right">
+                <th className={`${th} text-left`}>Site</th>
+                <th className={th}>Opérations</th>
+                <th className={th}>Dépensé</th>
+                {MARKETING_RESULT_FIELDS.map((k) => <th key={k} className={th}>{MARKETING_RESULT_LABELS[k]}</th>)}
+                {MARKETING_RESULT_FIELDS.map((k) => <th key={k} className={th}>{MARKETING_COST_LABELS[k]}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([site, t]) => (
+                <tr key={site} className={`border-t text-right ${dark ? "border-zinc-800" : "border-stone-100"}`}>
+                  <td className={`px-2 py-2 text-left font-semibold ${s.title}`}>{site}</td>
+                  <td className={`px-2 py-2 ${s.muted}`}>{t.saisies}/{t.ops}</td>
+                  <td className={`px-2 py-2 ${s.title}`}>{marketingEuro(t.depenseTotal)}</td>
+                  {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 ${s.title}`}>{t.saisies ? t[k] : "—"}</td>)}
+                  {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 font-semibold ${s.title}`}>{marketingEuroOrDash(t.costs[k])}</td>)}
+                </tr>
+              ))}
+              <tr className={`border-t-2 text-right font-bold ${dark ? "border-zinc-700 bg-zinc-900/60" : "border-stone-300 bg-stone-50"}`}>
+                <td className={`px-2 py-2 text-left ${s.title}`}>{groupLabel}</td>
+                <td className={`px-2 py-2 ${s.muted}`}>{group.saisies}/{group.ops}</td>
+                <td className={`px-2 py-2 ${s.title}`}>{marketingEuro(group.depenseTotal)}</td>
+                {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 ${s.title}`}>{group.saisies ? group[k] : "—"}</td>)}
+                {MARKETING_RESULT_FIELDS.map((k) => <td key={k} className={`px-2 py-2 ${s.title}`}>{marketingEuroOrDash(group.costs[k])}</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-2 flex flex-wrap items-center gap-3">
+          <div className={`text-xs font-bold uppercase tracking-widest ${s.sub}`}>Opérations{siteFilter ? ` · ${siteFilter}` : ""}</div>
+          <label className={`flex items-center gap-1.5 text-xs ${s.muted}`}><input type="checkbox" className="accent-blue-700" checked={onlyTodo} onChange={(e) => setOnlyTodo(e.target.checked)} />Résultats à saisir uniquement</label>
+          {!readOnly && <span className={`text-xs ${s.sub}`}>Saisie automatiquement enregistrée en quittant la case.</span>}
+        </div>
+        {ops.length === 0 ? (
+          <EmptyState dark={dark} icon={Megaphone} title="Aucune opération" subtitle="Les projets Marketing apparaissent ici pour y saisir leurs résultats." />
+        ) : (
+          <div className={`overflow-x-auto rounded-2xl border ${s.card}`}>
+            <table className="w-full min-w-[900px]">
+              <thead>
+                <tr className="text-right">
+                  <th className={`${th} text-left`}>Opération</th>
+                  <th className={th}>Dépensé</th>
+                  {MARKETING_RESULT_FIELDS.map((k) => <th key={k} className={th}>{MARKETING_RESULT_LABELS[k]}</th>)}
+                  {MARKETING_RESULT_FIELDS.map((k) => <th key={k} className={th}>{MARKETING_COST_LABELS[k]}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {ops.map((p) => (
+                  <MarketingBilanRow key={p.id} dark={dark} project={p} result={resultsByProject.get(p.id)} depense={depByProject.get(p.id) || 0} canEdit={!readOnly} onSave={(id, vals) => data.saveResult(id, vals, me)} onOpenProject={onOpenProject} showToast={showToast} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function MarketingTab({ dark, me, readOnly = false, sites = null, budgetSites = null, showToast }) {
   const s = marketingStyles(dark);
   marketingReadOnly = readOnly;
   useEffect(() => { marketingReadOnly = readOnly; return () => { marketingReadOnly = false; }; }, [readOnly]);
   const data = useMarketing();
   const { members, loading, error } = data;
   // Site affiché : un site ou les deux ("" = les deux). Les nouveaux éléments prennent le site affiché (Caen par défaut).
-  const [site, setSite] = useState(() => { const v = loadLocal("dsr:marketing-site", ""); return MARKETING_SITES.includes(v) ? v : ""; });
+  // Consultants (directeur / responsable de site) : uniquement leur concession + les actions « Multi site ».
+  const siteOptions = useMemo(() => (readOnly && sites ? MARKETING_SITES.filter((x) => sites.includes(x) || x === "Multi site") : MARKETING_SITES), [readOnly, sites]);
+  const plateList = useMemo(() => siteOptions.filter((x) => x !== "Multi site"), [siteOptions]);
+  const canEditBudget = useCallback((st) => (!readOnly ? true : (budgetSites || []).includes(st)), [readOnly, budgetSites]);
+  const [siteRaw, setSite] = useState(() => loadLocal("dsr:marketing-site", ""));
+  const site = siteOptions.includes(siteRaw) ? siteRaw : "";
   useEffect(() => { saveLocal("dsr:marketing-site", site); }, [site]);
   const projects = useMemo(() => (site ? data.projects.filter((p) => (p.site || "Ford Caen") === site) : data.projects), [data.projects, site]);
   const tasks = useMemo(() => (site ? data.tasks.filter((t) => (t.site || "Ford Caen") === site) : data.tasks), [data.tasks, site]);
-  const newSite = site || "Ford Caen";
+  const newSite = site || plateList[0] || "Ford Caen";
   const today = prospectionTodayISO();
   const weekEnd = marketingAddDays(today, 7);
 
@@ -9693,7 +10076,7 @@ function MarketingTab({ dark, me, readOnly = false, showToast }) {
   // ── Premium : raccourcis clavier ──
   useEffect(() => {
     if (!premium) return;
-    const VUE_KEYS = { 1: "jour", 2: "projets", 3: "taches", 4: "tableau", 5: "calendrier" };
+    const VUE_KEYS = { 1: "jour", 2: "projets", 3: "taches", 4: "tableau", 5: "calendrier", 6: "budget", 7: "bilan" };
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = document.activeElement;
@@ -10094,7 +10477,7 @@ function MarketingTab({ dark, me, readOnly = false, showToast }) {
     );
   };
 
-  const VUES = [["jour", "Aujourd'hui"], ["projets", "Projets"], ["taches", "Tâches"], ...(premium ? [["tableau", "Tableau"]] : []), ["calendrier", "Calendrier"]];
+  const VUES = [["jour", "Aujourd'hui"], ["projets", "Projets"], ["taches", "Tâches"], ...(premium ? [["tableau", "Tableau"]] : []), ["calendrier", "Calendrier"], ["budget", "Budget"], ["bilan", "Bilan"]];
 
   if (error) {
     return (
@@ -10113,8 +10496,8 @@ function MarketingTab({ dark, me, readOnly = false, showToast }) {
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
           <select value={site} onChange={(e) => setSite(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par site">
-            <option value="">Toutes les plaques</option>
-            {MARKETING_SITES.map((x) => <option key={x} value={x}>{x}</option>)}
+            <option value="">{readOnly && sites ? "Ma concession + multi-sites" : "Toutes les plaques"}</option>
+            {siteOptions.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
           <select value={scope} onChange={(e) => setScope(e.target.value)} className={`${s.input} !w-auto`} aria-label="Filtrer par personne">
             <option value="">Toute l'équipe</option>
@@ -10131,10 +10514,10 @@ function MarketingTab({ dark, me, readOnly = false, showToast }) {
 
       {readOnly && (
         <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
-          Lecture seule — vous consultez le Marketing de toutes les plaques Ford. La gestion est assurée par l'équipe Marketing.
+          Lecture seule — vous consultez les projets, budgets et bilans de {plateList.join(", ") || "votre concession"} (et des actions multi-sites). {plateList.some(canEditBudget) ? "Vous pouvez renseigner le budget annuel dans l'onglet Budget. " : ""}La gestion des projets est assurée par l'équipe Marketing.
         </div>
       )}
-      <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : {!readOnly && <><b>N</b> nouvelle tâche · <b>P</b> nouveau projet · </>}<b>1–5</b> changer de vue</div>
+      <div className={`hidden text-[11px] sm:block ${s.sub}`}>Raccourcis : {!readOnly && <><b>N</b> nouvelle tâche · <b>P</b> nouveau projet · </>}<b>1–7</b> changer de vue</div>
 
       <div className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 ${dark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-stone-200"}`}>
         {VUES.map(([k, l]) => (
@@ -10160,6 +10543,8 @@ function MarketingTab({ dark, me, readOnly = false, showToast }) {
           {vueEff === "taches" && vueTaches()}
           {vueEff === "tableau" && vueTableau()}
           {vueEff === "calendrier" && vueCalendrier()}
+          {vueEff === "budget" && <MarketingBudgetView dark={dark} data={data} siteList={site && site !== "Multi site" ? [site] : plateList} canEditBudget={canEditBudget} me={me} showToast={showToast} onOpenProject={setOpenProject} />}
+          {vueEff === "bilan" && <MarketingBilanView dark={dark} data={data} readOnly={readOnly} siteList={plateList} siteFilter={site} me={me} showToast={showToast} onOpenProject={setOpenProject} />}
         </div>
       )}
 
@@ -14166,7 +14551,7 @@ export default function App() {
             ) : null
           ) : tab === "marketing" ? (
             canMarketing ? (
-              <MarketingTab dark={dark} me={marketingMe || vendorName} readOnly={marketingReadOnly_} showToast={showToast} />
+              <MarketingTab dark={dark} me={marketingMe || vendorName} readOnly={marketingReadOnly_} sites={marketingAccess.sites} budgetSites={marketingAccess.budgetSites} showToast={showToast} />
             ) : null
           ) : tab === "challenge" ? (
             <ChallengeTab dark={dark} vehicles={vehicles} vendeursList={vendeursList} seuilJours={alertSettings.challengeSeuilJours} challengeConfig={challengeConfig} challengeEntries={challengeEntries} onOpenVehicle={openInVehicules} />
