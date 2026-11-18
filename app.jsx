@@ -4304,7 +4304,12 @@ async function prospectionGeocode({ adresse, code_postal, commune }) {
   if (q.length < 3) return null;
   try {
     // Biais sur le site affiché : « 12 rue de la Paix » sans commune ne doit pas tomber à Paris.
-    const r = await fetch(`${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=1&lat=${prospectionGeoBias.lat}&lon=${prospectionGeoBias.lng}`);
+    const url = `${PROSPECTION_GEOCODE_BASE}?q=${encodeURIComponent(q)}&limit=1&lat=${prospectionGeoBias.lat}&lon=${prospectionGeoBias.lng}`;
+    let r = await fetch(url);
+    for (let attempt = 0; r.status === 429 && attempt < 3; attempt++) { // limite de débit de l'IGN : on patiente puis on réessaie
+      await new Promise((res) => setTimeout(res, 700 * (attempt + 1)));
+      r = await fetch(url);
+    }
     if (!r.ok) return null;
     const f = (await r.json()).features?.[0];
     if (!f) return null;
@@ -4789,24 +4794,35 @@ function useProspection(site) {
     if (!mergeProspect(data)) await load();
   }, [load, mergeProspect]);
 
-  // `ids` : limiter aux fiches visibles (le bouton de la carte annonce ce nombre-là).
+  // `ids` : limiter aux fiches visibles (le bouton de la carte annonce ce nombre-là). Quelques requêtes en parallèle
+  // (reste sous la limite de 50 req/s de l'IGN) ; les positions apparaissent sur la carte au fil de l'eau.
   const geocodeMissing = useCallback(async (onProgress, ids) => {
     const only = ids ? new Set(ids) : null;
     const missing = prospects.filter((p) => p.lat == null && (p.adresse || p.commune) && (!only || only.has(p.id)));
     let ok = 0;
     let failed = 0;
-    for (let i = 0; i < missing.length; i++) {
-      const g = await prospectionGeocode(missing[i]);
-      if (g) {
-        const { error: err } = await supabase.from("prospects").update({ lat: g.lat, lng: g.lng }).eq("id", missing[i].id);
-        if (err) failed++; else ok++;
+    let done = 0;
+    let next = 0;
+    let dbErrors = 0;
+    const notFound = [];
+    const worker = async () => {
+      while (next < missing.length && dbErrors < 8) {
+        const p = missing[next++];
+        const g = await prospectionGeocode(p);
+        if (g) {
+          const { error: err } = await supabase.from("prospects").update({ lat: g.lat, lng: g.lng }).eq("id", p.id);
+          if (err) { failed++; dbErrors++; } else { ok++; dbErrors = 0; }
+        } else notFound.push(p.id);
+        done++;
+        onProgress?.(done, missing.length);
+        if (done % 400 === 0) { lastSig.current = ""; load(); }
+        await new Promise((r) => setTimeout(r, 40));
       }
-      onProgress?.(i + 1, missing.length);
-      await new Promise((r) => setTimeout(r, 60)); // reste sous la limite de 50 req/s de l'IGN
-    }
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
     lastSig.current = "";
     await load();
-    return { ok, total: missing.length, failed };
+    return { ok, total: missing.length, failed, notFound };
   }, [prospects, load]);
 
   // Importe ligne par ligne : une ligne en échec n'arrête pas les suivantes ; l'erreur finale dit combien ont été importées.
@@ -5554,7 +5570,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null, chalandise = null }) {
+function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null, chalandise = null, autoGeocode = false }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
@@ -5722,7 +5738,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   }, [commerciaux]);
 
   const placed = useMemo(() => prospects.filter((p) => (!hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu")) && p.lat != null && p.lng != null), [prospects, hideClosed]);
-  const missing = useMemo(() => prospects.filter((p) => p.lat == null), [prospects]);
+  const missing = useMemo(() => [...prospects, ...clients].filter((p) => p.lat == null && (p.adresse || p.commune)), [prospects, clients]);
   const clientTooFar = mapZoom < PROSPECTION_CLIENT_MIN_ZOOM;
   const clientsPlaced = useMemo(() => (showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null) : []), [clients, showClients, clientTooFar]);
   const ciblesPlaced = useMemo(() => (showCibles && !clientTooFar ? cibles.filter((g) => g.lat != null && g.lng != null) : []), [cibles, showCibles, clientTooFar]);
@@ -6008,18 +6024,38 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     showToast(`${zones.length} zone(s) d'activité identifiée(s) dans un rayon de 50 km`);
   };
 
-  const runGeocode = async () => {
+  // Localisation des fiches (prospects ET clients) sans position. En mode auto (ouverture de la carte) on ne retente pas
+  // les fiches déjà essayées sans succès ; le bouton manuel les retente toutes.
+  const geocodeRunning = useRef(false);
+  const runGeocode = async (auto = false) => {
+    if (geocodeRunning.current) return;
+    const tried = new Set(loadLocal("dsr:prospection-geo-tried", []));
+    const list = missing.filter((p) => !auto || !tried.has(p.id));
+    if (!list.length) return;
+    geocodeRunning.current = true;
     setBusy("0");
-    const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`), missing.map((p) => p.id));
-    setBusy("");
-    showToast(`${res.ok} prospect(s) localisé(s) sur ${res.total}`);
+    try {
+      const res = await onGeocodeMissing((i, n) => setBusy(`${i}/${n}`), list.map((p) => p.id));
+      const all = new Set(auto ? [...tried, ...(res.notFound || [])] : (res.notFound || []));
+      saveLocal("dsr:prospection-geo-tried", [...all].slice(-6000));
+      if (res.total) showToast(`${res.ok} fiche(s) localisée(s) sur ${res.total}${res.failed ? ` — ${res.failed} non enregistrée(s)` : ""}`);
+    } finally {
+      geocodeRunning.current = false;
+      setBusy("");
+    }
   };
+  useEffect(() => { if (autoGeocode && missing.length > 0) runGeocode(true); }, [autoGeocode, missing.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const chipCls = (active) =>
     `px-3 py-1.5 text-sm font-medium ${active ? "bg-blue-700 text-white" : dark ? "bg-zinc-900 text-zinc-300" : "bg-white text-stone-700"}`;
 
   return (
     <div className="flex flex-col gap-3">
+      {busy && (
+        <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
+          Localisation des fiches sur la carte… {busy} <span className="font-normal opacity-80">— les points apparaissent au fur et à mesure, vous pouvez continuer à naviguer.</span>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <button
           onClick={locateMe}
@@ -6164,11 +6200,11 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                 </div>
                 {missing.length > 0 && (
                   <button
-                    onClick={runGeocode}
+                    onClick={() => runGeocode(false)}
                     disabled={!!busy}
                     className={`pl-interactive w-full rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
                   >
-                    {busy ? `Localisation… ${busy}` : `Localiser ${missing.length} prospect(s) sans position`}
+                    {busy ? `Localisation… ${busy}` : `Localiser ${missing.length} fiche(s) sans position`}
                   </button>
                 )}
               </div>
@@ -8270,7 +8306,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
         {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} isManager={!!isManager} myCommercial={myCommercial || ""} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
-        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} autoGeocode={!readOnly} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
