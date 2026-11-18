@@ -4732,7 +4732,7 @@ function useProspectionAccess(userId) {
   return access;
 }
 
-const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", ...PROSPECTION_CRITERE_COLS, "modele", "statut", "commercial", "relance", "notes", "client_existant"];
+const PROSPECTION_EDITABLE_FIELDS = ["societe", "secteur", "adresse", "code_postal", "commune", "lat", "lng", "contact", "fonction", "tel", "email", "flotte", ...PROSPECTION_CRITERE_COLS, "modele", "statut", "commercial", "relance", "prochaine", "notes", "client_existant"];
 function prospectionCleanRow(p) {
   const row = {};
   for (const k of PROSPECTION_EDITABLE_FIELDS) {
@@ -5167,7 +5167,11 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   const isNew = prospectId === "new";
   const [p, setP] = useState(prospect);
   // Téléphone : la qualification du parc est repliée (on y revient après l'essentiel) ; sur grand écran elle reste ouverte.
-  const [critOpen, setCritOpen] = useState(() => !prospectionIsMobile());
+  const [critOpen, setCritOpen] = useState(() => {
+    const r = prospectId === "new" ? null : prospects.find((x) => x.id === prospectId);
+    return !r || ["flotte", "marques", "energies", "decideur", "renouvellement_mois", "prochain_renouvellement", "modele"].some((k) => r[k] != null && r[k] !== "");
+  });
+  const [histAll, setHistAll] = useState(false);
   const [passageNote, setPassageNote] = useState("");
   const [orig] = useState(prospect); // état à l'ouverture : sert à détecter une saisie non enregistrée
   const [locating, setLocating] = useState(false);
@@ -5372,6 +5376,12 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
           </div>
         </div>
 
+        {!isNew && (p.tel || p.email) && (
+          <div data-testid="fiche-contact-rapide" className="mb-3 flex flex-wrap gap-2">
+            {p.tel && <a href={`tel:${String(p.tel).replace(/\s/g, "")}`} className="pl-interactive rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500">Appeler {p.contact ? p.contact.split(" ")[0] : ""}</a>}
+            {p.email && <a href={`mailto:${p.email}`} className={`pl-interactive rounded-lg border px-4 py-2 text-sm font-semibold ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}>Écrire</a>}
+          </div>
+        )}
         {isNew && p._passage && (
           <label data-testid="passage-creation" className={`mb-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm ${dark ? "border-zinc-800 bg-zinc-900 text-zinc-200" : "border-stone-200 bg-stone-50 text-stone-800"}`}>
             <span className="font-semibold">Passage à enregistrer</span>
@@ -5389,8 +5399,17 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 ? <>Dernier passage le <b>{new Date(prospect.dernier_passage_le + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}</b>{prospect.dernier_passage_par ? ` par ${prospect.dernier_passage_par}` : ""}{prospectionPassageDef(prospect.resultat_passage) ? <> — <b>{prospectionPassageDef(prospect.resultat_passage).label}</b></> : null}</>
                 : "Jamais visité"}
             </p>
-            {(prospect.relance || prospect.prochaine) && prospect.statut !== "Gagné" && !prospectionNeverRelance(prospect) && (
-              <p className={`mt-0.5 text-sm ${dark ? "text-zinc-300" : "text-stone-600"}`}>Prochaine étape : <b>{prospect.prochaine || "Relance"}</b>{prospect.relance ? ` · ${prospectionFrDate(prospect.relance)}` : ""}</p>
+            {readOnly ? (
+              (prospect.relance || prospect.prochaine) && prospect.statut !== "Gagné" && !prospectionNeverRelance(prospect) && (
+                <p className={`mt-0.5 text-sm ${dark ? "text-zinc-300" : "text-stone-600"}`}>Prochaine étape : <b>{prospect.prochaine || "Relance"}</b>{prospect.relance ? ` · ${prospectionFrDate(prospect.relance)}` : ""}</p>
+              )
+            ) : prospect.statut !== "Gagné" && !prospectionNeverRelance(prospect) && (
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9.5rem]">
+                <label className={labelCls}>Prochaine étape<input data-testid="prochaine" className={inputCls} value={p.prochaine || ""} onChange={set("prochaine")} placeholder="Ex. rappeler jeudi, envoyer l'offre…" /></label>
+                {prospectionNeedsRelance(p.statut) && (
+                  <label className={labelCls}>Rappel le<input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} onChange={set("relance")} /></label>
+                )}
+              </div>
             )}
             {!readOnly && onPassage && (
               <div className="mt-2.5 space-y-2">
@@ -5421,6 +5440,13 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
 
         <fieldset disabled={!!readOnly} className="m-0 min-w-0 border-0 p-0"><div className="grid grid-cols-2 gap-3">
           <label className={`${labelCls} col-span-2`}>Société *<input className={inputCls} value={p.societe || ""} onChange={set("societe")} autoFocus={isNew && !prospectionIsMobile()} /></label>
+          <label className={`${labelCls} col-span-2`}>Notes<textarea rows={4} className={inputCls} value={p.notes || ""} onChange={set("notes")} /></label>
+          <h3 className={`col-span-2 mt-2 border-b pb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "border-zinc-800 text-zinc-400" : "border-stone-200 text-stone-500"}`}>Coordonnées</h3>
+          <label className={labelCls}>Contact<input autoComplete="off" className={inputCls} value={p.contact || ""} onChange={set("contact")} /></label>
+          <label className={labelCls}>Fonction<input className={inputCls} value={p.fonction || ""} onChange={set("fonction")} /></label>
+          <label className={`${labelCls} col-span-2 sm:col-span-1`}>Téléphone<input type="tel" inputMode="tel" className={inputCls} value={p.tel || ""} onChange={set("tel")} /></label>
+          <label className={`${labelCls} col-span-2 sm:col-span-1`}>Email<input type="email" inputMode="email" autoCapitalize="none" className={inputCls} value={p.email || ""} onChange={set("email")} /></label>
+          <h3 className={`col-span-2 mt-2 border-b pb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "border-zinc-800 text-zinc-400" : "border-stone-200 text-stone-500"}`}>Adresse</h3>
           <label className={`${labelCls} col-span-2`}>
             <span className="flex items-center justify-between">
               Adresse
@@ -5447,10 +5473,52 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             <input className={inputCls} list="prospection-secteurs" value={p.secteur || ""} onChange={set("secteur")} />
             <datalist id="prospection-secteurs">{PROSPECTION_SECTEURS.map((s) => <option key={s} value={s} />)}</datalist>
           </label>
-          <label className={labelCls}>Contact<input autoComplete="off" className={inputCls} value={p.contact || ""} onChange={set("contact")} /></label>
-          <label className={labelCls}>Fonction<input className={inputCls} value={p.fonction || ""} onChange={set("fonction")} /></label>
-          <label className={`${labelCls} col-span-2 sm:col-span-1`}>Téléphone<input type="tel" inputMode="tel" className={inputCls} value={p.tel || ""} onChange={set("tel")} /></label>
-          <label className={`${labelCls} col-span-2 sm:col-span-1`}>Email<input type="email" inputMode="email" autoCapitalize="none" className={inputCls} value={p.email || ""} onChange={set("email")} /></label>
+          <details className="col-span-2" open={!p.client_existant || p.statut === "Perdu"}>
+            <summary className={`cursor-pointer select-none border-b pb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "border-zinc-800 text-zinc-400" : "border-stone-200 text-stone-500"}`}>Suivi commercial<span className="ml-2 font-normal normal-case tracking-normal">{[p.statut, p.commercial].filter(Boolean).join(" · ")}</span></summary>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className={labelCls}>
+            Statut
+            <select data-testid="statut-select" className={inputCls} value={p.statut} onChange={onStatutChange}>{PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
+          </label>
+          <label className={labelCls}>
+            Commercial
+            <select className={inputCls} value={p.commercial || ""} onChange={set("commercial")}>
+              <option value="">Non attribué</option>
+              {[...commerciaux, ...(p.commercial && !commerciaux.includes(p.commercial) ? [p.commercial] : [])].map((n) => <option key={n}>{n}</option>)}
+            </select>
+          </label>
+          {p.statut === "Perdu" ? (
+            <>
+              <label className={labelCls}>
+                Motif de la perte *
+                <select data-testid="motif-perte" className={inputCls} value={p.motif_perte || ""} onChange={(e) => { const m = e.target.value; setP((x) => ({ ...x, motif_perte: m, relance: PROSPECTION_MOTIFS_SANS_RELANCE.includes(m) ? null : (x.relance || prospectionDefaultRelance("Perdu", m)) })); }}>
+                  <option value="">Choisir un motif…</option>
+                  {PROSPECTION_MOTIFS_PERTE.map((m) => <option key={m}>{m}</option>)}
+                </select>
+              </label>
+              {prospectionNeverRelance(p) ? (
+                <p data-testid="sans-relance" className={`text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Ce motif exclut toute nouvelle relance : le prospect ne sera plus proposé à recontacter.</p>
+              ) : (
+                <label className={labelCls}>
+                  À recontacter le
+                  <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} onChange={set("relance")} />
+                </label>
+              )}
+            </>
+          ) : prospectionNeedsRelance(p.statut) && isNew ? (
+            <label className={labelCls}>
+              Date de relance *
+              <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} min={isNew ? prospectionTodayISO() : undefined} onChange={set("relance")} />
+            </label>
+          ) : null}
+          {p.statut === "Proposition envoyée" && (
+            <label className={labelCls}>
+              Dernière proposition envoyée le
+              <input type="date" data-testid="derniere-proposition" className={inputCls} value={p.derniere_proposition || ""} onChange={set("derniere_proposition")} />
+            </label>
+          )}
+            </div>
+          </details>
           <label className={`${labelCls} col-span-2 sm:col-span-1`}>
             Modèle visé
             <input className={inputCls} list="prospection-modeles" value={p.modele || ""} onChange={set("modele")} />
@@ -5459,9 +5527,9 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
           <section data-testid="prospect-criteres" className={`rounded-xl border p-3.5 col-span-2 ${dark ? "border-zinc-800 bg-zinc-900/60" : "border-stone-200 bg-white"}`}>
             <button type="button" data-testid="criteres-toggle" aria-expanded={critOpen} onClick={() => setCritOpen((v) => !v)} className={`flex w-full items-center justify-between text-left text-[11px] font-bold uppercase tracking-widest sm:pointer-events-none sm:mb-3 ${critOpen ? "mb-3" : ""} ${dark ? "text-zinc-400" : "text-stone-500"}`}>
               <span>Qualification du parc (5 critères)</span>
-              <span className="text-[11px] normal-case tracking-normal underline sm:hidden">{critOpen ? "Masquer" : "Afficher"}</span>
+              <span className="text-[11px] normal-case tracking-normal underline">{critOpen ? "Masquer" : "Afficher"}</span>
             </button>
-            <div className={critOpen ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "hidden gap-3 sm:grid sm:grid-cols-2"}>
+            <div className={critOpen ? "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2" : "hidden"}>
               <label className={labelCls}>1 · Taille du parc (véhicules)<input type="number" min="0" className={inputCls} value={p.flotte ?? ""} onChange={set("flotte")} /></label>
               <div className={`${labelCls} sm:col-span-2`}>
                 2 · Marques du parc
@@ -5522,48 +5590,6 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               </p>
             </div>
           </section>
-          <label className={labelCls}>
-            Statut
-            <select data-testid="statut-select" className={inputCls} value={p.statut} onChange={onStatutChange}>{PROSPECTION_STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
-          </label>
-          <label className={labelCls}>
-            Commercial
-            <select className={inputCls} value={p.commercial || ""} onChange={set("commercial")}>
-              <option value="">Non attribué</option>
-              {[...commerciaux, ...(p.commercial && !commerciaux.includes(p.commercial) ? [p.commercial] : [])].map((n) => <option key={n}>{n}</option>)}
-            </select>
-          </label>
-          {p.statut === "Perdu" ? (
-            <>
-              <label className={labelCls}>
-                Motif de la perte *
-                <select data-testid="motif-perte" className={inputCls} value={p.motif_perte || ""} onChange={(e) => { const m = e.target.value; setP((x) => ({ ...x, motif_perte: m, relance: PROSPECTION_MOTIFS_SANS_RELANCE.includes(m) ? null : (x.relance || prospectionDefaultRelance("Perdu", m)) })); }}>
-                  <option value="">Choisir un motif…</option>
-                  {PROSPECTION_MOTIFS_PERTE.map((m) => <option key={m}>{m}</option>)}
-                </select>
-              </label>
-              {prospectionNeverRelance(p) ? (
-                <p data-testid="sans-relance" className={`text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>Ce motif exclut toute nouvelle relance : le prospect ne sera plus proposé à recontacter.</p>
-              ) : (
-                <label className={labelCls}>
-                  À recontacter le
-                  <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} onChange={set("relance")} />
-                </label>
-              )}
-            </>
-          ) : prospectionNeedsRelance(p.statut) ? (
-            <label className={labelCls}>
-              Date de relance *
-              <input type="date" data-testid="relance" className={inputCls} value={p.relance || ""} min={isNew ? prospectionTodayISO() : undefined} onChange={set("relance")} />
-            </label>
-          ) : null}
-          {p.statut === "Proposition envoyée" && (
-            <label className={labelCls}>
-              Dernière proposition envoyée le
-              <input type="date" data-testid="derniere-proposition" className={inputCls} value={p.derniere_proposition || ""} onChange={set("derniere_proposition")} />
-            </label>
-          )}
-          <label className={`${labelCls} col-span-2`}>Notes<textarea rows={3} className={inputCls} value={p.notes || ""} onChange={set("notes")} /></label>
         </div></fieldset>
 
         {!isNew && (
@@ -5586,13 +5612,16 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
               <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-400"}`}>Aucune action enregistrée.</p>
             ) : (
               <ul className={`divide-y ${dark ? "divide-zinc-800" : "divide-stone-100"}`}>
-                {hist.map((a) => (
+                {(histAll ? hist : hist.slice(0, 5)).map((a) => (
                   <li key={a.id} className="py-2 text-sm">
                     <span className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-800"}`}>{a.type}</span> <span className={dark ? "text-zinc-300" : "text-stone-700"}>{a.texte}</span>
                     <div className={`text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>{new Date(a.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} · {a.par}</div>
                   </li>
                 ))}
               </ul>
+            )}
+            {hist.length > 5 && (
+              <button type="button" onClick={() => setHistAll((v) => !v)} className={`mt-2 text-xs font-semibold underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>{histAll ? "Voir moins" : `Voir tout l'historique (${hist.length})`}</button>
             )}
           </section>
         )}
