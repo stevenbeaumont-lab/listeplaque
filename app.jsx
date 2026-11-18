@@ -4798,7 +4798,7 @@ function useProspection(site) {
   // (reste sous la limite de 50 req/s de l'IGN) ; les positions apparaissent sur la carte au fil de l'eau.
   const geocodeMissing = useCallback(async (onProgress, ids) => {
     const only = ids ? new Set(ids) : null;
-    const missing = prospects.filter((p) => p.lat == null && (p.adresse || p.commune) && (!only || only.has(p.id)));
+    const missing = prospects.filter((p) => (p.lat == null || p.geo_approx) && (p.adresse || p.commune) && (!only || only.has(p.id)));
     let ok = 0;
     let failed = 0;
     let done = 0;
@@ -4810,7 +4810,7 @@ function useProspection(site) {
         const p = missing[next++];
         const g = await prospectionGeocode(p);
         if (g) {
-          const { error: err } = await supabase.from("prospects").update({ lat: g.lat, lng: g.lng }).eq("id", p.id);
+          const { error: err } = await supabase.from("prospects").update({ lat: g.lat, lng: g.lng, geo_approx: false }).eq("id", p.id);
           if (err) { failed++; dbErrors++; } else { ok++; dbErrors = 0; }
         } else notFound.push(p.id);
         done++;
@@ -5738,7 +5738,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   }, [commerciaux]);
 
   const placed = useMemo(() => prospects.filter((p) => (!hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu")) && p.lat != null && p.lng != null), [prospects, hideClosed]);
-  const missing = useMemo(() => [...prospects, ...clients].filter((p) => p.lat == null && (p.adresse || p.commune)), [prospects, clients]);
+  // Sans position, ou position approximative (centre de la commune) à affiner à partir de l'adresse.
+  const missing = useMemo(() => [...prospects, ...clients].filter((p) => (p.lat == null || p.geo_approx) && (p.adresse || p.commune)), [prospects, clients]);
   const clientTooFar = mapZoom < PROSPECTION_CLIENT_MIN_ZOOM;
   const clientsPlaced = useMemo(() => (showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null) : []), [clients, showClients, clientTooFar]);
   const ciblesPlaced = useMemo(() => (showCibles && !clientTooFar ? cibles.filter((g) => g.lat != null && g.lng != null) : []), [cibles, showCibles, clientTooFar]);
@@ -6204,7 +6205,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                     disabled={!!busy}
                     className={`pl-interactive w-full rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
                   >
-                    {busy ? `Localisation… ${busy}` : `Localiser ${missing.length} fiche(s) sans position`}
+                    {busy ? `Localisation… ${busy}` : `Localiser ou affiner ${missing.length} fiche(s)`}
                   </button>
                 )}
               </div>
