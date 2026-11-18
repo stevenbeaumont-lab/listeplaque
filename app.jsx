@@ -5720,6 +5720,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
+  const [hideCeased, setHideCeased] = useState(false);
   const [showCibles, setShowCibles] = useState(true);
   const [showNonOuvertes, setShowNonOuvertes] = useState(false);
   const [showLegend, setShowLegend] = useState(() => loadLocal("dsr:prospection-map-legende", true));
@@ -6172,7 +6173,6 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
 
   // Localisation des fiches (prospects ET clients) sans position. En mode auto (ouverture de la carte) on ne retente pas
   // les fiches déjà essayées sans succès ; le bouton manuel les retente toutes.
-  const [hideCeased, setHideCeased] = useState(false);
   const [sireneBusy, setSireneBusy] = useState("");
   const sireneTodo = useMemo(() => [...prospects, ...clients].filter((p) => !p.entreprise_statut && p.societe), [prospects, clients]);
   const sireneStats = useMemo(() => {
