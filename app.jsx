@@ -4235,17 +4235,59 @@ function prospectionPassageTable(actions) {
   });
   return [...rows.values()].sort((x, y) => y.today - x.today || y.week - x.week);
 }
-// Colonnes du pipeline « par passage » : où en est chaque entreprise suivie.
-const PROSPECTION_PIPE_COLS = [["interesse", "Intéressé, à rappeler", "#0EA5E9"], ["rdv", "RDV pris", "#0D9488"], ["proposition", "Proposition demandée", "#DB2777"], ["envoyee", "Proposition envoyée", "#7C3AED"], ["gagne", "Gagné", "#16A34A"]];
-function prospectionPipeStage(p) {
-  if (!p.client_existant) {
-    if (p.statut === "Gagné") return "gagne";
-    if (p.statut === "Perdu") return null;
-    if (p.statut === "Proposition envoyée") return "envoyee";
-  }
-  if (["interesse", "rdv", "proposition"].includes(p.resultat_passage) && p.dernier_passage_le && p.dernier_passage_le >= prospectionAddDaysISO(-60)) return p.resultat_passage;
-  return null;
+// Une seule notion pour suivre une affaire, comme un pipeline de VRP : l'ÉTAPE.
+// Elle se déduit du statut et du dernier résultat de passage ; changer d'étape met à jour les deux, avec la suite à donner.
+const PROSPECTION_ETAPES = [
+  { key: "acontacter", label: "À contacter", color: "#94A3B8" },
+  { key: "contacte", label: "Contacté", color: "#0EA5E9" },
+  { key: "interesse", label: "Intéressé", color: "#2563EB" },
+  { key: "rdv", label: "RDV pris", color: "#0D9488" },
+  { key: "apreparer", label: "Proposition à faire", color: "#DB2777" },
+  { key: "envoyee", label: "Proposition envoyée", color: "#7C3AED" },
+  { key: "gagne", label: "Gagné", color: "#16A34A" },
+  { key: "perdu", label: "Perdu / refus", color: "#78716C" },
+];
+const PROSPECTION_ETAPES_OUVERTES = ["contacte", "interesse", "rdv", "apreparer", "envoyee"];
+function prospectionEtapeDef(key) { return PROSPECTION_ETAPES.find((e) => e.key === key) || null; }
+function prospectionEtapeOf(p) {
+  if (p.statut === "Gagné") return "gagne";
+  if (p.statut === "Perdu") return "perdu";
+  if (p.statut === "Proposition envoyée") return "envoyee";
+  const r = p.resultat_passage;
+  if (r === "proposition") return "apreparer";
+  if (r === "rdv" || r === "interesse") return r;
+  if (r === "vu") return "contacte";
+  if (r === "refus" || r === "ferme") return "perdu";
+  return p.client_existant ? null : "acontacter"; // un client jamais visité n'est pas une affaire en cours
 }
+function prospectionEtapeNext(key) {
+  const order = ["acontacter", "contacte", "interesse", "rdv", "apreparer", "envoyee", "gagne"];
+  const i = order.indexOf(key);
+  return i >= 0 && i < order.length - 1 ? order[i + 1] : key === "perdu" ? "contacte" : null;
+}
+// Champs à enregistrer pour passer une affaire à une étape (sans toucher à la date de dernier passage).
+function prospectionEtapePatch(p, etape, motif) {
+  const today = prospectionTodayISO();
+  const f = { statut: "Prospect", motif_perte: null };
+  const withDefaults = (key) => {
+    const def = prospectionPassageDef(key);
+    f.resultat_passage = key;
+    if (def && def.jours != null && (!p.relance || p.relance < today || p.statut !== "Prospect")) { f.relance = prospectionAddDaysISO(def.jours); }
+    if (def && def.prochaine) f.prochaine = def.prochaine;
+  };
+  if (etape === "acontacter") { f.resultat_passage = null; }
+  else if (etape === "contacte") { f.resultat_passage = "vu"; if (!p.relance || p.relance < today || p.statut !== "Prospect") f.relance = prospectionAddDaysISO(7); if (!p.prochaine) f.prochaine = "Rappeler"; }
+  else if (etape === "interesse") withDefaults("interesse");
+  else if (etape === "rdv") withDefaults("rdv");
+  else if (etape === "apreparer") withDefaults("proposition");
+  else if (etape === "envoyee") {
+    f.statut = "Proposition envoyée"; f.derniere_proposition = today; f.relance = prospectionDefaultRelance("Proposition envoyée"); f.prochaine = "Relancer la proposition";
+    if (!p.resultat_passage || p.resultat_passage === "vu") f.resultat_passage = "proposition";
+  } else if (etape === "gagne") { f.statut = "Gagné"; f.relance = null; f.prochaine = ""; }
+  else if (etape === "perdu") { f.statut = "Perdu"; f.motif_perte = motif || "Pas de besoin durable"; f.relance = prospectionDefaultRelance("Perdu", f.motif_perte); f.prochaine = ""; }
+  return f;
+}
+const PROSPECTION_PERDU_MOTIFS_RAPIDES = ["Pas de besoin durable", "Parti chez un concurrent", "Injoignable", "Société fermée / disparue", "Ne veut plus entendre parler de la marque"];
 function prospectionRelanceState(p) {
   if (!p.relance || p.statut === "Gagné" || prospectionNeverRelance(p)) return "";
   const t = prospectionTodayISO();
@@ -5157,7 +5199,7 @@ function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
   );
 }
 
-function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, myCommercial, readOnly, newPrefill, onClose, onSave, onDelete, onAddAction, onPassage, showToast }) {
+function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, myCommercial, readOnly, newPrefill, onClose, onSave, onDelete, onAddAction, onPassage, onEtape, showToast }) {
   // `prospect` = la fiche telle qu'elle est en base (relue en direct) ; `p` = la copie en cours de saisie, figée à
   // l'ouverture. À l'enregistrement, seuls les champs modifiés par la personne sont envoyés (voir useProspection.save),
   // donc ce qu'un collègue a changé entre-temps n'est pas écrasé.
@@ -5399,6 +5441,32 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
                 ? <>Dernier passage le <b>{new Date(prospect.dernier_passage_le + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}</b>{prospect.dernier_passage_par ? ` par ${prospect.dernier_passage_par}` : ""}{prospectionPassageDef(prospect.resultat_passage) ? <> — <b>{prospectionPassageDef(prospect.resultat_passage).label}</b></> : null}</>
                 : "Jamais visité"}
             </p>
+            {!readOnly && onEtape && (
+              <label className={`${labelCls} mt-2 block`}>
+                Étape de l'affaire
+                <select
+                  data-testid="fiche-etape"
+                  className={inputCls}
+                  value={prospectionEtapeOf(prospect) || ""}
+                  onChange={async (e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    const [key, motif] = v.startsWith("perdu:") ? ["perdu", v.slice(6)] : [v, undefined];
+                    await onEtape(prospect, key, motif);
+                    // La saisie en cours reprend les nouvelles valeurs : sinon un « Enregistrer » les écraserait.
+                    const f = prospectionEtapePatch(prospect, key, motif);
+                    setP((x) => ({ ...x, ...Object.fromEntries(["statut", "relance", "prochaine", "motif_perte", "derniere_proposition"].filter((k) => k in f).map((k) => [k, f[k]])) }));
+                  }}
+                >
+                  {!prospectionEtapeOf(prospect) && <option value="">Pas d'affaire en cours</option>}
+                  {PROSPECTION_ETAPES.filter((x) => x.key !== "perdu").map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                  <optgroup label="Perdu — motif">
+                    {PROSPECTION_PERDU_MOTIFS_RAPIDES.map((m) => <option key={m} value={`perdu:${m}`}>{m}</option>)}
+                  </optgroup>
+                  {prospectionEtapeOf(prospect) === "perdu" && <option value="perdu">Perdu / refus</option>}
+                </select>
+              </label>
+            )}
             {readOnly ? (
               (prospect.relance || prospect.prochaine) && prospect.statut !== "Gagné" && !prospectionNeverRelance(prospect) && (
                 <p className={`mt-0.5 text-sm ${dark ? "text-zinc-300" : "text-stone-600"}`}>Prochaine étape : <b>{prospect.prochaine || "Relance"}</b>{prospect.relance ? ` · ${prospectionFrDate(prospect.relance)}` : ""}</p>
@@ -5474,7 +5542,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             <datalist id="prospection-secteurs">{PROSPECTION_SECTEURS.map((s) => <option key={s} value={s} />)}</datalist>
           </label>
           <details className="col-span-2" open={!p.client_existant || p.statut === "Perdu"}>
-            <summary className={`cursor-pointer select-none border-b pb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "border-zinc-800 text-zinc-400" : "border-stone-200 text-stone-500"}`}>Suivi commercial<span className="ml-2 font-normal normal-case tracking-normal">{[p.statut, p.commercial].filter(Boolean).join(" · ")}</span></summary>
+            <summary className={`cursor-pointer select-none border-b pb-1 text-[11px] font-bold uppercase tracking-widest ${dark ? "border-zinc-800 text-zinc-400" : "border-stone-200 text-stone-500"}`}>Statut détaillé<span className="ml-2 font-normal normal-case tracking-normal">{[p.statut, p.commercial].filter(Boolean).join(" · ")}</span></summary>
             <div className="mt-3 grid grid-cols-2 gap-3">
           <label className={labelCls}>
             Statut
@@ -8365,8 +8433,8 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
   };
   const closeFiche = () => { setOpenId(null); setNewPrefill(null); };
   const [filters, setFilters] = useState({ q: "", statut: "", secteur: "", energie: "" });
-  const [pipeMode, setPipeMode] = useState(() => loadLocal("dsr:prospection-pipe-mode", "passages"));
-  useEffect(() => { saveLocal("dsr:prospection-pipe-mode", pipeMode); }, [pipeMode]);
+  const [pipePerdus, setPipePerdus] = useState(false);
+  const [pipeMore, setPipeMore] = useState({});
   const [importing, setImporting] = useState("");
   const [importAsClient, setImportAsClient] = useState(false);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
@@ -8444,6 +8512,14 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     await data.addAction(p.id, "Visite", `${def.label}${comment ? ` — ${comment}` : ""}`, currentUserName);
     await data.patch(p.id, { ...prospectionPassagePatch(key, !!p.client_existant), dernier_passage_par: currentUserName });
     showToast(`${def.label} — ${p.societe}`, { type: key === "vu" || key === "proposition" || key === "rdv" ? "celebrate" : undefined });
+  });
+  // Changement d'étape d'une affaire : statut, résultat, suite à donner, et une ligne dans l'historique.
+  const setEtape = guarded("etape", "Étape non enregistrée", async (p, etape, motif) => {
+    const def = prospectionEtapeDef(etape);
+    if (!def) return;
+    await data.patch(p.id, prospectionEtapePatch(p, etape, motif));
+    await data.addAction(p.id, "Autre", `Étape : ${def.label}${etape === "perdu" && motif ? ` (${motif})` : ""}`, currentUserName);
+    showToast(`${p.societe} → ${def.label}`, { type: etape === "gagne" ? "celebrate" : undefined });
   });
   const quickVisit = guarded("visit", "Visite non enregistrée", async (p) => {
     await addAction(p.id, "Visite", "Visite sur le terrain", currentUserName);
@@ -8523,7 +8599,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         <div className={`flex flex-wrap items-center gap-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
           {p.societe} <ProspectionRelancePill dark={dark} p={p} />
         </div>
-        <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.contact, p.tel, p.commune, p.statut, (!scope || scopeTeam) && p.commercial].filter(Boolean).join(" · ")}</div>
+        <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.contact, p.tel, p.commune, prospectionEtapeDef(prospectionEtapeOf(p))?.label || p.statut, (!scope || scopeTeam) && p.commercial].filter(Boolean).join(" · ")}</div>
         {(p.flotte || p.marques || p.energies) && (
           <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.flotte && `${p.flotte} véh.`, p.marques, p.energies].filter(Boolean).join(" · ")}</div>
         )}
@@ -8639,75 +8715,105 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     );
   };
 
-  const vuePipelinePassages = () => {
+  const vuePipeline = () => {
+    const today = prospectionTodayISO();
     const ownerOf = (p) => p.commercial || prospectionCommercialFor(p.dernier_passage_par) || "";
-    const pool = prospects.filter((p) => (!scope || inScope(ownerOf(p))) && prospectionPipeStage(p));
+    const by = {};
+    PROSPECTION_ETAPES.forEach((e) => { by[e.key] = []; });
+    prospects.forEach((p) => {
+      if (scope && !inScope(ownerOf(p))) return;
+      const e = prospectionEtapeOf(p);
+      if (e) by[e].push(p);
+    });
+    // À traiter d'abord : sans prochaine action, puis les rappels les plus anciens.
+    Object.values(by).forEach((l) => l.sort((x, y) => String(x.relance || "0000").localeCompare(String(y.relance || "0000")) || String(x.societe).localeCompare(String(y.societe), "fr")));
+    const ouvertes = PROSPECTION_ETAPES_OUVERTES.flatMap((k) => by[k]);
+    const enRetard = ouvertes.filter((p) => prospectionRelanceState(p) === "late").length;
+    const sansAction = ouvertes.filter((p) => !p.relance).length;
+    const potentiel = ouvertes.reduce((n, p) => n + (Number(p.flotte) || 0), 0);
+    const cols = PROSPECTION_ETAPES.filter((e) => e.key !== "perdu" || pipePerdus);
+    const daysSince = (iso) => Math.max(0, Math.round((new Date(today + "T00:00") - new Date(iso + "T00:00")) / 864e5));
+    const tiles = [["En suivi", ouvertes.length, null], ["Potentiel", potentiel ? `${potentiel} véh.` : "—", null], ["Rappels en retard", enRetard, enRetard ? "#E11D48" : null], ["Sans prochaine action", sansAction, sansAction ? "#E11D48" : null]];
+    const PER_COL = 20;
+    const onEtape = (p, v) => { if (!v) return; if (v.startsWith("perdu:")) setEtape(p, "perdu", v.slice(6)); else setEtape(p, v); };
     return (
-      <div className="grid auto-cols-[minmax(230px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
-        {PROSPECTION_PIPE_COLS.map(([k, label, color]) => {
-          const items = pool.filter((p) => prospectionPipeStage(p) === k).sort((x, y) => String(y.dernier_passage_le || "").localeCompare(String(x.dernier_passage_le || "")));
-          return (
-            <div key={k} data-testid={`pipe-${k}`} className={`min-h-[140px] rounded-2xl p-2 ${dark ? "bg-zinc-900/60" : "bg-stone-100"}`}>
-              <h3 className={`mb-2 flex justify-between px-1 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-                <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />{label}</span>
-                <span>{items.length}</span>
-              </h3>
-              {items.length === 0 && <div className={`px-1 py-3 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune entreprise</div>}
-              {items.map((p) => (
-                <button key={p.id} onClick={() => setOpenId(p.id)} className={`pl-interactive mb-2 block w-full rounded-xl border p-2.5 text-left ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
-                  <div className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</div>
-                  <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.dernier_passage_le && `passage le ${prospectionFrDate(p.dernier_passage_le)}`, p.client_existant && "client"].filter(Boolean).join(" · ")}</div>
-                  {p.prochaine && <div className={`mt-0.5 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>{p.prochaine}</div>}
-                  <div className="mt-1.5 flex items-center justify-between">
-                    <span title={p.dernier_passage_par || p.commercial} className="grid h-6 w-6 place-items-center rounded-full bg-blue-700 text-[10px] font-bold text-white">{prospectionInitials(prospectionCommercialFor(p.dernier_passage_par) || p.dernier_passage_par || p.commercial)}</span>
-                    <ProspectionRelancePill dark={dark} p={p} />
-                  </div>
-                </button>
-              ))}
+      <>
+        <div data-testid="pipe-kpis" className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {tiles.map(([l, n, c]) => (
+            <div key={l} className={`rounded-xl border p-2.5 ${dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white"}`}>
+              <div className="text-2xl font-bold" style={{ color: c || undefined }}>{n}</div>
+              <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{l}</div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <label className={`flex items-center gap-2 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+            <input type="checkbox" checked={pipePerdus} onChange={(e) => setPipePerdus(e.target.checked)} className="accent-blue-700" />
+            Afficher les perdus et refus ({by.perdu.length})
+          </label>
+          <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Chaque affaire avance d'une étape en un geste ; la suite à donner se pose toute seule.</span>
+        </div>
+        <div className="grid auto-cols-[minmax(250px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
+          {cols.map((e) => {
+            const items = by[e.key];
+            const shown = pipeMore[e.key] ? items : items.slice(0, PER_COL);
+            const next = prospectionEtapeNext(e.key);
+            const nextDef = next ? prospectionEtapeDef(next) : null;
+            return (
+              <div key={e.key} data-testid={`pipe-${e.key}`} className={`min-h-[140px] rounded-2xl p-2 ${dark ? "bg-zinc-900/60" : "bg-stone-100"}`}>
+                <h3 className={`mb-2 flex justify-between px-1 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                  <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: e.color }} />{e.label}</span>
+                  <span>{items.length}{e.key !== "gagne" && e.key !== "perdu" && items.some((p) => p.flotte) ? ` · ${items.reduce((n, p) => n + (Number(p.flotte) || 0), 0)} véh.` : ""}</span>
+                </h3>
+                {items.length === 0 && <div className={`px-1 py-3 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune affaire</div>}
+                {shown.map((p) => {
+                  const st = prospectionRelanceState(p);
+                  const idle = p.dernier_passage_le ? daysSince(p.dernier_passage_le) : null;
+                  const actionable = PROSPECTION_ETAPES_OUVERTES.includes(e.key) || e.key === "acontacter";
+                  return (
+                    <div key={p.id} className={`mb-2 rounded-xl border p-2.5 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
+                      <button onClick={() => setOpenId(p.id)} className="block w-full text-left">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</span>
+                          <span title={p.dernier_passage_par || p.commercial} className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-700 text-[10px] font-bold text-white">{prospectionInitials(prospectionCommercialFor(p.dernier_passage_par) || p.dernier_passage_par || p.commercial)}</span>
+                        </div>
+                        <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.flotte && `${p.flotte} véh.`, p.client_existant && "client", idle != null && (idle === 0 ? "vu aujourd'hui" : `vu il y a ${idle} j`)].filter(Boolean).join(" · ")}</div>
+                        {actionable && (
+                          <div className={`mt-1.5 text-xs font-semibold ${st === "late" ? "text-rose-500" : st === "due" ? "text-amber-500" : p.relance ? (dark ? "text-zinc-300" : "text-stone-600") : "text-rose-500"}`}>
+                            {p.relance ? `${p.prochaine || "Relance"} · ${st === "late" ? "en retard, " : ""}${prospectionFrDate(p.relance)}` : "⚠ Pas de prochaine action"}
+                          </div>
+                        )}
+                        {p.statut === "Perdu" && p.motif_perte && <div className={`mt-1 text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{p.motif_perte}</div>}
+                      </button>
+                      {!readOnly && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {p.tel && <a href={`tel:${String(p.tel).replace(/\s/g, "")}`} className={`rounded-lg border px-2 py-1 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>Appeler</a>}
+                          {nextDef && <button onClick={() => setEtape(p, next)} className="rounded-lg bg-blue-700 px-2 py-1 text-xs font-bold text-white hover:bg-blue-500">{e.key === "perdu" ? "Réactiver" : `→ ${nextDef.label}`}</button>}
+                          <select aria-label={`Changer l'étape de ${p.societe}`} value={e.key} onChange={(ev) => onEtape(p, ev.target.value)} className={`ml-auto max-w-[6.5rem] rounded-lg border px-1.5 py-1 text-xs ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-300" : "border-stone-300 bg-white text-stone-700"}`}>
+                            {PROSPECTION_ETAPES.filter((x) => x.key !== "perdu").map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                            <optgroup label="Perdu — motif">
+                              {PROSPECTION_PERDU_MOTIFS_RAPIDES.map((m) => <option key={m} value={`perdu:${m}`}>{m}</option>)}
+                            </optgroup>
+                            {e.key === "perdu" && <option value="perdu">Perdu / refus</option>}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {items.length > PER_COL && !pipeMore[e.key] && (
+                  <button onClick={() => setPipeMore((m) => ({ ...m, [e.key]: true }))} className={`w-full rounded-lg border px-2 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-600"}`}>Afficher les {items.length - PER_COL} autres</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {ouvertes.length + by.acontacter.length === 0 && (
+          <p className={`mt-3 text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>Aucune affaire en cours. Enregistrez un passage depuis la carte (« Intéressé », « RDV pris »…) : l'entreprise entre ici automatiquement.</p>
+        )}
+      </>
     );
   };
-  const vuePipeline = () => (
-    <>
-      <div className={`mb-3 inline-flex overflow-hidden rounded-lg border ${dark ? "border-zinc-800" : "border-stone-300"}`}>
-        {[["passages", "Par passage"], ["statut", "Par statut"]].map(([k, l]) => (
-          <button key={k} data-testid={`pipe-mode-${k}`} onClick={() => setPipeMode(k)} className={`px-3 py-1.5 text-sm font-medium ${pipeMode === k ? "bg-blue-700 text-white" : dark ? "bg-zinc-900 text-zinc-300" : "bg-white text-stone-700"}`}>{l}</button>
-        ))}
-      </div>
-      {pipeMode === "passages" ? vuePipelinePassages() : vuePipelineStatut()}
-    </>
-  );
-  const vuePipelineStatut = () =>
-    scoped.length === 0 ? (
-      <EmptyState dark={dark} icon={Target} title="Aucun prospect pour l'instant" subtitle="Commencez par en ajouter un." />
-    ) : (
-    <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
-      {PROSPECTION_STATUTS.map((s) => {
-        const items = scoped.filter((p) => p.statut === s);
-        return (
-          <div key={s} className={`min-h-[140px] rounded-2xl p-2 ${dark ? "bg-zinc-900/60" : "bg-stone-100"}`}>
-            <h3 className={`mb-2 flex justify-between px-1 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-              <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: PROSPECTION_STATUT_COLORS[s] }} />{s}</span>
-              <span>{items.length}</span>
-            </h3>
-            {items.map((p) => (
-              <button key={p.id} onClick={() => setOpenId(p.id)} className={`pl-interactive mb-2 block w-full rounded-xl border p-2.5 text-left ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
-                <div className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</div>
-                <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.flotte && `${p.flotte} véh.`, p.energies, p.modele].filter(Boolean).join(" · ")}</div>
-                <div className="mt-1.5 flex items-center justify-between">
-                  <span title={p.commercial} className="grid h-6 w-6 place-items-center rounded-full bg-blue-700 text-[10px] font-bold text-white">{prospectionInitials(p.commercial)}</span>
-                  <ProspectionRelancePill dark={dark} p={p} />
-                </div>
-              </button>
-            ))}
-          </div>
-        );
-      })}
-    </div>
-    );
 
   const vueListe = () => (
     <>
@@ -8996,6 +9102,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
           onDelete={data.remove}
           onAddAction={addAction}
           onPassage={passage}
+          onEtape={setEtape}
           showToast={showToast}
         />
       )}
