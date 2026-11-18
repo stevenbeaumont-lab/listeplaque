@@ -6022,7 +6022,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const [passageFilter, setPassageFilter] = useState("all");
   const [showCibles, setShowCibles] = useState(true);
   const [showNonOuvertes, setShowNonOuvertes] = useState(false);
-  const [showLegend, setShowLegend] = useState(() => loadLocal("dsr:prospection-map-legende", true));
+  const [showLegend, setShowLegend] = useState(() => loadLocal("dsr:prospection-map-legende", !prospectionIsMobile()));
   const [showCampagneNom, setShowCampagneNom] = useState(() => loadLocal("dsr:prospection-map-campagne-nom", true));
   useEffect(() => { saveLocal("dsr:prospection-map-legende", showLegend); }, [showLegend]);
   useEffect(() => { saveLocal("dsr:prospection-map-campagne-nom", showCampagneNom); }, [showCampagneNom]);
@@ -6945,7 +6945,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       )}
       </div>
 
-      <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
+      <div className={`hidden text-xs sm:block ${dark ? "text-zinc-500" : "text-stone-400"}`}>
         Astuce : touchez la carte (ou clic droit / appui long) à l'endroit d'une entreprise pour choisir le résultat du passage, puis compléter la fiche — l'adresse et le nom se remplissent automatiquement si vous visez un commerce.
       </div>
 
@@ -8435,6 +8435,8 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
   const [filters, setFilters] = useState({ q: "", statut: "", secteur: "", energie: "" });
   const [pipePerdus, setPipePerdus] = useState(false);
   const [pipeMore, setPipeMore] = useState({});
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [jourMore, setJourMore] = useState({});
   const [importing, setImporting] = useState("");
   const [importAsClient, setImportAsClient] = useState(false);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
@@ -8594,26 +8596,18 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
   const sansRelance = scoped.filter((p) => prospectionNeedsRelance(p.statut) && !p.relance);
 
   const Row = ({ p }) => (
-    <div className={`pl-interactive grid grid-cols-1 items-center gap-2 p-3.5 sm:grid-cols-[1fr_auto] ${cardCls}`}>
+    <div className={`pl-interactive grid grid-cols-1 items-center gap-2 p-3 sm:grid-cols-[1fr_auto] ${cardCls}`}>
       <div className="min-w-0 cursor-pointer" onClick={() => setOpenId(p.id)}>
         <div className={`flex flex-wrap items-center gap-2 font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>
           {p.societe} <ProspectionRelancePill dark={dark} p={p} />
         </div>
-        <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.contact, p.tel, p.commune, prospectionEtapeDef(prospectionEtapeOf(p))?.label || p.statut, (!scope || scopeTeam) && p.commercial].filter(Boolean).join(" · ")}</div>
-        {(p.flotte || p.marques || p.energies) && (
-          <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.flotte && `${p.flotte} véh.`, p.marques, p.energies].filter(Boolean).join(" · ")}</div>
-        )}
+        <div className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.commune, prospectionEtapeDef(prospectionEtapeOf(p))?.label || p.statut, p.prochaine, (!scope || scopeTeam) && p.commercial].filter(Boolean).join(" · ")}</div>
         {p.statut === "Perdu" && p.motif_perte && <div className={`text-sm ${dark ? "text-zinc-400" : "text-stone-600"}`}>Perdu : {p.motif_perte}</div>}
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {p.tel && (
           <a href={`tel:${p.tel.replace(/\s/g, "")}`} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>
             Appeler
-          </a>
-        )}
-        {(p.adresse || p.commune) && (
-          <a href={prospectionMapsDirectionsUrl(p)} target="_blank" rel="noreferrer" className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>
-            Itinéraire
           </a>
         )}
         {!readOnly && (
@@ -8628,23 +8622,45 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
             {PROSPECTION_PASSAGES.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
           </select>
         )}
-        {!readOnly && p.statut === "Prospect" && (
-          <button onClick={() => propositionEnvoyee(p)} title={`Proposition envoyée : relance dans ${PROSPECTION_PROPOSITION_RELANCE_JOURS} jours`} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-violet-700 text-violet-300" : "border-violet-300 text-violet-700"}`}>Proposition envoyée</button>
-        )}
-        {!readOnly && <button onClick={() => snooze(p, 2)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+2 j</button>}
-        {!readOnly && <button onClick={() => snooze(p, 7)} className={`rounded-lg border px-2.5 py-1 text-sm ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>+7 j</button>}
+        <select
+          aria-label={`Autres actions pour ${p.societe}`}
+          data-testid="row-plus"
+          value=""
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "snooze2") snooze(p, 2);
+            else if (v === "snooze7") snooze(p, 7);
+            else if (v === "envoyee") propositionEnvoyee(p);
+            else if (v === "itineraire") window.open(prospectionMapsDirectionsUrl(p), "_blank", "noopener");
+          }}
+          className={`rounded-lg border px-2 py-1 text-sm ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-300" : "border-stone-300 bg-white text-stone-700"}`}
+        >
+          <option value="">Plus…</option>
+          {(p.adresse || p.commune) && <option value="itineraire">Itinéraire</option>}
+          {!readOnly && p.statut === "Prospect" && <option value="envoyee">Proposition envoyée</option>}
+          {!readOnly && <option value="snooze2">Reporter de 2 jours</option>}
+          {!readOnly && <option value="snooze7">Reporter de 7 jours</option>}
+        </select>
         <button onClick={() => setOpenId(p.id)} className="rounded-lg bg-blue-700 px-2.5 py-1 text-sm font-semibold text-white">Ouvrir</button>
       </div>
     </div>
   );
 
-  const Block = ({ title, items }) =>
-    items.length ? (
-      <section className="mb-5">
+  // Listes courtes : 5 lignes, le reste à la demande.
+  const Block = ({ id, title, items }) => {
+    if (!items.length) return null;
+    const all = !!jourMore[id];
+    const shown = all ? items : items.slice(0, 5);
+    return (
+      <section className="mb-4">
         <h3 className={`mb-2 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>{title} ({items.length})</h3>
-        <div className="flex flex-col gap-2">{items.map((p) => <Row key={p.id} p={p} />)}</div>
+        <div className="flex flex-col gap-2">{shown.map((p) => <Row key={p.id} p={p} />)}</div>
+        {items.length > 5 && (
+          <button onClick={() => setJourMore((m) => ({ ...m, [id]: !all }))} className={`mt-2 text-xs font-semibold underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>{all ? "Voir moins" : `Voir les ${items.length - 5} autres`}</button>
+        )}
       </section>
-    ) : null;
+    );
+  };
 
   const vueJour = () => {
     const today = prospectionTodayISO();
@@ -8658,7 +8674,6 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     const semaine = pool.filter((p) => prospectionRelanceState(p) === "future" && p.relance <= prospectionAddDaysISO(7)).sort(byDate);
     const vus = prospects.filter((p) => p.dernier_passage_le === today);
     const nb = (k) => vus.filter((p) => p.resultat_passage === k).length;
-    const parPersonne = Object.entries(vus.reduce((m, p) => { const n = p.dernier_passage_par || "—"; m[n] = (m[n] || 0) + 1; return m; }, {})).sort((x, y) => y[1] - x[1]);
     const exportVus = () => {
       const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const rows = [["Société", "Commune", "Résultat", "Par", "Prochaine étape", "Relance"], ...vus.map((p) => [p.societe, p.commune, prospectionPassageDef(p.resultat_passage)?.label || "Vu", p.dernier_passage_par, p.prochaine, p.relance])];
@@ -8670,47 +8685,46 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
       URL.revokeObjectURL(link.href);
     };
     if (!prospects.length) return <EmptyState dark={dark} icon={Target} title="Aucun prospect pour l'instant" subtitle="Commencez par en ajouter un." />;
-    const tiles = [["Entreprises vues", vus.length, "#16A34A"], ["Intéressés", nb("interesse"), "#0EA5E9"], ["RDV pris", nb("rdv"), "#0D9488"], ["Propositions demandées", nb("proposition"), "#DB2777"], ["Pas intéressés", nb("refus"), "#78716C"], ["Fermés", nb("ferme"), "#B91C1C"]];
+    // Une ligne de synthèse plutôt que six compteurs : seuls les résultats du jour qui ne sont pas à zéro.
+    const chips = [["vu(s)", vus.length], ["intéressé(s)", nb("interesse")], ["RDV", nb("rdv")], ["proposition(s) demandée(s)", nb("proposition")], ["refus", nb("refus")], ["fermé(s)", nb("ferme")]].filter(([, n]) => n > 0);
+    const shownVus = jourMore.vus ? vus : vus.slice(0, 5);
     return (
       <>
         <section data-testid="jour-passages" className="mb-5">
-          <h3 className={`mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-            <span>Passages du jour ({vus.length})</span>
-            {vus.length > 0 && <button onClick={exportVus} className={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold normal-case tracking-normal ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-600"}`}>Exporter (CSV)</button>}
-          </h3>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            {tiles.map(([l, n, c]) => (
-              <div key={l} className={`rounded-xl border p-2.5 ${dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white"}`}>
-                <div className="text-2xl font-bold" style={{ color: n ? c : undefined }}>{n}</div>
-                <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{l}</div>
-              </div>
-            ))}
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className={`text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>Aujourd'hui</h3>
+            {vus.length > 0 && <button onClick={exportVus} className={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-600"}`}>Exporter</button>}
           </div>
-          {parPersonne.length > 0 && <div className={`mt-2 text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{parPersonne.map(([n, c]) => `${prospectionCommercialFor(n) || n} : ${c}`).join(" · ")}</div>}
           {vus.length === 0 ? (
-            <p className={`mt-2 text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>Aucun passage enregistré aujourd'hui. Touchez la carte ou une entreprise pour en noter un.</p>
+            <p className={`text-sm ${dark ? "text-zinc-500" : "text-stone-500"}`}>Aucun passage enregistré. Touchez la carte ou une entreprise pour en noter un.</p>
           ) : (
-            <div className="mt-2 flex flex-col gap-1.5">
-              {vus.map((p) => {
-                const def = prospectionPassageDef(p.resultat_passage);
-                return (
-                  <button key={p.id} onClick={() => setOpenId(p.id)} className={`pl-interactive flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left ${dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white"}`}>
-                    <span className="min-w-0">
-                      <span className={`block truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</span>
-                      <span className={`block truncate text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.commune, p.dernier_passage_par && (prospectionCommercialFor(p.dernier_passage_par) || p.dernier_passage_par), p.prochaine && `${p.prochaine}${p.relance ? ` (${prospectionFrDate(p.relance)})` : ""}`].filter(Boolean).join(" · ")}</span>
-                    </span>
-                    <span className="shrink-0 rounded-full px-2 py-0.5 text-xs font-bold text-white" style={{ background: def?.badge || (p.resultat_passage === "ferme" ? "#B91C1C" : p.resultat_passage === "refus" ? "#78716C" : p.resultat_passage === "interesse" ? "#0EA5E9" : "#16A34A") }}>{def?.label || "Vu"}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              <div data-testid="jour-synthese" className="flex flex-wrap gap-1.5">
+                {chips.map(([l, n]) => <span key={l} className={`rounded-full px-2.5 py-1 text-sm font-semibold ${dark ? "bg-zinc-800 text-zinc-100" : "bg-stone-100 text-stone-800"}`}>{n} {l}</span>)}
+              </div>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {shownVus.map((p) => {
+                  const def = prospectionPassageDef(p.resultat_passage);
+                  return (
+                    <button key={p.id} onClick={() => setOpenId(p.id)} className={`pl-interactive flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left ${dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white"}`}>
+                      <span className="min-w-0">
+                        <span className={`block truncate font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</span>
+                        <span className={`block truncate text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{[p.commune, p.dernier_passage_par && (prospectionCommercialFor(p.dernier_passage_par) || p.dernier_passage_par)].filter(Boolean).join(" · ")}</span>
+                      </span>
+                      <span className={`shrink-0 text-xs font-bold ${dark ? "text-zinc-300" : "text-stone-600"}`}>{def?.label || "Vu"}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {vus.length > 5 && <button onClick={() => setJourMore((m) => ({ ...m, vus: !m.vus }))} className={`mt-2 text-xs font-semibold underline ${dark ? "text-zinc-400" : "text-stone-500"}`}>{jourMore.vus ? "Voir moins" : `Voir les ${vus.length - 5} autres`}</button>}
+            </>
           )}
         </section>
         {!late.length && !due.length && !semaine.length && !sansRelance.length && <EmptyState dark={dark} icon={CheckCircle2} title="Rien à relancer cette semaine" />}
-        <Block title="Sans date de relance" items={sansRelance} />
-        <Block title="En retard" items={late} />
-        <Block title="À relancer aujourd'hui" items={due} />
-        <Block title="Cette semaine" items={semaine} />
+        <Block id="sans" title="Sans date de relance" items={sansRelance} />
+        <Block id="late" title="En retard" items={late} />
+        <Block id="due" title="À relancer aujourd'hui" items={due} />
+        <Block id="semaine" title="Cette semaine" items={semaine} />
       </>
     );
   };
@@ -8725,84 +8739,86 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
       const e = prospectionEtapeOf(p);
       if (e) by[e].push(p);
     });
-    // À traiter d'abord : sans prochaine action, puis les rappels les plus anciens.
-    Object.values(by).forEach((l) => l.sort((x, y) => String(x.relance || "0000").localeCompare(String(y.relance || "0000")) || String(x.societe).localeCompare(String(y.societe), "fr")));
     const ouvertes = PROSPECTION_ETAPES_OUVERTES.flatMap((k) => by[k]);
     const enRetard = ouvertes.filter((p) => prospectionRelanceState(p) === "late").length;
     const sansAction = ouvertes.filter((p) => !p.relance).length;
     const potentiel = ouvertes.reduce((n, p) => n + (Number(p.flotte) || 0), 0);
-    const cols = PROSPECTION_ETAPES.filter((e) => e.key !== "perdu" || pipePerdus);
+    // 5 colonnes : l'essentiel. « À contacter » et les perdus sont à la demande ; proposition à faire / envoyée forment une seule colonne.
+    const COLS = [
+      { key: "acontacter", label: "À contacter", color: "#94A3B8", stages: ["acontacter"], extra: true },
+      { key: "contacte", label: "Contacté", color: "#0EA5E9", stages: ["contacte"] },
+      { key: "interesse", label: "Intéressé", color: "#2563EB", stages: ["interesse"] },
+      { key: "rdv", label: "RDV pris", color: "#0D9488", stages: ["rdv"] },
+      { key: "proposition", label: "Proposition", color: "#DB2777", stages: ["apreparer", "envoyee"] },
+      { key: "gagne", label: "Gagné", color: "#16A34A", stages: ["gagne"] },
+      { key: "perdu", label: "Perdu / refus", color: "#78716C", stages: ["perdu"], extra: true },
+    ].filter((c) => !c.extra || pipePerdus);
     const daysSince = (iso) => Math.max(0, Math.round((new Date(today + "T00:00") - new Date(iso + "T00:00")) / 864e5));
-    const tiles = [["En suivi", ouvertes.length, null], ["Potentiel", potentiel ? `${potentiel} véh.` : "—", null], ["Rappels en retard", enRetard, enRetard ? "#E11D48" : null], ["Sans prochaine action", sansAction, sansAction ? "#E11D48" : null]];
-    const PER_COL = 20;
+    const PER_COL = 15;
     const onEtape = (p, v) => { if (!v) return; if (v.startsWith("perdu:")) setEtape(p, "perdu", v.slice(6)); else setEtape(p, v); };
+    const hiddenCount = by.acontacter.length + by.perdu.length;
     return (
       <>
-        <div data-testid="pipe-kpis" className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {tiles.map(([l, n, c]) => (
-            <div key={l} className={`rounded-xl border p-2.5 ${dark ? "border-zinc-800 bg-zinc-900/40" : "border-stone-200 bg-white"}`}>
-              <div className="text-2xl font-bold" style={{ color: c || undefined }}>{n}</div>
-              <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{l}</div>
-            </div>
-          ))}
+        <div data-testid="pipe-kpis" className={`mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+          <span><b>{ouvertes.length}</b> en suivi</span>
+          {potentiel > 0 && <span><b>{potentiel}</b> véh. en jeu</span>}
+          {enRetard > 0 && <span className="font-semibold text-rose-500">{enRetard} rappel(s) en retard</span>}
+          {sansAction > 0 && <span className="font-semibold text-rose-500">{sansAction} sans prochaine action</span>}
+          {hiddenCount > 0 && (
+            <label className={`ml-auto flex items-center gap-2 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+              <input type="checkbox" checked={pipePerdus} onChange={(e) => setPipePerdus(e.target.checked)} className="accent-blue-700" />
+              Afficher « À contacter » et les perdus ({hiddenCount})
+            </label>
+          )}
         </div>
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <label className={`flex items-center gap-2 text-sm ${dark ? "text-zinc-300" : "text-stone-700"}`}>
-            <input type="checkbox" checked={pipePerdus} onChange={(e) => setPipePerdus(e.target.checked)} className="accent-blue-700" />
-            Afficher les perdus et refus ({by.perdu.length})
-          </label>
-          <span className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>Chaque affaire avance d'une étape en un geste ; la suite à donner se pose toute seule.</span>
-        </div>
-        <div className="grid auto-cols-[minmax(250px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
-          {cols.map((e) => {
-            const items = by[e.key];
-            const shown = pipeMore[e.key] ? items : items.slice(0, PER_COL);
-            const next = prospectionEtapeNext(e.key);
-            const nextDef = next ? prospectionEtapeDef(next) : null;
+        <div className="grid auto-cols-[minmax(240px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
+          {COLS.map((c) => {
+            // À traiter d'abord : sans prochaine action, puis les rappels les plus anciens.
+            const items = c.stages.flatMap((k) => by[k]).sort((x, y) => String(x.relance || "0000").localeCompare(String(y.relance || "0000")) || String(x.societe).localeCompare(String(y.societe), "fr"));
+            const shown = pipeMore[c.key] ? items : items.slice(0, PER_COL);
             return (
-              <div key={e.key} data-testid={`pipe-${e.key}`} className={`min-h-[140px] rounded-2xl p-2 ${dark ? "bg-zinc-900/60" : "bg-stone-100"}`}>
+              <div key={c.key} data-testid={`pipe-${c.key}`} className={`min-h-[120px] rounded-2xl p-2 ${dark ? "bg-zinc-900/60" : "bg-stone-100"}`}>
                 <h3 className={`mb-2 flex justify-between px-1 text-xs font-bold uppercase tracking-widest ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-                  <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: e.color }} />{e.label}</span>
-                  <span>{items.length}{e.key !== "gagne" && e.key !== "perdu" && items.some((p) => p.flotte) ? ` · ${items.reduce((n, p) => n + (Number(p.flotte) || 0), 0)} véh.` : ""}</span>
+                  <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />{c.label}</span>
+                  <span>{items.length}</span>
                 </h3>
                 {items.length === 0 && <div className={`px-1 py-3 text-xs ${dark ? "text-zinc-600" : "text-stone-400"}`}>Aucune affaire</div>}
                 {shown.map((p) => {
+                  const stage = prospectionEtapeOf(p);
+                  const next = prospectionEtapeNext(stage);
+                  const nextDef = next ? prospectionEtapeDef(next) : null;
                   const st = prospectionRelanceState(p);
                   const idle = p.dernier_passage_le ? daysSince(p.dernier_passage_le) : null;
-                  const actionable = PROSPECTION_ETAPES_OUVERTES.includes(e.key) || e.key === "acontacter";
+                  const actionable = PROSPECTION_ETAPES_OUVERTES.includes(stage) || stage === "acontacter";
                   return (
                     <div key={p.id} className={`mb-2 rounded-xl border p-2.5 ${dark ? "bg-zinc-950 border-zinc-800" : "bg-white border-stone-200"}`}>
                       <button onClick={() => setOpenId(p.id)} className="block w-full text-left">
-                        <div className="flex items-start justify-between gap-2">
-                          <span className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}</span>
-                          <span title={p.dernier_passage_par || p.commercial} className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-700 text-[10px] font-bold text-white">{prospectionInitials(prospectionCommercialFor(p.dernier_passage_par) || p.dernier_passage_par || p.commercial)}</span>
-                        </div>
-                        <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.flotte && `${p.flotte} véh.`, p.client_existant && "client", idle != null && (idle === 0 ? "vu aujourd'hui" : `vu il y a ${idle} j`)].filter(Boolean).join(" · ")}</div>
+                        <div className={`font-semibold ${dark ? "text-zinc-100" : "text-stone-900"}`}>{p.societe}{c.key === "proposition" && <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${stage === "envoyee" ? "bg-violet-100 text-violet-700" : "bg-pink-100 text-pink-700"}`}>{stage === "envoyee" ? "envoyée" : "à préparer"}</span>}</div>
+                        <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>{[p.commune, p.flotte && `${p.flotte} véh.`, idle != null && (idle === 0 ? "vu aujourd'hui" : `vu il y a ${idle} j`)].filter(Boolean).join(" · ")}</div>
                         {actionable && (
-                          <div className={`mt-1.5 text-xs font-semibold ${st === "late" ? "text-rose-500" : st === "due" ? "text-amber-500" : p.relance ? (dark ? "text-zinc-300" : "text-stone-600") : "text-rose-500"}`}>
+                          <div className={`mt-1 text-xs font-semibold ${st === "late" ? "text-rose-500" : st === "due" ? "text-amber-500" : p.relance ? (dark ? "text-zinc-300" : "text-stone-600") : "text-rose-500"}`}>
                             {p.relance ? `${p.prochaine || "Relance"} · ${st === "late" ? "en retard, " : ""}${prospectionFrDate(p.relance)}` : "⚠ Pas de prochaine action"}
                           </div>
                         )}
                         {p.statut === "Perdu" && p.motif_perte && <div className={`mt-1 text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>{p.motif_perte}</div>}
                       </button>
                       {!readOnly && (
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {p.tel && <a href={`tel:${String(p.tel).replace(/\s/g, "")}`} className={`rounded-lg border px-2 py-1 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-700"}`}>Appeler</a>}
-                          {nextDef && <button onClick={() => setEtape(p, next)} className="rounded-lg bg-blue-700 px-2 py-1 text-xs font-bold text-white hover:bg-blue-500">{e.key === "perdu" ? "Réactiver" : `→ ${nextDef.label}`}</button>}
-                          <select aria-label={`Changer l'étape de ${p.societe}`} value={e.key} onChange={(ev) => onEtape(p, ev.target.value)} className={`ml-auto max-w-[6.5rem] rounded-lg border px-1.5 py-1 text-xs ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-300" : "border-stone-300 bg-white text-stone-700"}`}>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          {nextDef && <button onClick={() => setEtape(p, next)} className="rounded-lg bg-blue-700 px-2 py-1 text-xs font-bold text-white hover:bg-blue-500">{stage === "perdu" ? "Réactiver" : `→ ${nextDef.label}`}</button>}
+                          <select aria-label={`Changer l'étape de ${p.societe}`} value={stage} onChange={(ev) => onEtape(p, ev.target.value)} className={`ml-auto max-w-[5.5rem] rounded-lg border px-1.5 py-1 text-xs ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-300" : "border-stone-300 bg-white text-stone-700"}`}>
                             {PROSPECTION_ETAPES.filter((x) => x.key !== "perdu").map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
                             <optgroup label="Perdu — motif">
                               {PROSPECTION_PERDU_MOTIFS_RAPIDES.map((m) => <option key={m} value={`perdu:${m}`}>{m}</option>)}
                             </optgroup>
-                            {e.key === "perdu" && <option value="perdu">Perdu / refus</option>}
+                            {stage === "perdu" && <option value="perdu">Perdu / refus</option>}
                           </select>
                         </div>
                       )}
                     </div>
                   );
                 })}
-                {items.length > PER_COL && !pipeMore[e.key] && (
-                  <button onClick={() => setPipeMore((m) => ({ ...m, [e.key]: true }))} className={`w-full rounded-lg border px-2 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-600"}`}>Afficher les {items.length - PER_COL} autres</button>
+                {items.length > PER_COL && (
+                  <button onClick={() => setPipeMore((m) => ({ ...m, [c.key]: !m[c.key] }))} className={`w-full rounded-lg border px-2 py-1.5 text-xs font-semibold ${dark ? "border-zinc-700 text-zinc-300" : "border-stone-300 text-stone-600"}`}>{pipeMore[c.key] ? "Voir moins" : `Afficher les ${items.length - PER_COL} autres`}</button>
                 )}
               </div>
             );
@@ -9014,14 +9030,15 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     );
   };
 
+  // L'essentiel en 4 onglets ; la liste complète (import / export) et les campagnes sont dans « Plus ».
+  const VUES_PLUS = [["liste", "Liste complète"], ...(cfg.campagnes ? [["campagnes", "Campagnes"]] : [])];
   const VUES = [
     ["jour", "Aujourd'hui"],
-    ["pipeline", "Pipeline"],
-    ["liste", "Prospects"],
     ["carte", "Carte"],
-    ["campagnes", "Campagnes"],
+    ["pipeline", "Pipeline"],
     ["equipe", "Équipe"],
-  ].filter(([k]) => k !== "campagnes" || cfg.campagnes);
+    ...VUES_PLUS.filter(([k]) => k === vue),
+  ];
 
   return (
     <div className="space-y-4">
@@ -9043,7 +9060,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
           ) : (
             <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${dark ? "border-blue-400/40 bg-blue-400/10 text-blue-300" : "border-blue-300 bg-blue-50 text-blue-700"}`}>{site}</span>
           )}
-          <select value={scope} onChange={(e) => setScope(e.target.value)} className={inputCls}>
+          {(team.length > 2 || teamIds.length > 1) && <select value={scope} onChange={(e) => setScope(e.target.value)} className={inputCls}>
             <option value="">Toute l'équipe</option>
             <optgroup label="Par équipe">
               {teamIds.map((t) => <option key={t} value={`team:${t}`}>{teamLabel(t)}</option>)}
@@ -9051,7 +9068,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
             <optgroup label="Par commercial">
               {team.map((n) => <option key={n}>{n}</option>)}
             </optgroup>
-          </select>
+          </select>}
           {readOnly ? (
             <span className={`ml-auto rounded-full px-3 py-1 text-xs font-semibold ${dark ? "bg-zinc-800 text-zinc-300" : "bg-stone-100 text-stone-600"}`}>Lecture seule</span>
           ) : (
@@ -9075,6 +9092,19 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
             )}
           </button>
         ))}
+        <div className="relative">
+          <button data-testid="onglet-plus" aria-label="Plus" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)} className={`pl-interactive rounded-lg px-3 py-1.5 text-sm font-bold ${dark ? "text-zinc-400 hover:text-zinc-200" : "text-stone-500 hover:text-stone-800"}`}>⋯</button>
+          {moreOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
+              <div className={`absolute right-0 z-20 mt-1 w-44 rounded-xl border p-1 shadow-lg ${dark ? "border-zinc-800 bg-zinc-900" : "border-stone-200 bg-white"}`}>
+                {VUES_PLUS.map(([k, l]) => (
+                  <button key={k} onClick={() => { setVue(k); setMoreOpen(false); }} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${dark ? "text-zinc-200 hover:bg-zinc-800" : "text-stone-800 hover:bg-stone-100"}`}>{l}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div key={vue} className="pl-fade-in">
