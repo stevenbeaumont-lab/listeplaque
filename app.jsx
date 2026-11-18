@@ -4324,6 +4324,90 @@ async function prospectionGeocode({ adresse, code_postal, commune }) {
     return null;
   }
 }
+// ── Vérification SIRENE : l'entreprise existe-t-elle encore, et à quelle adresse exacte ? ──
+// API publique « Recherche d'entreprises » (data.gouv.fr), sans clé, ~7 requêtes/s.
+const PROSPECTION_SIRENE_BASE = "https://recherche-entreprises.api.gouv.fr/search";
+const PROSPECTION_SIRENE_STOP = new Set(["sarl", "sas", "sasu", "eurl", "earl", "gaec", "scea", "sci", "snc", "selarl", "sa", "ste", "societe", "ets", "etablissements", "etablissement", "entreprise", "monsieur", "madame", "mme", "mr", "m", "de", "du", "des", "la", "le", "les", "et", "d", "l", "au", "aux", "en", "sur", "ent", "cie", "compagnie", "groupe", "gpe"]);
+function prospectionSireneTokens(name) {
+  const t = String(name || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+  const kept = t.filter((w) => !PROSPECTION_SIRENE_STOP.has(w) && (w.length > 1 || /\d/.test(w)));
+  return kept.length ? kept : t;
+}
+// Similarité (coefficient de Dice sur les mots) : « DUPONT JEAN » = « JEAN DUPONT » ; « GARAGE MARTIN » ≠ « MARTIN PEINTURE ».
+function prospectionSireneScore(clientName, candidate) {
+  const a = new Set(prospectionSireneTokens(clientName));
+  if (!a.size) return 0;
+  const names = [candidate.nom_complet, candidate.nom_raison_sociale, candidate.sigle, ...(candidate.matching_etablissements || []).flatMap((e) => [e.nom_commercial, e.enseigne_1])].filter(Boolean);
+  let best = 0;
+  for (const n of names) {
+    const b = new Set(prospectionSireneTokens(n));
+    if (!b.size) continue;
+    let inter = 0;
+    a.forEach((w) => { if (b.has(w)) inter++; });
+    best = Math.max(best, (2 * inter) / (a.size + b.size));
+  }
+  return best;
+}
+function prospectionSireneAddress(e) {
+  return [e.numero_voie, e.indice_repetition, e.type_voie, e.libelle_voie].filter(Boolean).join(" ").trim();
+}
+function prospectionKmBetween(lat1, lng1, lat2, lng2) {
+  const r = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lng2 - lng1) * r) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+// Choisit le meilleur résultat de l'API et l'établissement concerné (même code postal / commune que la fiche).
+function prospectionSirenePick(p, results) {
+  const normCommune = (c) => String(c || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  let best = null;
+  for (const r of results || []) {
+    const score = prospectionSireneScore(p.societe, r);
+    if (score < 0.7) continue;
+    const etabs = [...(r.matching_etablissements || []), r.siege].filter(Boolean);
+    const sameCp = etabs.filter((e) => p.code_postal && e.code_postal === p.code_postal);
+    const sameCommune = etabs.filter((e) => p.commune && normCommune(e.libelle_commune) === normCommune(p.commune));
+    const etab = [...sameCp.filter((e) => e.etat_administratif === "A"), ...sameCommune.filter((e) => e.etat_administratif === "A"), ...sameCp, ...sameCommune, r.siege].find(Boolean);
+    const loc = sameCp.length || sameCommune.length ? 2 : 0; // un établissement sur place compte plus que le siège ailleurs
+    const rank = score + loc * 0.1 + (r.etat_administratif === "A" ? 0.01 : 0);
+    if (!best || rank > best.rank) best = { r, etab, score, rank };
+  }
+  return best;
+}
+async function prospectionSireneLookup(p) {
+  const q = prospectionSireneTokens(p.societe).join(" ");
+  if (q.length < 2) return null;
+  const attempts = [];
+  if (p.code_postal) attempts.push({ q, code_postal: p.code_postal });
+  attempts.push({ q: p.commune ? `${q} ${p.commune}` : q, ...(p.code_postal ? { departement: String(p.code_postal).slice(0, 2) } : {}) });
+  for (const params of attempts) {
+    const url = `${PROSPECTION_SIRENE_BASE}?${new URLSearchParams({ ...params, per_page: "5" })}`;
+    let res;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      res = await fetch(url);
+      if (res.status !== 429) break;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1))); // limite de débit : on patiente puis on réessaie
+    }
+    if (!res.ok) { if (res.status === 400 || res.status === 404) continue; throw new Error(`SIRENE ${res.status}`); }
+    const best = prospectionSirenePick(p, (await res.json()).results);
+    if (!best) continue;
+    const { r, etab } = best;
+    const closed = r.etat_administratif === "C" || (etab && etab.etat_administratif === "F");
+    const lat = etab && etab.latitude != null ? parseFloat(etab.latitude) : NaN;
+    const lng = etab && etab.longitude != null ? parseFloat(etab.longitude) : NaN;
+    return {
+      siret: etab?.siret || r.siege?.siret || null,
+      statut: closed ? "cessee" : "active",
+      fermeeLe: closed ? (etab?.date_fermeture || r.date_fermeture || null) : null,
+      adresse: etab ? prospectionSireneAddress(etab) : "",
+      code_postal: etab?.code_postal || "",
+      commune: etab?.libelle_commune || "",
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
+      score: best.score,
+    };
+  }
+  return null;
+}
 async function prospectionReverseGeocode(lat, lng) {
   try {
     const r = await fetch(`https://data.geopf.fr/geocodage/reverse?lon=${lng}&lat=${lat}&limit=1`);
@@ -4825,6 +4909,55 @@ function useProspection(site) {
     return { ok, total: missing.length, failed, notFound };
   }, [prospects, load]);
 
+  // Vérifie sur SIRENE chaque fiche pas encore contrôlée : entreprise active / cessée, SIRET, et — quand la fiche n'avait
+  // qu'une position approximative ou une adresse sans numéro — adresse exacte et coordonnées de l'établissement.
+  const sireneCheck = useCallback(async (onProgress, ids) => {
+    const only = ids ? new Set(ids) : null;
+    const todo = prospects.filter((p) => !p.entreprise_statut && p.societe && (!only || only.has(p.id)));
+    const today = prospectionTodayISO();
+    const out = { total: todo.length, active: 0, cessee: 0, introuvable: 0, repositionnees: 0, failed: 0 };
+    let next = 0;
+    let done = 0;
+    let errors = 0;
+    const worker = async () => {
+      while (next < todo.length && errors < 8) {
+        const p = todo[next++];
+        let upd;
+        try {
+          const f = await prospectionSireneLookup(p);
+          // Homonyme à l'autre bout de la région : on ignore le résultat plutôt que de déplacer la fiche.
+          const tooFar = f && f.lat != null && p.lat != null && !p.geo_approx && prospectionKmBetween(p.lat, p.lng, f.lat, f.lng) > 30;
+          if (!f || tooFar) upd = { entreprise_statut: "introuvable", entreprise_verifiee_le: today };
+          else {
+            upd = { siret: f.siret, entreprise_statut: f.statut, entreprise_fermee_le: f.fermeeLe, entreprise_verifiee_le: today };
+            const needsPlace = p.lat == null || p.geo_approx || !/\d/.test(p.adresse || "");
+            if (needsPlace && f.lat != null && f.adresse) {
+              upd.lat = f.lat; upd.lng = f.lng; upd.geo_approx = false;
+              if (!/\d/.test(p.adresse || "")) upd.adresse = f.adresse;
+              if (!p.code_postal && f.code_postal) upd.code_postal = f.code_postal;
+              if (!p.commune && f.commune) upd.commune = f.commune;
+              out.repositionnees++;
+            }
+            out[f.statut]++;
+          }
+          if (!f || tooFar) out.introuvable++;
+          const { error: err } = await supabase.from("prospects").update(upd).eq("id", p.id);
+          if (err) { out.failed++; errors++; } else errors = 0;
+        } catch (e) {
+          out.failed++; errors++; // réseau / API indisponible : la fiche sera reprise au prochain passage
+        }
+        done++;
+        onProgress?.(done, todo.length);
+        if (done % 300 === 0) { lastSig.current = ""; load(); }
+        await new Promise((r) => setTimeout(r, 350)); // 2 flux × ~3 req/s : sous la limite de l'API
+      }
+    };
+    await Promise.all(Array.from({ length: 2 }, worker));
+    lastSig.current = "";
+    await load();
+    return out;
+  }, [prospects, load]);
+
   // Importe ligne par ligne : une ligne en échec n'arrête pas les suivantes ; l'erreur finale dit combien ont été importées.
   const bulkInsert = useCallback(async (rows, onProgress, extra) => {
     let done = 0;
@@ -4855,7 +4988,7 @@ function useProspection(site) {
 
   // Seuls les prospects du site affiché sont exposés (la base filtre déjà selon les sites autorisés du compte).
   const siteProspects = useMemo(() => (site ? prospects.filter((x) => (x.site || "Ford Caen") === site) : prospects), [prospects, site]);
-  return { prospects: siteProspects, actions, loading, error, syncError, save, remove, addAction, patch, geocodeMissing, bulkInsert, reload: load };
+  return { prospects: siteProspects, actions, loading, error, syncError, save, remove, addAction, patch, geocodeMissing, sireneCheck, bulkInsert, reload: load };
 }
 
 function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
@@ -5077,6 +5210,14 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             {!isNew && prospect.created_at && (
               <div data-testid="date-creation" className={`mt-0.5 text-xs ${dark ? "text-zinc-500" : "text-stone-500"}`}>
                 Créé le {new Date(prospect.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+              </div>
+            )}
+            {!isNew && prospect.entreprise_statut && (
+              <div data-testid="sirene-statut" className={`mt-1 flex flex-wrap items-center gap-2 text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                {prospect.entreprise_statut === "cessee" && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700">Entreprise cessée{prospect.entreprise_fermee_le ? ` le ${new Date(prospect.entreprise_fermee_le + "T00:00").toLocaleDateString("fr-FR")}` : ""}</span>}
+                {prospect.entreprise_statut === "active" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">Entreprise active (SIRENE)</span>}
+                {prospect.entreprise_statut === "introuvable" && <span>Non trouvée sur SIRENE</span>}
+                {prospect.siret && <a href={`https://annuaire-entreprises.data.gouv.fr/etablissement/${prospect.siret}`} target="_blank" rel="noreferrer" className="underline">SIRET {prospect.siret}</a>}
               </div>
             )}
             {!isNew && p.client_existant && (
@@ -5321,9 +5462,12 @@ function prospectionMarkerIcon(color, { late, selected } = {}) {
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
 }
 
-function prospectionClientIcon({ selected } = {}) {
+function prospectionClientIcon({ selected, ceased } = {}) {
   const size = selected ? 15 : 11;
-  const html = `<div style="width:${size}px;height:${size}px;background:${PROSPECTION_CLIENT_COLOR};border:1.5px solid #ffffff;box-shadow:0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`;
+  // Entreprise cessée (SIRENE) : losange creux rouge, pour la repérer sans la perdre de vue.
+  const html = ceased
+    ? `<div style="width:${size}px;height:${size}px;background:#ffffff;border:2px solid #DC2626;box-shadow:0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`
+    : `<div style="width:${size}px;height:${size}px;background:${PROSPECTION_CLIENT_COLOR};border:1.5px solid #ffffff;box-shadow:0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`;
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 4] });
 }
 
@@ -5419,6 +5563,7 @@ function prospectionPopupHtml(p) {
   const lines = [
     `<div style="min-width:200px;font-size:13px;line-height:1.45;color:#292524;">`,
     p.client_existant ? `<span style="display:inline-block;margin-bottom:2px;border-radius:9999px;background:#e2e8f0;color:#334155;font-size:10px;font-weight:700;padding:1px 6px;">CLIENT EXISTANT</span><br/>` : "",
+    p.entreprise_statut === "cessee" ? `<span style="display:inline-block;margin:0 0 2px 4px;border-radius:9999px;background:#fee2e2;color:#b91c1c;font-size:10px;font-weight:700;padding:1px 6px;">ENTREPRISE CESSÉE</span><br/>` : "",
     `<b>${prospectionEscapeHtml(p.societe)}</b>`,
     `<div>${prospectionEscapeHtml([p.contact, p.tel].filter(Boolean).join(" · "))}</div>`,
     `<div style="color:#78716c;">${prospectionEscapeHtml([p.adresse, p.commune].filter(Boolean).join(", "))}</div>`,
@@ -5570,7 +5715,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null, chalandise = null, autoGeocode = false }) {
+function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null, chalandise = null, autoGeocode = false, onSireneCheck = null }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
@@ -5741,7 +5886,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   // Sans position, ou position approximative (centre de la commune) à affiner à partir de l'adresse.
   const missing = useMemo(() => [...prospects, ...clients].filter((p) => (p.lat == null || p.geo_approx) && (p.adresse || p.commune)), [prospects, clients]);
   const clientTooFar = mapZoom < PROSPECTION_CLIENT_MIN_ZOOM;
-  const clientsPlaced = useMemo(() => (showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null) : []), [clients, showClients, clientTooFar]);
+  const clientsPlaced = useMemo(() => (showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null && !(hideCeased && p.entreprise_statut === "cessee")) : []), [clients, showClients, clientTooFar, hideCeased]);
   const ciblesPlaced = useMemo(() => (showCibles && !clientTooFar ? cibles.filter((g) => g.lat != null && g.lng != null) : []), [cibles, showCibles, clientTooFar]);
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
@@ -5840,7 +5985,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     // minimal (PROSPECTION_CLIENT_MIN_ZOOM) ; ce clustering ne sert qu'aux secteurs très denses.
     const clusters = prospectionClusterPoints(map, clientsPlaced, prospectionIsMobile() ? 72 : 60);
     prospectionSyncClusterLayer(map, clientMarkersRef, clusters, {
-      buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId }),
+      buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId, ceased: p.entreprise_statut === "cessee" }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
       onPopupAction: (p, action) => (action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
@@ -6027,6 +6172,26 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
 
   // Localisation des fiches (prospects ET clients) sans position. En mode auto (ouverture de la carte) on ne retente pas
   // les fiches déjà essayées sans succès ; le bouton manuel les retente toutes.
+  const [hideCeased, setHideCeased] = useState(false);
+  const [sireneBusy, setSireneBusy] = useState("");
+  const sireneTodo = useMemo(() => [...prospects, ...clients].filter((p) => !p.entreprise_statut && p.societe), [prospects, clients]);
+  const sireneStats = useMemo(() => {
+    const st = { active: 0, cessee: 0, introuvable: 0 };
+    [...prospects, ...clients].forEach((p) => { if (st[p.entreprise_statut] != null) st[p.entreprise_statut]++; });
+    return st;
+  }, [prospects, clients]);
+  const runSirene = async () => {
+    if (!onSireneCheck || sireneBusy) return;
+    setSireneBusy("0");
+    try {
+      const res = await onSireneCheck((i, n) => setSireneBusy(`${i}/${n}`), sireneTodo.map((p) => p.id));
+      showToast(`SIRENE : ${res.active} active(s), ${res.cessee} cessée(s), ${res.introuvable} non trouvée(s) — ${res.repositionnees} replacée(s) à l'adresse exacte${res.failed ? ` · ${res.failed} en erreur (à relancer)` : ""}`, res.failed ? { type: "error" } : undefined);
+    } catch (e) {
+      showToast(`Vérification SIRENE impossible : ${e.message || e}`, { type: "error" });
+    } finally {
+      setSireneBusy("");
+    }
+  };
   const geocodeRunning = useRef(false);
   const runGeocode = async (auto = false) => {
     if (geocodeRunning.current) return;
@@ -6052,6 +6217,11 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
 
   return (
     <div className="flex flex-col gap-3">
+      {sireneBusy && (
+        <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
+          Vérification des entreprises sur SIRENE… {sireneBusy} <span className="font-normal opacity-80">— compter quelques minutes ; vous pouvez continuer à naviguer, mais gardez cet onglet ouvert.</span>
+        </div>
+      )}
       {busy && (
         <div role="status" className={`rounded-xl border px-3 py-2 text-sm font-medium ${dark ? "border-sky-500/40 bg-sky-500/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-800"}`}>
           Localisation des fiches sur la carte… {busy} <span className="font-normal opacity-80">— les points apparaissent au fur et à mesure, vous pouvez continuer à naviguer.</span>
@@ -6199,6 +6369,29 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                     </label>
                   )}
                 </div>
+                {onSireneCheck && (
+                  <div className={`space-y-1.5 rounded-lg border p-2 ${dark ? "border-zinc-800" : "border-stone-200"}`}>
+                    <div className={`text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`}>Existence des entreprises (SIRENE)</div>
+                    <div className={`text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                      {sireneStats.active} active(s) · {sireneStats.cessee} cessée(s) · {sireneStats.introuvable} non trouvée(s) · {sireneTodo.length} à vérifier
+                    </div>
+                    {sireneTodo.length > 0 && (
+                      <button
+                        onClick={runSirene}
+                        disabled={!!sireneBusy}
+                        className={`pl-interactive w-full rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-stone-100"}`}
+                      >
+                        {sireneBusy ? `Vérification… ${sireneBusy}` : `Vérifier ${sireneTodo.length} fiche(s) et corriger les adresses`}
+                      </button>
+                    )}
+                    {sireneStats.cessee > 0 && (
+                      <label className={`flex items-center gap-2 text-xs ${dark ? "text-zinc-300" : "text-stone-700"}`}>
+                        <input type="checkbox" checked={hideCeased} onChange={(e) => setHideCeased(e.target.checked)} className="accent-blue-700" />
+                        Masquer les entreprises cessées ({sireneStats.cessee})
+                      </label>
+                    )}
+                  </div>
+                )}
                 {missing.length > 0 && (
                   <button
                     onClick={() => runGeocode(false)}
@@ -8307,7 +8500,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
         {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} isManager={!!isManager} myCommercial={myCommercial || ""} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
-        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} autoGeocode={!readOnly} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} autoGeocode={!readOnly} onSireneCheck={readOnly ? null : data.sireneCheck} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
