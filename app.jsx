@@ -4146,6 +4146,51 @@ function prospectionFrDate(s) {
 function prospectionInitials(n) {
   return (n || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 }
+// Passage terrain : résultat d'une visite, saisi en un geste depuis la carte ou la fiche.
+const PROSPECTION_PASSAGES = [
+  { key: "vu", label: "Vu aujourd'hui", jours: null, prochaine: "" },
+  { key: "interesse", label: "Intéressé, à rappeler", jours: 7, prochaine: "Rappeler" },
+  { key: "rdv", label: "RDV pris", jours: 3, prochaine: "Confirmer / honorer le RDV", badge: "#0D9488" },
+  { key: "proposition", label: "Proposition demandée", jours: 2, prochaine: "Préparer et envoyer la proposition", badge: "#DB2777" },
+  { key: "refus", label: "Pas intéressé", jours: 90, prochaine: "Relancer dans 3 mois" },
+  { key: "ferme", label: "Fermé ou parti", jours: null, prochaine: "" },
+];
+function prospectionPassageDef(key) { return PROSPECTION_PASSAGES.find((d) => d.key === key) || null; }
+// Ancienneté du dernier passage : "today" | "recent" (30 jours) | "old" | "" (jamais visité).
+function prospectionPassageAge(p) {
+  if (!p.dernier_passage_le) return "";
+  if (p.dernier_passage_le === prospectionTodayISO()) return "today";
+  return p.dernier_passage_le >= prospectionAddDaysISO(-30) ? "recent" : "old";
+}
+// Pastille sur la carte : proposition demandée / RDV pris, tant que le passage date de moins de 30 jours.
+function prospectionPassageBadge(p) {
+  const age = prospectionPassageAge(p);
+  if (age !== "today" && age !== "recent") return "";
+  return prospectionPassageDef(p.resultat_passage)?.badge || "";
+}
+// Champs à mettre à jour sur la fiche pour un passage (même calcul pour la carte et la fiche).
+function prospectionPassagePatch(key, isClient) {
+  const def = prospectionPassageDef(key);
+  const today = prospectionTodayISO();
+  const f = { resultat_passage: key, dernier_passage_le: today };
+  if (def.jours != null) { f.relance = prospectionAddDaysISO(def.jours); f.prochaine = def.prochaine; }
+  if (key === "ferme") {
+    if (isClient) { f.entreprise_statut = "cessee"; f.entreprise_fermee_le = today; }
+    else { f.statut = "Perdu"; f.motif_perte = "Société fermée / disparue"; f.relance = null; f.prochaine = ""; }
+  }
+  return f;
+}
+const PROSPECTION_PASSAGE_FILTERS = [["all", "Tous"], ["today", "Vus aujourd'hui"], ["recent", "Vus ces 30 jours"], ["never", "Jamais visités"], ["proposition", "Proposition demandée"], ["rdv", "RDV pris"], ["rappel", "À rappeler (échéance atteinte)"]];
+function prospectionPassageMatches(p, f) {
+  if (f === "all") return true;
+  const age = prospectionPassageAge(p);
+  if (f === "today") return age === "today";
+  if (f === "recent") return age === "today" || age === "recent";
+  if (f === "never") return !p.dernier_passage_le;
+  if (f === "proposition" || f === "rdv") return p.resultat_passage === f && (age === "today" || age === "recent");
+  if (f === "rappel") { const st = prospectionRelanceState(p); return st === "late" || st === "due"; }
+  return true;
+}
 function prospectionRelanceState(p) {
   if (!p.relance || p.statut === "Gagné" || prospectionNeverRelance(p)) return "";
   const t = prospectionTodayISO();
@@ -5057,7 +5102,7 @@ function ProspectionAdresseInput({ dark, value, onPick, onChange }) {
   );
 }
 
-function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, myCommercial, readOnly, newPrefill, onClose, onSave, onDelete, onAddAction, showToast }) {
+function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, myCommercial, readOnly, newPrefill, onClose, onSave, onDelete, onAddAction, onPassage, showToast }) {
   // `prospect` = la fiche telle qu'elle est en base (relue en direct) ; `p` = la copie en cours de saisie, figée à
   // l'ouverture. À l'enregistrement, seuls les champs modifiés par la personne sont envoyés (voir useProspection.save),
   // donc ce qu'un collègue a changé entre-temps n'est pas écrasé.
@@ -5068,6 +5113,7 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   const [p, setP] = useState(prospect);
   // Téléphone : la qualification du parc est repliée (on y revient après l'essentiel) ; sur grand écran elle reste ouverte.
   const [critOpen, setCritOpen] = useState(() => !prospectionIsMobile());
+  const [passageNote, setPassageNote] = useState("");
   const [orig] = useState(prospect); // état à l'ouverture : sert à détecter une saisie non enregistrée
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -5270,6 +5316,44 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
             </button>
           </div>
         </div>
+
+        {!isNew && prospect && (
+          <div data-testid="passage-bloc" className={`mb-4 rounded-xl border p-3 ${dark ? "border-zinc-800 bg-zinc-900" : "border-stone-200 bg-stone-50"}`}>
+            <div className={`text-[11px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`}>Où en est-on</div>
+            <p data-testid="passage-dernier" className={`mt-1 text-sm ${dark ? "text-zinc-200" : "text-stone-800"}`}>
+              {prospect.dernier_passage_le
+                ? <>Dernier passage le <b>{new Date(prospect.dernier_passage_le + "T00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}</b>{prospect.dernier_passage_par ? ` par ${prospect.dernier_passage_par}` : ""}{prospectionPassageDef(prospect.resultat_passage) ? <> — <b>{prospectionPassageDef(prospect.resultat_passage).label}</b></> : null}</>
+                : "Jamais visité"}
+            </p>
+            {(prospect.relance || prospect.prochaine) && prospect.statut !== "Gagné" && !prospectionNeverRelance(prospect) && (
+              <p className={`mt-0.5 text-sm ${dark ? "text-zinc-300" : "text-stone-600"}`}>Prochaine étape : <b>{prospect.prochaine || "Relance"}</b>{prospect.relance ? ` · ${prospectionFrDate(prospect.relance)}` : ""}</p>
+            )}
+            {!readOnly && onPassage && (
+              <div className="mt-2.5 space-y-2">
+                <input data-testid="passage-note" value={passageNote} onChange={(e) => setPassageNote(e.target.value)} placeholder="Commentaire sur ce passage (facultatif)" className={inputCls} />
+                <div className="flex flex-wrap gap-1.5">
+                  {PROSPECTION_PASSAGES.map((d) => (
+                    <button
+                      key={d.key}
+                      type="button"
+                      data-testid={`passage-${d.key}`}
+                      onClick={async () => {
+                        await onPassage(prospect, d.key, passageNote.trim());
+                        setPassageNote("");
+                        // La saisie en cours reprend les nouvelles valeurs de relance / suite à donner : sinon un « Enregistrer » les écraserait.
+                        const f = prospectionPassagePatch(d.key, !!prospect.client_existant);
+                        setP((x) => ({ ...x, ...Object.fromEntries(["relance", "prochaine", "statut", "motif_perte"].filter((k) => k in f).map((k) => [k, f[k]])) }));
+                      }}
+                      className={`pl-interactive rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${prospect.resultat_passage === d.key && prospectionPassageAge(prospect) === "today" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : dark ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800" : "border-stone-300 text-stone-700 hover:bg-white"}`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <fieldset disabled={!!readOnly} className="m-0 min-w-0 border-0 p-0"><div className="grid grid-cols-2 gap-3">
           <label className={`${labelCls} col-span-2`}>Société *<input className={inputCls} value={p.societe || ""} onChange={set("societe")} autoFocus={isNew && !prospectionIsMobile()} /></label>
@@ -5483,19 +5567,27 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
   );
 }
 
-function prospectionMarkerIcon(color, { late, selected } = {}) {
+// Contour vert = vu aujourd'hui ; vert clair = vu ces 30 jours. Pastille = proposition demandée / RDV pris.
+function prospectionSeenRing(seen) {
+  return seen === "today" ? "0 0 0 4px #16A34A," : seen === "recent" ? "0 0 0 3px #86EFAC," : "";
+}
+function prospectionBadgeHtml(badge) {
+  return badge ? `<span style="position:absolute;top:-6px;right:-6px;width:11px;height:11px;border-radius:50%;background:${badge};border:1.5px solid #ffffff;box-shadow:0 1px 2px rgba(0,0,0,0.4);"></span>` : "";
+}
+function prospectionMarkerIcon(color, { late, selected, seen, badge } = {}) {
   const size = selected ? 30 : late ? 24 : 20;
   const border = late ? "#B91C1C" : "#ffffff";
-  const html = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid ${border};box-shadow:0 0 0 1px rgba(15,23,42,0.35),0 2px 4px rgba(0,0,0,0.35);"></div>`;
+  const html = `<div style="position:relative;width:${size}px;height:${size}px;"><div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid ${border};box-shadow:${prospectionSeenRing(seen)}0 0 0 1px rgba(15,23,42,0.35),0 2px 4px rgba(0,0,0,0.35);"></div>${prospectionBadgeHtml(badge)}</div>`;
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
 }
 
-function prospectionClientIcon({ selected, ceased } = {}) {
+function prospectionClientIcon({ selected, ceased, seen, badge, late } = {}) {
   const size = selected ? 16 : 12;
   // Entreprise cessée (SIRENE) : losange creux rouge, pour la repérer sans la perdre de vue.
-  const html = ceased
-    ? `<div style="width:${size}px;height:${size}px;background:#ffffff;border:2px solid #DC2626;box-shadow:0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`
-    : `<div style="width:${size}px;height:${size}px;background:${PROSPECTION_CLIENT_COLOR};border:1.5px solid #ffffff;box-shadow:0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`;
+  const shape = ceased
+    ? `<div style="width:${size}px;height:${size}px;background:#ffffff;border:2px solid #DC2626;box-shadow:${prospectionSeenRing(seen)}0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`
+    : `<div style="width:${size}px;height:${size}px;background:${PROSPECTION_CLIENT_COLOR};border:${late ? "2px solid #B91C1C" : "1.5px solid #ffffff"};box-shadow:${prospectionSeenRing(seen)}0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`;
+  const html = `<div style="position:relative;width:${size}px;height:${size}px;">${shape}${prospectionBadgeHtml(badge)}</div>`;
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 4] });
 }
 
@@ -5596,11 +5688,13 @@ function prospectionPopupHtml(p) {
     `<div>${prospectionEscapeHtml([p.contact, p.tel].filter(Boolean).join(" · "))}</div>`,
     `<div style="color:#78716c;">${prospectionEscapeHtml([p.adresse, p.commune].filter(Boolean).join(", "))}</div>`,
     p.client_existant ? "" : `<div style="margin-top:4px;">${prospectionEscapeHtml(p.statut)}${p.commercial ? " · " + prospectionEscapeHtml(p.commercial) : ""}</div>`,
-    !p.client_existant && p.relance ? `<div style="${late ? "color:#be123c;" : ""}">${p.statut === "Perdu" ? "À recontacter" : "Relance"} : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
+    p.dernier_passage_le ? `<div style="margin-top:4px;font-size:12px;"><span style="color:#78716c;">Dernier passage ${prospectionEscapeHtml(prospectionFrDate(p.dernier_passage_le))}${p.dernier_passage_par ? ` · ${prospectionEscapeHtml(p.dernier_passage_par)}` : ""} :</span> <b>${prospectionEscapeHtml(prospectionPassageDef(p.resultat_passage)?.label || "Vu")}</b></div>` : "",
+    p.relance && p.statut !== "Gagné" && !prospectionNeverRelance(p) ? `<div style="${late ? "color:#be123c;" : ""}">${p.prochaine ? prospectionEscapeHtml(p.prochaine) : p.statut === "Perdu" ? "À recontacter" : "Relance"} : ${prospectionEscapeHtml(prospectionFrDate(p.relance))}</div>` : "",
     !p.client_existant && p.created_at ? `<div style="color:#78716c;font-size:12px;">Créé le ${prospectionEscapeHtml(new Date(p.created_at).toLocaleDateString("fr-FR"))}${p.dernier_contact ? ` · dernier contact le ${prospectionEscapeHtml(new Date(p.dernier_contact).toLocaleDateString("fr-FR"))}` : ""}</div>` : "",
+    `<div style="margin-top:8px;font-size:10px;font-weight:700;letter-spacing:0.08em;color:#78716c;">PASSAGE</div>`,
+    `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">${PROSPECTION_PASSAGES.map((d) => `<button data-action="passage:${d.key}" style="background:${p.resultat_passage === d.key && prospectionPassageAge(p) === "today" ? "#dcfce7" : "#fff"};color:#292524;border:1px solid #d6d3d1;border-radius:9999px;padding:3px 8px;font:inherit;font-size:12px;cursor:pointer;">${prospectionEscapeHtml(d.label)}</button>`).join("")}</div>`,
     `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">`,
     `<button data-action="open" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Ouvrir la fiche</button>`,
-    p.client_existant ? "" : `<button data-action="visit" style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">J'ai visité</button>`,
     prospectionContactLinksHtml(p.tel, p.email),
     p.lat != null && p.lng != null ? `<button data-action="tour" style="background:#fff;color:#1d4ed8;border:1px solid #1d4ed8;border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;">Tournée depuis ici</button>` : "",
     `<a href="${prospectionMapsDirectionsUrl(p)}" target="_blank" rel="noreferrer" style="border:1px solid #d6d3d1;border-radius:4px;padding:4px 8px;color:#292524;text-decoration:none;">Itinéraire</a>`,
@@ -5756,12 +5850,13 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
   });
 }
 
-function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null, chalandise = null, autoGeocode = false, onSireneCheck = null }) {
+function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSeeNonOpen = false, onAddCible, commerciaux, onOpen, onAddFromOsm, onQuickVisit, onCreateAtLocation, onGeocodeMissing, onPassage, showToast, center = PROSPECTION_CAEN_CENTER, centerLabel = "Centre de Caen", teamZones = true, splitLine = null, chalandise = null, autoGeocode = false, onSireneCheck = null }) {
   const [colorBy, setColorBy] = useState("statut");
   const [selectedId, setSelectedId] = useState(null);
   const [hideClosed, setHideClosed] = useState(true);
   const [showClients, setShowClients] = useState(true);
   const [hideCeased, setHideCeased] = useState(false);
+  const [passageFilter, setPassageFilter] = useState("all");
   const [showCibles, setShowCibles] = useState(true);
   const [showNonOuvertes, setShowNonOuvertes] = useState(false);
   const [showLegend, setShowLegend] = useState(() => loadLocal("dsr:prospection-map-legende", true));
@@ -5814,7 +5909,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   // Les marqueurs Leaflet gardent les fonctions reçues à leur création : on passe par une référence toujours à jour
   // (sinon un clic « Ajouter à la prospection » utiliserait un quota / des données périmés).
   const cbRef = useRef({});
-  cbRef.current = { onOpen, onQuickVisit, onAddCible, onAddFromOsm, startTourFrom: (it) => startTourFromRef.current?.(it) };
+  cbRef.current = { onOpen, onPassage, onQuickVisit, onAddCible, onAddFromOsm, startTourFrom: (it) => startTourFromRef.current?.(it) };
   const startTourFromRef = useRef(null);
 
   // ---- Rechercher un client : prospects, clients existants et entreprises de campagne, puis zoom dessus.
@@ -5887,12 +5982,14 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   };
   const tourCandidates = useMemo(() => {
     const week = prospectionAddDaysISO(7);
-    return prospects.filter((p) => {
-      if (p.client_existant || p.lat == null || p.lng == null || tourExcluded.has(p.id)) return false;
+    const today = prospectionTodayISO();
+    // Les clients entrent dans la tournée dès qu'un rappel est posé (passage « Intéressé », « Proposition »…).
+    return [...prospects, ...clients].filter((p) => {
+      if (p.lat == null || p.lng == null || tourExcluded.has(p.id) || p.dernier_passage_le === today) return false; // déjà vu aujourd'hui
       const st = prospectionRelanceState(p);
       return st === "late" || st === "due" || (tourWeek && st === "future" && p.relance <= week);
     });
-  }, [prospects, tourExcluded, tourWeek]);
+  }, [prospects, clients, tourExcluded, tourWeek]);
   const tourStops = useMemo(
     () => (tourOpen && !(tourStartMode === "client" && !tourBase) ? prospectionPlanTournee(tourCandidates, tourStart, { max: tourMax, rank: tourLateFirst ? (p) => (prospectionRelanceState(p) === "late" ? 0 : 1) : null }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5924,11 +6021,17 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     return m;
   }, [commerciaux]);
 
-  const placed = useMemo(() => prospects.filter((p) => (!hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu")) && p.lat != null && p.lng != null), [prospects, hideClosed]);
+  const placed = useMemo(() => prospects.filter((p) => (!hideClosed || (p.statut !== "Gagné" && p.statut !== "Perdu")) && p.lat != null && p.lng != null && prospectionPassageMatches(p, passageFilter)), [prospects, hideClosed, passageFilter]);
+  const passageCounts = useMemo(() => {
+    const c = {};
+    PROSPECTION_PASSAGE_FILTERS.forEach(([k]) => { c[k] = 0; });
+    [...prospects, ...clients].forEach((p) => { PROSPECTION_PASSAGE_FILTERS.forEach(([k]) => { if (prospectionPassageMatches(p, k)) c[k]++; }); });
+    return c;
+  }, [prospects, clients]);
   // Sans position, ou position approximative (centre de la commune) à affiner à partir de l'adresse.
   const missing = useMemo(() => [...prospects, ...clients].filter((p) => (p.lat == null || p.geo_approx) && (p.adresse || p.commune)), [prospects, clients]);
   const clientTooFar = mapZoom < PROSPECTION_CLIENT_MIN_ZOOM;
-  const clientsPlaced = useMemo(() => (showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null && !(hideCeased && p.entreprise_statut === "cessee")) : []), [clients, showClients, clientTooFar, hideCeased]);
+  const clientsPlaced = useMemo(() => (showClients && !clientTooFar ? clients.filter((p) => p.lat != null && p.lng != null && !(hideCeased && p.entreprise_statut === "cessee") && prospectionPassageMatches(p, passageFilter)) : []), [clients, showClients, clientTooFar, hideCeased, passageFilter]);
   const ciblesPlaced = useMemo(() => (showCibles && !clientTooFar ? cibles.filter((g) => g.lat != null && g.lng != null) : []), [cibles, showCibles, clientTooFar]);
 
   const colorFor = (p) => (colorBy === "statut" ? PROSPECTION_STATUT_COLORS[p.statut] : colorOfCommercial[p.commercial] || "#6B7280");
@@ -6017,10 +6120,10 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     const mob = prospectionIsMobile();
     const clusters = prospectionClusterPoints(map, placed, mob ? 66 : 52);
     prospectionSyncClusterLayer(map, markersRef, clusters, {
-      buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId }),
+      buildIcon: (p) => prospectionMarkerIcon(colorFor(p), { late: prospectionRelanceState(p) === "late", selected: p.id === selectedId, seen: prospectionPassageAge(p), badge: prospectionPassageBadge(p) }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
-      onPopupAction: (p, action) => (action === "visit" ? cbRef.current.onQuickVisit(p) : action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
+      onPopupAction: (p, action) => (action.startsWith("passage:") ? cbRef.current.onPassage(p, action.slice(8)) : action === "visit" ? cbRef.current.onQuickVisit(p) : action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
       onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#1D4ED8" }),
       noLabel: map.getZoom() < prospectionLabelZoom(),
@@ -6037,10 +6140,10 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     // minimal (PROSPECTION_CLIENT_MIN_ZOOM) ; ce clustering ne sert qu'aux secteurs très denses.
     const clusters = prospectionClusterPoints(map, clientsPlaced, prospectionIsMobile() ? 72 : 60);
     prospectionSyncClusterLayer(map, clientMarkersRef, clusters, {
-      buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId, ceased: p.entreprise_statut === "cessee" }),
+      buildIcon: (p) => prospectionClientIcon({ selected: p.id === selectedId, ceased: p.entreprise_statut === "cessee", seen: prospectionPassageAge(p), badge: prospectionPassageBadge(p), late: prospectionRelanceState(p) === "late" }),
       buildPopup: prospectionPopupHtml,
       onSingleClick: (p) => setSelectedId(p.id),
-      onPopupAction: (p, action) => (action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
+      onPopupAction: (p, action) => (action.startsWith("passage:") ? cbRef.current.onPassage(p, action.slice(8)) : action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
       onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
       labelClass: "prospection-label prospection-label-client",
@@ -6371,6 +6474,12 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                   <button onClick={() => setColorBy("statut")} className={`flex-1 ${chipCls(colorBy === "statut")}`}>Par statut</button>
                   <button onClick={() => setColorBy("commercial")} className={`flex-1 ${chipCls(colorBy === "commercial")}`}>Par commercial</button>
                 </div>
+                <label className={`block text-xs font-semibold ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+                  Passages terrain
+                  <select data-testid="filtre-passage" value={passageFilter} onChange={(e) => setPassageFilter(e.target.value)} className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm font-normal ${dark ? "border-zinc-700 bg-zinc-950 text-zinc-100" : "border-stone-300 bg-white text-stone-900"}`}>
+                    {PROSPECTION_PASSAGE_FILTERS.map(([k, l]) => <option key={k} value={k}>{l}{k === "all" ? "" : ` (${passageCounts[k]})`}</option>)}
+                  </select>
+                </label>
                 <label className={`flex items-center gap-2 ${dark ? "text-zinc-300" : "text-stone-700"}`}>
                   <input type="checkbox" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} className="accent-blue-700" />
                   Masquer gagnés et perdus
@@ -6598,6 +6707,11 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
                 Client existant
               </div>
             )}
+            <div className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 shrink-0 rounded-full bg-slate-300" style={{ boxShadow: "0 0 0 2px #16A34A" }} />Vu aujourd'hui</div>
+            <div className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 shrink-0 rounded-full bg-slate-300" style={{ boxShadow: "0 0 0 2px #86EFAC" }} />Vu ces 30 jours</div>
+            {PROSPECTION_PASSAGES.filter((d) => d.badge).map((d) => (
+              <div key={d.key} className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: d.badge }} />{d.label} (pastille)</div>
+            ))}
             {sireneStats.cessee > 0 && (
               <div className="flex items-center gap-1.5">
                 <i className="inline-block h-2.5 w-2.5 shrink-0 border-2 border-red-600 bg-white" style={{ transform: "rotate(45deg)" }} />
@@ -6642,7 +6756,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       </div>
 
       <div data-testid="map-compteur" className={`text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
-        {placed.length} prospect(s) affiché(s){clientsPlaced.length > 0 ? ` · ${clientsPlaced.length} client(s)` : ""}{showClients && clientTooFar && clients.length > 0 ? ` · ${clients.length} client(s) visibles en zoomant sur une ville` : ""}
+        {placed.length} prospect(s) affiché(s){clientsPlaced.length > 0 ? ` · ${clientsPlaced.length} client(s)` : ""}{showClients && clientTooFar && clients.length > 0 ? ` · ${clients.length} client(s) visibles en zoomant sur une ville` : ""}{passageCounts.today > 0 ? ` · ${passageCounts.today} vu(s) aujourd'hui` : ""}
       </div>
     </div>
   );
@@ -8185,6 +8299,14 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
     showToast(`Proposition envoyée à ${p.societe} — relance le ${prospectionFrDate(relance)}`, { type: "celebrate" });
   });
 
+  // Passage terrain : une trace dans l'historique + résultat, date et suite à donner sur la fiche.
+  const passage = guarded("passage", "Passage non enregistré", async (p, key, comment) => {
+    const def = prospectionPassageDef(key);
+    if (!def) return;
+    await data.addAction(p.id, "Visite", `${def.label}${comment ? ` — ${comment}` : ""}`, currentUserName);
+    await data.patch(p.id, { ...prospectionPassagePatch(key, !!p.client_existant), dernier_passage_par: currentUserName });
+    showToast(`${def.label} — ${p.societe}`, { type: key === "vu" || key === "proposition" || key === "rdv" ? "celebrate" : undefined });
+  });
   const quickVisit = guarded("visit", "Visite non enregistrée", async (p) => {
     await addAction(p.id, "Visite", "Visite sur le terrain", currentUserName);
     showToast(`Visite notée pour ${p.societe}`, { type: "celebrate" });
@@ -8582,7 +8704,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
         {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} isManager={!!isManager} myCommercial={myCommercial || ""} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
-        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} autoGeocode={!readOnly && !prospectionIsMobile()} onSireneCheck={readOnly ? null : data.sireneCheck} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} autoGeocode={!readOnly && !prospectionIsMobile()} onSireneCheck={readOnly ? null : data.sireneCheck} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} onPassage={readOnly ? lectureSeule : passage} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
@@ -8601,6 +8723,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
           onSave={saveFiche}
           onDelete={data.remove}
           onAddAction={addAction}
+          onPassage={passage}
           showToast={showToast}
         />
       )}
