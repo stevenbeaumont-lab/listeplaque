@@ -4081,7 +4081,7 @@ const PROSPECTION_COMMERCIAL_COLORS = ["#1D4ED8", "#0D9488", "#7C3AED", "#DB2777
 // de statut/commercial ci-dessus, et associée à une forme de marqueur différente (losange vs rond).
 // Volontairement claire/discrète : avec plusieurs centaines de clients affichés en permanence,
 // une couleur sombre sature visuellement la carte et masque les prospects actifs.
-const PROSPECTION_CLIENT_COLOR = "#94A3B8";
+const PROSPECTION_CLIENT_COLOR = "#7C8BA1";
 const PROSPECTION_SECTEURS = ["BTP", "Artisans", "Transport et logistique", "Agriculture", "Commerce", "Services", "Santé", "Collectivités", "Industrie", "Location / VTC"];
 const PROSPECTION_MODELES = ["Transit", "Transit Custom", "Transit Connect", "Transit Courier", "E-Transit", "Ranger", "Puma", "Kuga", "Explorer", "Mustang Mach-E", "Flotte mixte"];
 const PROSPECTION_TYPES_ACTION = ["Appel", "Email", "Visite", "RDV", "Relance", "Autre"];
@@ -5456,14 +5456,14 @@ function ProspectFiche({ dark, prospectId, prospects, actions, commerciaux, me, 
 }
 
 function prospectionMarkerIcon(color, { late, selected } = {}) {
-  const size = selected ? 34 : late ? 30 : 26;
+  const size = selected ? 30 : late ? 24 : 20;
   const border = late ? "#B91C1C" : "#ffffff";
-  const html = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid ${border};box-shadow:0 1px 4px rgba(0,0,0,0.45);"></div>`;
+  const html = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid ${border};box-shadow:0 0 0 1px rgba(15,23,42,0.35),0 2px 4px rgba(0,0,0,0.35);"></div>`;
   return L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2 - 2] });
 }
 
 function prospectionClientIcon({ selected, ceased } = {}) {
-  const size = selected ? 15 : 11;
+  const size = selected ? 16 : 12;
   // Entreprise cessée (SIRENE) : losange creux rouge, pour la repérer sans la perdre de vue.
   const html = ceased
     ? `<div style="width:${size}px;height:${size}px;background:#ffffff;border:2px solid #DC2626;box-shadow:0 1px 2px rgba(0,0,0,0.3);transform:rotate(45deg);"></div>`
@@ -5655,7 +5655,7 @@ function prospectionWirePopupActions(marker, onPopupAction) {
   });
 }
 
-function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, onPopupAction, onPopupClose, buildClusterIcon, buildLabel, noLabel }) {
+function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, buildPopup, onSingleClick, onPopupAction, onPopupClose, buildClusterIcon, buildLabel, noLabel, labelClass = "prospection-label" }) {
   const labelOf = (item) => (buildLabel ? buildLabel(item) : prospectionEscapeHtml(prospectionShortLabel(item.societe || item.nom)));
   const seen = new Set();
   clusters.forEach((c) => {
@@ -5689,7 +5689,7 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       } else {
         marker.on("click", () => onSingleClick(marker._prospectionItem));
         marker.bindPopup(popupHtml);
-        if (!noLabel) marker.bindTooltip(label, { permanent: true, direction: "right", offset: [10, 0], className: "prospection-label", opacity: 1 });
+        if (!noLabel) marker.bindTooltip(label, { permanent: true, direction: "right", offset: [10, 0], className: labelClass, opacity: 1 });
       }
       // Les boutons d'action sont reliés une seule fois par délégation (voir prospectionWirePopupActions) :
       // ils lisent toujours l'item courant sur le marqueur, jamais une valeur figée à la création.
@@ -5912,7 +5912,11 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     });
     // Les étiquettes permanentes (une par point) pèsent lourd à dézoomé : on les masque tant qu'on est loin.
     const labelZoom = mobile ? 16 : 14;
-    const syncLabels = () => map.getContainer().classList.toggle("pl-nolabels", map.getZoom() < labelZoom);
+    const syncLabels = () => {
+      map.getContainer().classList.toggle("pl-nolabels", map.getZoom() < labelZoom);
+      // Les clients sont des centaines : leurs noms n'apparaissent que très zoomé, pour ne pas noyer la carte.
+      map.getContainer().classList.toggle("pl-nolabels-client", map.getZoom() < labelZoom + 2);
+    };
     syncLabels();
     map.on("zoomend", () => { syncLabels(); setZoomTick((t) => t + 1); setMapZoom(map.getZoom()); });
     // manual = true : demandé par le bouton « Chercher ici » (sur mobile, plus de recherche automatique à chaque déplacement).
@@ -5992,6 +5996,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       onPopupAction: (p, action) => (action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
       onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
+      labelClass: "prospection-label prospection-label-client",
     });
   }, [clientsPlaced, selectedId, zoomTick]);
 
@@ -6525,54 +6530,71 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
         </div>
       )}
 
-      <div ref={containerRef} className={`isolate relative z-0 h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
+      <div className="relative isolate">
+      <div ref={containerRef} className={`isolate relative z-0 h-[78dvh] min-h-[460px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
+      {showLegend && (
+        <div data-testid="map-legende-bloc" className={`absolute bottom-3 left-3 z-10 max-h-[55%] max-w-[min(18rem,calc(100%-1.5rem))] overflow-y-auto rounded-xl border p-2.5 pr-3 text-[11px] leading-tight shadow-lg backdrop-blur ${dark ? "border-zinc-700 bg-zinc-900/90 text-zinc-300" : "border-stone-200 bg-white/90 text-stone-700"}`}>
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`}>Légende</span>
+            <button aria-label="Masquer la légende" onClick={() => setShowLegend(false)} className={dark ? "text-zinc-500 hover:text-zinc-300" : "text-stone-400 hover:text-stone-700"}>×</button>
+          </div>
+          <div className="space-y-1">
+            {legend.map(([l, c]) => (
+              <div key={l} className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: c }} />{l}</div>
+            ))}
+            <div className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 shrink-0 rounded-full border-2 border-rose-700" />Relance en retard</div>
+            {showClients && clients.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <i className="inline-block h-2.5 w-2.5 shrink-0" style={{ background: PROSPECTION_CLIENT_COLOR, transform: "rotate(45deg)" }} />
+                Client existant
+              </div>
+            )}
+            {sireneStats.cessee > 0 && (
+              <div className="flex items-center gap-1.5">
+                <i className="inline-block h-2.5 w-2.5 shrink-0 border-2 border-red-600 bg-white" style={{ transform: "rotate(45deg)" }} />
+                Entreprise cessée
+              </div>
+            )}
+            {showCibles && campagneLegend.list.map((c) => (
+              <div key={c.id} data-testid="legende-campagne" className="flex items-center gap-1.5">
+                <i className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: c.color }} />
+                Campagne {c.nom} ({c.count})
+              </div>
+            ))}
+            {showCibles && campagneLegend.multi > 0 && (
+              <div className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: CAMPAGNE_MULTI_COLOR }} />Plusieurs campagnes ({campagneLegend.multi})</div>
+            )}
+            {showCibles && campagneLegend.closed > 0 && (
+              <div className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: "#CBD5E1" }} />Non ouverte aux commerciaux ({campagneLegend.closed})</div>
+            )}
+            {showCibles && cibles.length > 0 && (
+              <div className="flex items-center gap-1.5"><span className="w-3 text-center" style={{ color: "#F59E0B" }}>★</span>Cible du mois</div>
+            )}
+            {showOsm && osmPlaces.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <i className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-2 border-slate-400" style={{ background: "#fff" }} />
+                Entreprise OSM ({osmPlaces.length})
+              </div>
+            )}
+            {showIndustrialZones && industrialZones.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <i className="inline-block h-2.5 w-2.5 shrink-0" style={{ background: PROSPECTION_ZONE_COLOR }} />
+                Zone d'activité ({industrialZones.length})
+              </div>
+            )}
+          </div>
+          <div className={`mt-1.5 border-t pt-1.5 ${dark ? "border-zinc-700 text-zinc-500" : "border-stone-200 text-stone-500"}`}>Un chiffre = plusieurs points proches : touchez pour zoomer.</div>
+        </div>
+      )}
+      </div>
 
       <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
         Astuce : clic droit (ou appui long sur mobile) sur la carte pour ajouter un prospect à cet endroit — l'adresse et le nom se remplissent automatiquement si vous visez un commerce.
       </div>
 
-      {showLegend && <div data-testid="map-legende-bloc" className={`flex flex-wrap gap-4 text-xs ${dark ? "text-zinc-400" : "text-stone-600"}`}>
-        {legend.map(([l, c]) => (
-          <span key={l} className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full" style={{ background: c }} />{l}</span>
-        ))}
-        <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full border-2 border-rose-700" />Relance en retard (contour et point rouges)</span>
-        {showClients && clients.length > 0 && (
-          <span className="flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5" style={{ background: PROSPECTION_CLIENT_COLOR, transform: "rotate(45deg)" }} />
-            Client existant (losange)
-          </span>
-        )}
-        {showCibles && campagneLegend.list.map((c) => (
-          <span key={c.id} data-testid="legende-campagne" className="flex items-center gap-1.5">
-            <i className="inline-block h-3 w-3 rounded-full" style={{ background: c.color }} />
-            Campagne {c.nom} ({c.count})
-          </span>
-        ))}
-        {showCibles && campagneLegend.multi > 0 && (
-          <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full" style={{ background: CAMPAGNE_MULTI_COLOR }} />Plusieurs campagnes ({campagneLegend.multi})</span>
-        )}
-        {showCibles && campagneLegend.closed > 0 && (
-          <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-full" style={{ background: "#CBD5E1" }} />Non ouverte aux commerciaux ({campagneLegend.closed})</span>
-        )}
-        {showCibles && cibles.length > 0 && (
-          <span className="flex items-center gap-1.5"><span style={{ color: "#F59E0B" }}>★</span> cible du mois</span>
-        )}
-        {showOsm && osmPlaces.length > 0 && (
-          <span className="flex items-center gap-1.5">
-            <i className={`inline-block h-2.5 w-2.5 rounded-full border-2 ${dark ? "border-slate-400" : "border-slate-400"}`} style={{ background: "#fff" }} />
-            Entreprise OpenStreetMap ({osmPlaces.length}) — cliquez pour ajouter
-          </span>
-        )}
-        {showIndustrialZones && industrialZones.length > 0 && (
-          <span className="flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5" style={{ background: PROSPECTION_ZONE_COLOR }} />
-            Zone industrielle / d'activité ({industrialZones.length})
-          </span>
-        )}
-        <span>Un chiffre = plusieurs points proches, cliquez pour zoomer</span>
-        <span>Restez appuyé (ou clic droit) sur la carte pour ajouter un prospect à cet endroit</span>
-        <span>{placed.length} prospect(s) affiché(s){clientsPlaced.length > 0 ? ` · ${clientsPlaced.length} client(s)` : ""}</span>
-      </div>}
+      <div data-testid="map-compteur" className={`text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
+        {placed.length} prospect(s) affiché(s){clientsPlaced.length > 0 ? ` · ${clientsPlaced.length} client(s)` : ""}{showClients && clientTooFar && clients.length > 0 ? ` · ${clients.length} client(s) visibles en zoomant sur une ville` : ""}
+      </div>
     </div>
   );
 }
@@ -14814,13 +14836,15 @@ export default function App() {
         .pl-interactive { transition: transform 0.15s ease, box-shadow 0.15s ease; }
         .pl-interactive:hover { transform: none; }
         .pl-interactive:active { transform: scale(0.985); }
-        .prospection-map-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
+        .prospection-map-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9) saturate(0.6); }
         .leaflet-container { background: #ddd; }
         .leaflet-container img.leaflet-tile { max-width: none !important; max-height: none !important; width: 256px !important; height: 256px !important; }
         .leaflet-container img.leaflet-marker-icon, .leaflet-container img.leaflet-marker-shadow { max-width: none !important; }
         .prospection-label { background: #ffffff; color: #292524; border: 1px solid #e7e5e4; border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.25); white-space: nowrap; }
         .prospection-label::before { display: none; }
-        .pl-nolabels .prospection-label { display: none; }
+        .pl-nolabels .prospection-label, .pl-nolabels-client .prospection-label-client { display: none; }
+        .prospection-label-client { font-size: 10px; font-weight: 500; color: #57534e; background: rgba(255,255,255,0.88); box-shadow: none; }
+        .leaflet-tile-pane { filter: saturate(0.4) brightness(1.04); }
         .prospection-map-dark .prospection-label { background: #18181b; color: #f4f4f5; border-color: #3f3f46; }
       `}</style>
       <datalist id="vendeurs-datalist">
