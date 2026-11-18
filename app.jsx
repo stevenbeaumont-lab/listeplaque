@@ -5934,6 +5934,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
   const osmAbortRef = useRef(null);
   const myLocationMarkerRef = useRef(null);
   const tapToAddRef = useRef(false);
+  const canAddRef = useRef(false);
+  canAddRef.current = canAdd;
   tapToAddRef.current = tapToAdd && canAdd;
   const onCreateAtLocationRef = useRef(onCreateAtLocation);
   onCreateAtLocationRef.current = onCreateAtLocation;
@@ -6077,20 +6079,24 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
     }).addTo(map);
-    // Toucher un endroit vide : un petit choix (vu, intéressé, RDV, proposition…) puis la fiche s'ouvre pré-remplie.
-    // Pas de popup si on vient de fermer une fenêtre, de zoomer (double tap) ou de faire un appui long.
-    let tapTimer; let popupWasOpen = false; let lastContext = 0;
+    // Toucher (ou clic droit / appui long sur) un endroit vide : un petit choix (vu, intéressé, RDV, proposition…),
+    // puis la fiche s'ouvre pré-remplie. Pas de popup si on vient de fermer une fenêtre ou de zoomer (double tap).
+    let tapTimer; let popupWasOpen = false; let lastContext = 0; let choice = null; let choiceAt = 0;
     const cancelTap = () => clearTimeout(tapTimer);
-    map.on("preclick", () => { popupWasOpen = !!map._popup; });
+    const showChoice = (latlng) => {
+      const content = prospectionTapPopupEl((key) => { map.closePopup(); onCreateAtLocationRef.current(latlng, { passage: key === "none" ? null : key }); });
+      // closeOnClick désactivé : après un appui long, le relâchement du doigt ne doit pas refermer la fenêtre qu'on vient d'ouvrir.
+      choice = L.popup({ maxWidth: 280, closeOnClick: false, autoPanPaddingTopLeft: [10, 60] }).setLatLng(latlng).setContent(content).openOn(map);
+      choiceAt = Date.now();
+    };
+    map.on("preclick", () => { popupWasOpen = !!map._popup && map._popup !== choice; });
     map.on("dblclick zoomstart movestart", cancelTap);
     map.on("click", (e) => {
       setSelectedId(null);
+      if (choice && map.hasLayer(choice)) { if (Date.now() - choiceAt > 900) map.closePopup(choice); return; } // un toucher ailleurs referme le choix
       if (!tapToAddRef.current || popupWasOpen || map.getZoom() < 14 || Date.now() - lastContext < 900) return;
       clearTimeout(tapTimer);
-      tapTimer = setTimeout(() => {
-        const content = prospectionTapPopupEl((key) => { map.closePopup(); onCreateAtLocationRef.current(e.latlng, { passage: key === "none" ? null : key }); });
-        L.popup({ maxWidth: 280, autoPanPaddingTopLeft: [10, 60] }).setLatLng(e.latlng).setContent(content).openOn(map);
-      }, 300);
+      tapTimer = setTimeout(() => showChoice(e.latlng), 300);
     });
     map.on("contextmenu", (e) => {
       lastContext = Date.now();
@@ -6099,7 +6105,8 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       // Appui long sur un point, un regroupement ou une fenêtre : ce n'est pas une demande de nouveau prospect.
       const t = e.originalEvent?.target;
       if (t?.closest?.(".leaflet-marker-icon, .leaflet-popup, .leaflet-control")) return;
-      onCreateAtLocationRef.current(e.latlng);
+      if (!canAddRef.current) { onCreateAtLocationRef.current(e.latlng); return; } // lecture seule : message d'information
+      showChoice(e.latlng);
     });
     // Les étiquettes permanentes (une par point) pèsent lourd à dézoomé : on les masque tant qu'on est loin.
     const labelZoom = prospectionLabelZoom();
@@ -6805,7 +6812,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       </div>
 
       <div className={`text-xs ${dark ? "text-zinc-500" : "text-stone-400"}`}>
-        Astuce : clic droit (ou appui long sur mobile) sur la carte pour ajouter un prospect à cet endroit — l'adresse et le nom se remplissent automatiquement si vous visez un commerce.
+        Astuce : touchez la carte (ou clic droit / appui long) à l'endroit d'une entreprise pour choisir le résultat du passage, puis compléter la fiche — l'adresse et le nom se remplissent automatiquement si vous visez un commerce.
       </div>
 
       <div data-testid="map-compteur" className={`text-xs ${dark ? "text-zinc-400" : "text-stone-500"}`}>
