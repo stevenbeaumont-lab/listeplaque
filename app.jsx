@@ -4482,6 +4482,8 @@ const PROSPECTION_OSM_MIN_ZOOM = 15;
 // les afficher sur toute la carte la rend illisible. Ils réapparaissent dès qu'on zoome sur un secteur.
 const PROSPECTION_CLIENT_MIN_ZOOM = 13;
 // Téléphone / tablette : appareils moins puissants → recherche alentour à la demande, moins d'animations, moins d'étiquettes.
+// Zoom à partir duquel les noms des points s'affichent (les étiquettes ne sont créées qu'à partir de là : une par point, c'est lourd).
+function prospectionLabelZoom() { return prospectionIsMobile() ? 16 : 14; }
 function prospectionIsMobile() {
   try { return typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(max-width: 768px), (pointer: coarse)").matches; } catch (e) { return false; }
 }
@@ -4776,6 +4778,30 @@ function useProspection(site) {
     lastSig.current = "";
     return true;
   }, []);
+  // Événements temps réel : regroupés par seconde. Pendant un géocodage / une vérification SIRENE lancés par un collègue,
+  // des milliers de modifications arrivent ; les appliquer une à une recopiait toute la liste et redessinait la carte à chaque fois.
+  const queued = useRef(new Map());
+  const flushTimer = useRef(null);
+  const queueProspect = useCallback((row) => {
+    if (!row?.id) return false;
+    queued.current.set(row.id, row);
+    if (!flushTimer.current) {
+      flushTimer.current = setTimeout(() => {
+        flushTimer.current = null;
+        const rows = [...queued.current.values()];
+        queued.current.clear();
+        const byId = new Map(rows.map((r) => [r.id, norm(r)]));
+        setProspects((prev) => {
+          const seen = new Set();
+          const next = prev.map((x) => { const n = byId.get(x.id); if (n) { seen.add(x.id); return n; } return x; });
+          const fresh = [...byId.entries()].filter(([id]) => !seen.has(id)).map(([, n]) => n);
+          return fresh.length ? [...fresh, ...next] : next;
+        });
+        lastSig.current = "";
+      }, 1000);
+    }
+    return true;
+  }, []);
   const dropProspect = useCallback((id) => {
     setProspects((prev) => prev.filter((x) => x.id !== id));
     setActions((prev) => prev.filter((x) => x.prospect_id !== id));
@@ -4799,7 +4825,7 @@ function useProspection(site) {
       .channel("prospection-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "prospects" }, (payload) => {
         if (payload.eventType === "DELETE") { if (payload.old?.id) dropProspect(payload.old.id); else scheduleLoad(); return; }
-        if (!mergeProspect(payload.new)) scheduleLoad();
+        if (!queueProspect(payload.new)) scheduleLoad();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "prospect_actions" }, (payload) => {
         if (payload.eventType === "INSERT" && mergeAction(payload.new)) return;
@@ -4814,12 +4840,14 @@ function useProspection(site) {
     return () => {
       clearTimeout(timer.current);
       clearTimeout(retryTimer.current);
+      clearTimeout(flushTimer.current);
+      flushTimer.current = null;
       clearInterval(iv);
       document.removeEventListener("visibilitychange", resync);
       window.removeEventListener("online", resync);
       supabase.removeChannel(ch);
     };
-  }, [load, scheduleLoad, mergeProspect, dropProspect, mergeAction]);
+  }, [load, scheduleLoad, mergeProspect, queueProspect, dropProspect, mergeAction]);
 
   // Enregistre une fiche. En modification, seuls les champs réellement changés par la personne sont envoyés :
   // ce qu'un collègue (ou un report de relance) a modifié entre-temps n'est pas écrasé.
@@ -5589,8 +5617,14 @@ function prospectionShortLabel(s) {
 
 function prospectionClusterPoints(map, points, cellPx) {
   const cells = new Map();
+  // Seuls les points proches de l'écran sont dessinés (marge d'un demi-écran) : sur mobile, des centaines de
+  // marqueurs hors champ étaient créés et recréés à chaque zoom. La grille est ancrée sur le monde (et non sur
+  // l'écran) pour que les regroupements ne changent pas quand on fait simplement glisser la carte.
+  const zoom = map.getZoom();
+  const view = map.getBounds().pad(0.5);
   points.forEach((p) => {
-    const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+    if (!view.contains([p.lat, p.lng])) return;
+    const pt = map.project([p.lat, p.lng], zoom);
     const key = `${Math.round(pt.x / cellPx)}:${Math.round(pt.y / cellPx)}`;
     if (!cells.has(key)) cells.set(key, []);
     cells.get(key).push(p);
@@ -5707,7 +5741,14 @@ function prospectionSyncClusterLayer(map, markersRef, clusters, { buildIcon, bui
       // On ne touche au DOM que si le contenu a réellement changé (la carte se resynchronise à chaque rendu).
       if (marker._pIcon !== icon.options.html) { marker.setIcon(icon); marker._pIcon = icon.options.html; }
       if (marker._pPop !== popupHtml) { marker.setPopupContent(popupHtml); marker._pPop = popupHtml; }
-      if (!isCluster && !noLabel && marker._pLabel !== label) { marker.setTooltipContent(label); marker._pLabel = label; }
+      const wantLabel = !isCluster && !noLabel;
+      if (wantLabel && !marker.getTooltip()) {
+        marker.bindTooltip(label, { permanent: true, direction: "right", offset: [10, 0], className: labelClass, opacity: 1 });
+        marker._pLabel = label;
+      } else if (!wantLabel && marker.getTooltip()) {
+        marker.unbindTooltip();
+        marker._pLabel = "";
+      } else if (wantLabel && marker._pLabel !== label) { marker.setTooltipContent(label); marker._pLabel = label; }
     }
   });
   markersRef.current.forEach((marker, key) => {
@@ -5911,7 +5952,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       onCreateAtLocationRef.current(e.latlng);
     });
     // Les étiquettes permanentes (une par point) pèsent lourd à dézoomé : on les masque tant qu'on est loin.
-    const labelZoom = mobile ? 16 : 14;
+    const labelZoom = prospectionLabelZoom();
     const syncLabels = () => {
       map.getContainer().classList.toggle("pl-nolabels", map.getZoom() < labelZoom);
       // Les clients sont des centaines : leurs noms n'apparaissent que très zoomé, pour ne pas noyer la carte.
@@ -5919,6 +5960,11 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
     };
     syncLabels();
     map.on("zoomend", () => { syncLabels(); setZoomTick((t) => t + 1); setMapZoom(map.getZoom()); });
+    // Après un déplacement : on redessine ce qui entre à l'écran (une seule fois, quand le doigt s'arrête).
+    let viewTimer;
+    const bumpView = () => { clearTimeout(viewTimer); viewTimer = setTimeout(() => setZoomTick((t) => t + 1), 180); };
+    map.on("moveend", bumpView);
+    map.on("resize", bumpView);
     // manual = true : demandé par le bouton « Chercher ici » (sur mobile, plus de recherche automatique à chaque déplacement).
     const fetchNearby = (manual = false) => {
       const zoom = map.getZoom();
@@ -5977,6 +6023,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       onPopupAction: (p, action) => (action === "visit" ? cbRef.current.onQuickVisit(p) : action === "tour" ? cbRef.current.startTourFrom(p) : cbRef.current.onOpen(p.id)),
       onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#1D4ED8" }),
+      noLabel: map.getZoom() < prospectionLabelZoom(),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placed, colorBy, selectedId, colorOfCommercial, zoomTick]);
@@ -5997,6 +6044,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       onPopupClose: (p) => setSelectedId((cur) => (cur === p.id ? null : cur)),
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: PROSPECTION_CLIENT_COLOR, diamond: true }),
       labelClass: "prospection-label prospection-label-client",
+      noLabel: map.getZoom() < prospectionLabelZoom() + 2,
     });
   }, [clientsPlaced, selectedId, zoomTick]);
 
@@ -6016,6 +6064,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       onSingleClick: () => {},
       onPopupAction: (g, action) => { if (action === "add") cbRef.current.onAddCible?.(g); },
       buildClusterIcon: (n) => prospectionClusterIcon(n, { color: "#64748B" }),
+      noLabel: map.getZoom() < prospectionLabelZoom(),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ciblesPlaced, zoomTick, showCampagneNom]);
@@ -6533,7 +6582,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
       <div className="relative isolate">
       <div ref={containerRef} className={`isolate relative z-0 h-[78dvh] min-h-[460px] overflow-hidden rounded-2xl border ${dark ? "border-zinc-800 prospection-map-dark" : "border-stone-200"}`} />
       {showLegend && (
-        <div data-testid="map-legende-bloc" className={`absolute bottom-3 left-3 z-10 max-h-[55%] max-w-[min(18rem,calc(100%-1.5rem))] overflow-y-auto rounded-xl border p-2.5 pr-3 text-[11px] leading-tight shadow-lg backdrop-blur ${dark ? "border-zinc-700 bg-zinc-900/90 text-zinc-300" : "border-stone-200 bg-white/90 text-stone-700"}`}>
+        <div data-testid="map-legende-bloc" className={`absolute bottom-3 left-3 z-10 max-h-[55%] max-w-[min(18rem,calc(100%-1.5rem))] overflow-y-auto rounded-xl border p-2.5 pr-3 text-[11px] leading-tight shadow-lg ${dark ? "border-zinc-700 bg-zinc-900/95 text-zinc-300" : "border-stone-200 bg-white/95 text-stone-700"}`}>
           <div className="mb-1.5 flex items-center justify-between gap-3">
             <span className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-zinc-500" : "text-stone-400"}`}>Légende</span>
             <button aria-label="Masquer la légende" onClick={() => setShowLegend(false)} className={dark ? "text-zinc-500 hover:text-zinc-300" : "text-stone-400 hover:text-stone-700"}>×</button>
@@ -8533,7 +8582,7 @@ function ProspectionTab({ dark, currentUserName, readOnly, canImport, isManager,
         {vue === "pipeline" && vuePipeline()}
         {vue === "liste" && vueListe()}
         {vue === "campagnes" && <ProspectionCampagnes dark={dark} camp={camp} canImport={!!canImport} readOnly={readOnly} isManager={!!isManager} myCommercial={myCommercial || ""} selIds={campSel} setSelIds={setCampSel} nomsProspects={nomsProspects} commerciaux={commerciaux} me={currentUserName} showToast={showToast} onProspectsChanged={data.reload} />}
-        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} autoGeocode={!readOnly} onSireneCheck={readOnly ? null : data.sireneCheck} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
+        {vue === "carte" && <ProspectMap key={site} center={cfg.center} centerLabel={cfg.centerLabel} teamZones={cfg.campagnes} splitLine={cfg.splitLine || null} chalandise={cfg.chalandise || null} autoGeocode={!readOnly && !prospectionIsMobile()} onSireneCheck={readOnly ? null : data.sireneCheck} dark={dark} prospects={scoped} clients={existingClients} cibles={cfg.campagnes ? campCiblesCarte : []} canSeeNonOpen={!!isManager && cfg.campagnes && camp.ouverturesReady} onAddCible={readOnly ? lectureSeule : openNewFromCible} commerciaux={team} onOpen={setOpenId} onAddFromOsm={readOnly ? lectureSeule : openNewFromOsm} onQuickVisit={readOnly ? lectureSeule : quickVisit} onCreateAtLocation={readOnly ? lectureSeule : openNewFromCoords} onGeocodeMissing={readOnly ? async () => ({ ok: 0, total: 0 }) : data.geocodeMissing} showToast={showToast} />}
         {vue === "equipe" && vueEquipe()}
       </div>
 
@@ -14844,7 +14893,7 @@ export default function App() {
         .prospection-label::before { display: none; }
         .pl-nolabels .prospection-label, .pl-nolabels-client .prospection-label-client { display: none; }
         .prospection-label-client { font-size: 10px; font-weight: 500; color: #57534e; background: rgba(255,255,255,0.88); box-shadow: none; }
-        .leaflet-tile-pane { filter: saturate(0.4) brightness(1.04); }
+        @media (hover: hover) and (pointer: fine) { .leaflet-tile-pane { filter: saturate(0.4) brightness(1.04); } }
         .prospection-map-dark .prospection-label { background: #18181b; color: #f4f4f5; border-color: #3f3f46; }
       `}</style>
       <datalist id="vendeurs-datalist">
