@@ -6291,6 +6291,17 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
             </ul>
           )}
         </div>
+        {onSireneCheck && sireneTodo.length > 0 && (
+          <button
+            data-testid="btn-sirene"
+            onClick={runSirene}
+            disabled={!!sireneBusy}
+            title="Vérifie sur SIRENE si les entreprises existent encore et corrige les adresses"
+            className={`pl-interactive rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors disabled:opacity-60 ${dark ? "border-sky-500/50 text-sky-200 hover:bg-sky-500/10" : "border-sky-400 text-sky-800 hover:bg-sky-50"}`}
+          >
+            {sireneBusy ? `SIRENE… ${sireneBusy}` : `Vérifier SIRENE (${sireneTodo.length})`}
+          </button>
+        )}
         <div className="relative">
           <button
             onClick={() => setMapFiltersOpen((o) => !o)}
@@ -6301,7 +6312,7 @@ function ProspectMap({ dark, prospects, clients, cibles: ciblesProp = [], canSee
           {mapFiltersOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMapFiltersOpen(false)} />
-              <div className={`absolute left-0 z-20 mt-1 w-72 space-y-3 rounded-xl border p-3.5 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
+              <div className={`absolute left-0 z-20 mt-1 max-h-[75vh] w-72 space-y-3 overflow-y-auto rounded-xl border p-3.5 shadow-lg ${dark ? "bg-zinc-900 border-zinc-800" : "bg-white border-stone-200"}`}>
                 <div className={`inline-flex w-full overflow-hidden rounded-lg border ${dark ? "border-zinc-800" : "border-stone-300"}`}>
                   <button onClick={() => setColorBy("statut")} className={`flex-1 ${chipCls(colorBy === "statut")}`}>Par statut</button>
                   <button onClick={() => setColorBy("commercial")} className={`flex-1 ${chipCls(colorBy === "commercial")}`}>Par commercial</button>
